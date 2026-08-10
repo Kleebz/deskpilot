@@ -297,3 +297,25 @@ Defaults settled on: crop to the window, `-q 70`, and scale down only past 1200p
 This is the third time the tier model has been vindicated by something unrelated to why
 it was chosen — text survives the lock screen, text needs no LLM, and now text is
 100x smaller than the pixels showing the same thing.
+
+## grim captures the screen, not the window
+
+Found by using it: clicking "look" on the same window returned different windows.
+
+`grim -g "X,Y WxH"` crops the **composited output**. Hyprland only composites the visible
+workspace, so a window on a hidden workspace has no pixels anywhere — the crop returns
+whatever is at those coordinates on whatever workspace happens to be showing. Asking for
+Chromium on ws2 while ws8 was visible returned a terminal from ws8, with no error.
+
+Nasty because it fails silently and plausibly: you get a real screenshot of a real
+window, just the wrong one. An agent describing it would confidently narrate the wrong
+screen.
+
+Fix: `shot-window` reads the target's workspace, switches, captures, and switches back —
+restoring the view even if grim fails, so a bad capture never strands the desktop
+somewhere the user did not choose.
+
+Remaining limit, accepted: a floating window occluded by another on the *same* workspace
+still captures the occluder. Fixing that means reordering the user's windows to take a
+screenshot, which is a worse trade than the occasional wrong capture of a buried
+floating window.

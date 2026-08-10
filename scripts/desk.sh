@@ -87,17 +87,37 @@ case "$cmd" in
     is_locked && die "screen is locked — capture would return the lock screen"
     info=$(hyprctl clients -j | jq -r --arg a "$addr" \
       'first(.[] | select(.address == $a)
-        | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])|\(.size[0])") // empty')
+        | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])|\(.size[0])|\(.workspace.id)") // empty')
     [ -n "$info" ] || die "no window with address $addr"
-    geo=${info%|*}
-    w=${info##*|}
+    geo=${info%%|*}
+    rest=${info#*|}
+    w=${rest%%|*}
+    target_ws=${rest##*|}
+
+    # grim -g crops the COMPOSITED OUTPUT, not the window's own buffer, and
+    # Hyprland only composites the visible workspace. Capturing a window on a
+    # hidden workspace therefore returns whatever is at those coordinates right
+    # now — a different window entirely, changing as the visible workspace
+    # changes. Switch there, capture, switch back.
+    active_ws=$(hyprctl monitors -j | jq -r 'first(.[] | .activeWorkspace.id)')
+    switched=0
+    if [ -n "$target_ws" ] && [ "$target_ws" != "$active_ws" ]; then
+      hyprctl dispatch workspace "$target_ws" >/dev/null
+      sleep 0.35
+      switched=1
+    fi
 
     if [ "${w:-0}" -gt "$maxw" ]; then
       scale=$(awk -v m="$maxw" -v w="$w" 'BEGIN{printf "%.3f", m/w}')
-      grim -g "$geo" -s "$scale" -t jpeg -q "$q" "$out" || die "grim failed"
+      grim -g "$geo" -s "$scale" -t jpeg -q "$q" "$out"; rc=$?
     else
-      grim -g "$geo" -t jpeg -q "$q" "$out" || die "grim failed"
+      grim -g "$geo" -t jpeg -q "$q" "$out"; rc=$?
     fi
+
+    # Restore the view even if grim failed, so a bad capture never strands the
+    # desktop on a workspace the user did not choose.
+    [ "$switched" = 1 ] && hyprctl dispatch workspace "$active_ws" >/dev/null
+    [ "$rc" -eq 0 ] || die "grim failed"
     echo "$out"
     ;;
 

@@ -69,6 +69,11 @@ route around them:
 - **`grim` succeeds on a locked session** and returns a valid image of the hyprlock
   password prompt. `desk.sh shot` refuses when locked; say the screen is locked and
   answer from state instead.
+- **`grim -g` crops the composited output, not a window's buffer.** Hyprland only
+  composites the *visible* workspace, so capturing a window on a hidden one silently
+  returns whatever is at those screen coordinates instead — a different window, and a
+  different one each time depending on what is on screen. `desk.sh shot-window` switches
+  to the target workspace, captures, and switches back. Never call `grim -g` yourself.
 - **`loginctl` cannot detect the lock.** `LockedHint` reads `no` while hyprlock is
   running. Only `pidof hyprlock` works.
 - **`dispatch fullscreen` is a toggle, not a setter**, and floating/fullscreen/tiled are
