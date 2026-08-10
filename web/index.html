@@ -1,0 +1,124 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>deskpilot</title>
+<!--
+  Smoke-test client. Deliberately one file with no build step, so the API
+  contract can be proven before any framework goes on top. The Svelte version
+  replaces this — the scroll-snap pane model here is the layout it inherits.
+-->
+<style>
+  :root { color-scheme: dark light; --bg:#111; --fg:#e8e8e8; --dim:#888; --line:#333; --accent:#4ea1ff; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#fafafa; --fg:#1a1a1a; --dim:#666; --line:#ddd; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  header { display:flex; gap:.5rem; align-items:center; padding:.5rem .75rem;
+           border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
+  header b { font-weight:600; }
+  header .sp { flex:1 }
+  button { font:inherit; background:transparent; color:var(--fg);
+           border:1px solid var(--line); border-radius:6px; padding:.3rem .6rem; }
+  button:active { background:var(--line); }
+  #rail { display:flex; overflow-x:auto; scroll-snap-type:x mandatory;
+          height:calc(100vh - 46px); -webkit-overflow-scrolling:touch; }
+  #rail::-webkit-scrollbar { display:none; }
+  section { flex:0 0 100%; scroll-snap-align:start; display:flex; flex-direction:column;
+            padding:.75rem; gap:.6rem; overflow:hidden; }
+  h2 { margin:0; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
+  .title { font-size:1rem; }
+  pre { flex:1; margin:0; overflow:auto; white-space:pre-wrap; word-break:break-word;
+        background:color-mix(in srgb, var(--fg) 6%, transparent);
+        border:1px solid var(--line); border-radius:8px; padding:.5rem; font-size:12px; }
+  form { display:flex; gap:.4rem; }
+  input { flex:1; font:inherit; background:transparent; color:var(--fg);
+          border:1px solid var(--line); border-radius:6px; padding:.45rem .6rem; }
+  img { max-width:100%; border:1px solid var(--line); border-radius:8px; }
+  .dim { color:var(--dim); }
+  .err { color:#ff6b6b; }
+</style>
+
+<header>
+  <b>deskpilot</b>
+  <span class="sp"></span>
+  <span id="status" class="dim">…</span>
+  <button id="refresh">↻</button>
+</header>
+<div id="rail"></div>
+
+<script>
+const token = localStorage.getItem("dp_token") ??
+  (() => { const t = prompt("bearer token (~/.config/deskpilot/token)") ?? "";
+           localStorage.setItem("dp_token", t); return t; })();
+
+const H = { authorization: `Bearer ${token}` };
+const api = async (p, opts = {}) => {
+  const r = await fetch(`/api${p}`, { ...opts, headers: { ...H, ...(opts.headers ?? {}) } });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? r.statusText);
+  return r.headers.get("content-type")?.includes("json") ? r.json() : r;
+};
+const setStatus = (t, err) => {
+  const el = document.getElementById("status");
+  el.textContent = t; el.className = err ? "err" : "dim";
+};
+
+const WORKSPACES = [1,2,3,4,5,6,7,8,9,10];
+let sessions = [];
+
+function paneFor(ws) {
+  const s = sessions.find(x => x.workspace === ws);
+  const el = document.createElement("section");
+  el.dataset.ws = ws;
+  el.innerHTML = `
+    <h2>screen ${ws}${s ? "" : " · empty"}</h2>
+    <div class="title">${s ? s.session : '<span class="dim">no session here</span>'}</div>
+    <pre>${s ? "loading…" : ""}</pre>
+    ${s ? `<form><input placeholder="prompt ${s.session}" autocomplete="off"><button>send</button></form>`
+        : `<button class="start">start a session here</button>`}
+    <div class="shot"></div>`;
+
+  if (s) {
+    const pre = el.querySelector("pre");
+    const load = () => api(`/capture?session=${encodeURIComponent(s.session)}&lines=40`)
+      .then(r => { pre.textContent = r.text.trimEnd(); pre.scrollTop = pre.scrollHeight; })
+      .catch(e => { pre.textContent = ""; setStatus(e.message, true); });
+    load();
+    el.querySelector("form").onsubmit = async ev => {
+      ev.preventDefault();
+      const input = ev.target.querySelector("input");
+      const text = input.value; if (!text) return;
+      input.value = "";
+      try { await api("/send", { method:"POST", headers:{"content-type":"application/json"},
+                                 body: JSON.stringify({ session: s.session, text }) });
+            setStatus(`sent → ${s.session}`); setTimeout(load, 600); }
+      catch (e) { setStatus(e.message, true); }
+    };
+  } else {
+    el.querySelector(".start").onclick = async () => {
+      const name = prompt(`session name for screen ${ws}`, `ws${ws}`); if (!name) return;
+      try { await api("/sessions", { method:"POST", headers:{"content-type":"application/json"},
+              body: JSON.stringify({ name, workspace: ws, command: "bash" }) });
+            setStatus(`created ${name}`); refresh(); }
+      catch (e) { setStatus(e.message, true); }
+    };
+  }
+  return el;
+}
+
+async function refresh() {
+  try {
+    sessions = await api("/sessions");
+    const rail = document.getElementById("rail");
+    const keep = rail.scrollLeft;
+    rail.replaceChildren(...WORKSPACES.map(paneFor));
+    rail.scrollLeft = keep;
+    const { locked } = await api("/desk/locked");
+    setStatus(locked ? "screen locked" : `${sessions.length} session(s)`);
+  } catch (e) { setStatus(e.message, true); }
+}
+
+document.getElementById("refresh").onclick = refresh;
+refresh();
+</script>

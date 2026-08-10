@@ -140,20 +140,47 @@ SSH to the tailnet IP over cellular. Testing on wifi proves nothing.
 
 ---
 
-## Step 4 — Server and PWA
+## Step 4 — Server and web UI
 
-**Not built yet.** The design is in [decisions.md](decisions.md): a Deno server exposing
-`tmux send-keys` / `hyprctl` / `grim` behind a bearer token, and a Svelte PWA that
-swipes through workspaces 1–10.
+**Built.** A Deno server wrapping `scripts/`, plus a single-file smoke-test client.
+The Svelte version replaces `web/index.html` later; the API contract is proven first.
 
-When it exists it will run as:
+Generate a token, then install the service:
 
 ```bash
-deno run --allow-net --allow-run=tmux,hyprctl,grim server.ts
+mkdir -p ~/.config/deskpilot
+openssl rand -hex 32 > ~/.config/deskpilot/token
+chmod 600 ~/.config/deskpilot/token
+
+mkdir -p ~/.config/systemd/user
+ln -s ~/Projects/deskpilot/systemd/deskpilot.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now deskpilot
 ```
 
-The scoped `--allow-run` is deliberate — see decisions.md. Do not widen it to bare
-`--allow-run`.
+It runs as a user service rather than a Hyprland `exec-once` because uwsm already
+imports `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` into the systemd user
+manager, so `hyprctl` and `grim` work directly — and systemd restarts it when it dies.
+Idle cost measured at 64 MB.
+
+**Verify:**
+
+```bash
+T=$(cat ~/.config/deskpilot/token)
+curl -s -H "authorization: Bearer $T" localhost:8790/api/sessions | jq
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8790/api/sessions   # 401, no token
+```
+
+Then open `http://localhost:8790` and paste the token when prompted.
+
+**It binds to 127.0.0.1 until you change it.** Once Tailscale is up, set
+`DESKPILOT_HOST=0.0.0.0` in the unit. This endpoint runs commands on your machine — it
+must never face the internet.
+
+The `--allow-run` allowlist is scoped to two scripts plus `tmux`, which is the reason
+the server is Deno rather than Bun. Do not widen it to bare `--allow-run`.
+
+**Rollback** — `systemctl --user disable --now deskpilot`.
 
 ---
 
