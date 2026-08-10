@@ -23,9 +23,9 @@ is in [docs/decisions.md](docs/decisions.md).
 | `claude()` tmux wrapper — makes sessions addressable | **installed, tested** |
 | Permission rules — stop the prompt storm from a phone | **installed** |
 | Remote Control trial — evaluated and **rejected** | **done, see decisions** |
-| SSH + tmux + Tailscale reachability | not started |
-| Deno server — wraps `scripts/` behind HTTP, runs as a user service | not started |
-| Svelte PWA — swipe workspaces 1–10, prompt the session on each | not started |
+| SSH + tmux + Tailscale reachability | not started — the only step left needing sudo |
+| Deno server — wraps `scripts/` behind HTTP, runs as a user service | **built, tested** |
+| Web UI — swipe workspaces 1–10, prompt the session on each | **smoke-test client working**; Svelte next |
 | `ydotool` remote unlock | not started |
 | Optional wayvnc stream | deferred, may never be needed |
 

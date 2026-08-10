@@ -213,8 +213,11 @@ comes first.
 1. Skill — useful immediately, needs nothing
 2. tmux wrapper — everything remote sits on `send-keys`
 3. Reachability — and the escape hatch that makes step 5 safe to experiment with
-4. Server + PWA — the daily driver
+4. Server + web UI — the daily driver
 5. Unlock — last, and only if the lock actually gets in your way
 
-Try Remote Control before step 3. If it covers you, steps 3 and 4 may not be worth
-building at all.
+Steps 1, 2 and 4 are done. Step 3 is what makes any of it reachable from outside the
+house, and it is the only remaining step that needs `sudo`.
+
+Remote Control was evaluated and rejected — see decisions.md. It is not part of this
+setup and you never need the Claude mobile app.
