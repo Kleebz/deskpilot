@@ -37,8 +37,16 @@
   #rail::-webkit-scrollbar { display:none; }
   section { flex:0 0 100%; scroll-snap-align:start; display:flex; flex-direction:column;
             gap:.55rem; padding:.7rem; overflow-y:auto; }
-  h2 { margin:0; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--dim); }
-  .name { font-size:.95rem; word-break:break-all; }
+  h2 { margin:0; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--dim);
+       border-top:1px solid var(--line); padding-top:.5rem; }
+  h2:first-child { border-top:0; padding-top:0; }
+  .name { font-size:1.15rem; font-weight:600; color:var(--ok); word-break:break-all;
+          display:flex; align-items:center; gap:.4rem; }
+  .name.none { font-size:.95rem; font-weight:400; color:var(--dim); }
+  .name .badge { font-size:.6rem; font-weight:400; letter-spacing:.08em; text-transform:uppercase;
+                 color:var(--bg); background:var(--ok); border-radius:4px; padding:.1rem .3rem; }
+  .why { font-size:11.5px; color:var(--dim); line-height:1.5;
+         border-left:2px solid var(--line); padding-left:.5rem; }
   pre { margin:0; min-height:8rem; max-height:42vh; overflow:auto; white-space:pre-wrap;
         word-break:break-word; font-size:11.5px; padding:.5rem; border-radius:8px;
         border:1px solid var(--line); background:color-mix(in srgb, var(--fg) 6%, transparent); }
@@ -146,7 +154,7 @@ function pane(ws) {
 
   // ---- agent half ----
   if (s) {
-    sec.append(el(`<div class="name">${s.session}</div>`));
+    sec.append(el(`<div class="name"><span class="badge">ws${ws}</span>${s.session}</div>`));
     const pre = el(`<pre class="dim">loading…</pre>`);
     const form = el(`<form><input placeholder="prompt ${s.session}" autocomplete="off"
                        autocapitalize="off" autocorrect="off"><button>send</button></form>`);
@@ -166,13 +174,34 @@ function pane(ws) {
     sec.append(pre, form);
     load();
   } else {
-    sec.append(el(`<div class="name dim">no session on this screen</div>`));
+    sec.append(el(`<div class="name none">no session on this screen</div>`));
+    // Explain rather than just disable. Agent windows started before the tmux
+    // wrapper existed are plain processes with no session to type into, which
+    // otherwise looks like a broken app.
+    if (wins.some(w => /✳|✻/.test(w.title))) {
+      sec.append(el(`<div class="why">There is an agent running here, but it was
+        started outside tmux so there is no handle to type into. You can still move,
+        tile and capture its window below. Restart it with the wrapper to make it
+        promptable.</div>`));
+    }
     const b = el(`<button>start a session here</button>`);
     b.onclick = async () => {
       const name = prompt(`session name for screen ${ws}`, `ws${ws}`); if (!name) return;
-      try { await post("/sessions", { name, workspace:ws, command:"bash" });
-            say(`created ${name}`); refresh(); }
-      catch (e) { say(e.message, true); }
+      b.disabled = true; b.textContent = "starting…";
+      try {
+        await post("/sessions", { name, workspace:ws, command:"bash" });
+        // The POST returns as soon as the terminal is dispatched, but the
+        // window takes a second or two to launch and attach. Refreshing
+        // immediately shows the session as detached with no workspace, which
+        // reads as "it didn't work". Poll until it lands instead.
+        for (let i = 0; i < 12; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          const list = await api("/sessions");
+          if (list.some(s => s.session === name && s.workspace === ws)) break;
+        }
+        say(`started ${name} on screen ${ws}`);
+        refresh();
+      } catch (e) { say(e.message, true); b.disabled = false; b.textContent = "start a session here"; }
     };
     sec.append(b);
   }
