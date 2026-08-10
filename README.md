@@ -11,15 +11,16 @@ the medium.
 Three tiers of visibility, cheapest first — window state as text (~1 KB), a cropped
 still on demand (~70 KB), a live stream only if it earns its place.
 
-Full reasoning, including the options rejected and why, is in
-[docs/decisions.md](docs/decisions.md).
+Step-by-step install is in **[docs/setup.md](docs/setup.md)** — ordered, each step with
+a verification and a rollback. Full reasoning, including the options rejected and why,
+is in [docs/decisions.md](docs/decisions.md).
 
 ## Status
 
 | Piece | State |
 |---|---|
 | `desk-control` skill — query, move, capture, verify | **done, tested** |
-| `claude()` tmux wrapper — makes sessions addressable | written, **not installed** |
+| `claude()` tmux wrapper — makes sessions addressable | **installed, tested** |
 | SSH + tmux + Tailscale reachability | not started |
 | Deno server — `tmux send-keys`, `hyprctl`, `grim` behind HTTP | not started |
 | Svelte PWA — swipe workspaces 1–10, prompt the session on each | not started |
@@ -51,7 +52,9 @@ actually hitting them (see decisions doc).
 
 ## The tmux wrapper
 
-Not installed. To opt in:
+Installed via `~/.bashrc`. Opt out by removing the `source` line.
+
+To install on a fresh machine:
 
 ```bash
 echo 'source ~/Projects/deskpilot/shell/claude-tmux.sh' >> ~/.bashrc

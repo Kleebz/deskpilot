@@ -1,0 +1,193 @@
+# Setup
+
+Steps are ordered and independent — each one is useful on its own, and each has a
+rollback. Do not skip ahead; step 4 depends on step 1 existing.
+
+Verified on Omarchy / Arch, Hyprland 0.56.0. Every step ends with a check that either
+prints something or tells you it failed.
+
+---
+
+## Step 0 — What is already here
+
+```bash
+for c in grim slurp hyprctl jq tmux wl-copy deno; do
+  printf '%-10s %s\n' "$c" "$(command -v $c || echo MISSING)"
+done
+```
+
+All of these should be present on a stock Omarchy box. Installed later, only when the
+step that needs them arrives: `tailscale` (step 3), `ydotool` (step 5).
+
+---
+
+## Step 1 — The skill
+
+Makes Claude able to inspect and drive the desktop. Nothing remote required; works from
+any terminal on this machine.
+
+```bash
+ln -s ~/Projects/deskpilot/skills/desk-control ~/.claude/skills/desk-control
+```
+
+**Verify** — ask Claude Code "what's on workspace 1". It should answer from
+`hyprctl clients -j` without taking a screenshot.
+
+**Rollback** — `rm ~/.claude/skills/desk-control` (removes the symlink, not the repo).
+
+---
+
+## Step 2 — The tmux wrapper
+
+Makes each Claude session addressable by name, which everything remote is built on.
+Your desk experience does not change: you still type `claude`.
+
+```bash
+echo 'source ~/Projects/deskpilot/shell/claude-tmux.sh' >> ~/.bashrc
+```
+
+Takes effect in **new** terminals only. Sessions already running are untouched.
+
+**Verify** — open a new terminal, then:
+
+```bash
+cd ~/Projects/zigwam && claude     # should look completely normal
+tmux ls                            # from another terminal: a session named `zigwam`
+tmux send-keys -t zigwam "hello" Enter   # text appears in that Claude session
+```
+
+That last line is the whole point — it is how the phone will talk to a specific session.
+
+**Rollback** — remove the `source` line from `~/.bashrc`.
+
+---
+
+## Step 3 — Reachability
+
+Three sub-steps. Do them in order; the SSH check must pass before you rely on Tailscale.
+
+### 3a. Enable sshd
+
+```bash
+sudo systemctl enable --now sshd
+```
+
+Add your phone's public key (generate it in Termux/Blink first):
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+cat >> ~/.ssh/authorized_keys    # paste the phone's pubkey, then Ctrl-D
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Disable password auth via a drop-in — do **not** edit `/etc/ssh/sshd_config`, this box
+uses `Include /etc/ssh/sshd_config.d/*.conf`:
+
+```bash
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' \
+  | sudo tee /etc/ssh/sshd_config.d/10-deskpilot.conf
+sudo sshd -t && sudo systemctl restart sshd
+```
+
+`sshd -t` validates the config first. If it fails, fix it before restarting — otherwise
+you can lock yourself out.
+
+**Verify from the phone, on your home wifi, before going further:**
+`ssh jacob@<lan-ip>` should log in with the key and never prompt for a password.
+
+### 3b. Persistent tmux session
+
+So a dropped connection does not kill Claude, and so the session inherits the Hyprland
+environment (`WAYLAND_DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`) that `grim` and `hyprctl`
+need.
+
+Add to `~/.config/hypr/autostart.conf`:
+
+```
+exec-once = tmux new -d -s phone
+```
+
+Plain `exec-once`, **not** `uwsm-app --`, despite that being the house style in this
+file. `tmux new -d` daemonizes and returns immediately; under a uwsm scope that can look
+like the app exiting and take the tmux server with it.
+
+**Verify** — log out and back in, then `tmux ls` should show `phone`. Confirm it has the
+environment:
+
+```bash
+tmux new -d -s envtest 'echo $HYPRLAND_INSTANCE_SIGNATURE > /tmp/envcheck; sleep 1'
+sleep 2 && cat /tmp/envcheck    # non-empty means the env is inherited
+```
+
+Connect with `ssh -t jacob@host tmux attach -t phone`.
+
+### 3c. Tailscale
+
+Only needed off the home network. On the LAN, skip it.
+
+```bash
+sudo pacman -S tailscale
+sudo systemctl enable --now tailscaled
+sudo tailscale up
+```
+
+Install the Tailscale app on the phone, sign in to the same tailnet.
+
+**Verify** — `tailscale status` lists the phone. Then **turn off wifi on the phone** and
+SSH to the tailnet IP over cellular. Testing on wifi proves nothing.
+
+**Rollback** — `sudo tailscale down`, `sudo systemctl disable --now tailscaled sshd`.
+
+---
+
+## Step 4 — Server and PWA
+
+**Not built yet.** The design is in [decisions.md](decisions.md): a Deno server exposing
+`tmux send-keys` / `hyprctl` / `grim` behind a bearer token, and a Svelte PWA that
+swipes through workspaces 1–10.
+
+When it exists it will run as:
+
+```bash
+deno run --allow-net --allow-run=tmux,hyprctl,grim server.ts
+```
+
+The scoped `--allow-run` is deliberate — see decisions.md. Do not widen it to bare
+`--allow-run`.
+
+---
+
+## Step 5 — Remote unlock
+
+**Not built yet**, and optional. Only needed because the screen locks after ~60 minutes
+idle, and `grim` then returns a picture of the lock screen instead of your desktop
+(tier 1 window state keeps working regardless).
+
+Will require `ydotool`, which needs uinput access:
+
+```bash
+sudo pacman -S ydotool
+sudo usermod -aG input $USER          # log out and back in
+systemctl --user enable --now ydotool.service
+```
+
+`ydotool` rather than `wtype` because it writes to `/dev/uinput`, below the Wayland
+layer, so hyprlock receives real keystrokes and validates them through PAM. Nothing is
+bypassed. See decisions.md for why killing hyprlock was rejected.
+
+**Before relying on this remotely, test it at the desk.** If the mechanism does not work
+you are locked out of the GUI with only SSH as recourse — which is exactly why step 3
+comes first.
+
+---
+
+## Order and why
+
+1. Skill — useful immediately, needs nothing
+2. tmux wrapper — everything remote sits on `send-keys`
+3. Reachability — and the escape hatch that makes step 5 safe to experiment with
+4. Server + PWA — the daily driver
+5. Unlock — last, and only if the lock actually gets in your way
+
+Try Remote Control before step 3. If it covers you, steps 3 and 4 may not be worth
+building at all.
