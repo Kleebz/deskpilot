@@ -63,15 +63,65 @@ same directory collide on name (`-A` attaches to the first rather than starting 
 
 ## Transport
 
-**Remote Control first, SSH as the escape hatch, PWA as the eventual daily driver.**
+**Tried Remote Control 2026-08-10. It works, and it is not the daily driver.**
 
-The traffic is tiny and turn-based — a phrase in, a sentence out. A TUI is overkill for
-that, so chat-shaped beats terminal-shaped for the common case. But chat cannot recover
-a dead session; a shell can. SSH is worth building precisely because it is what saves
-you when the nice path breaks — including if a remote unlock experiment goes wrong.
+The trial answered the open questions and changed the plan.
 
-Open question, cheap to settle: whether Remote Control can *initiate* work or only reply
-to a session started before leaving.
+What it does well: the session appeared on the phone immediately, runs on this machine
+so the full local environment — filesystem, MCP servers, and the `desk-control` skill —
+stays available, and **server mode** (`claude remote-control`, the subcommand, not the
+`--remote-control` flag) runs up to 32 concurrent named sessions from one process,
+creating them on demand, optionally each in its own git worktree. That is most of the
+multi-session addressing this project was going to build. It also settles the question
+of whether you can *initiate* work from the phone: in server mode, yes. SSH therefore
+stays a genuine escape hatch rather than becoming the main event.
+
+What killed it as the daily driver: **driving a desktop through a chat transcript is
+clunky.** The interaction is fine for steering code work and poor for "move that window,
+show me what the app looks like." The interface is also fixed — Remote Control means the
+Claude app or claude.ai, with no room for the workspace-swipe UI.
+
+Confounder worth recording honestly: the first trial was made much worse by having **no
+permission rules configured at all**, so every Bash call prompted. That is a config gap,
+not a property of Remote Control, and it is now fixed (see below). The clunkiness
+judgement survives the fix; the volume of prompts does not.
+
+**Revised roles.** Remote Control for push notifications and as an emergency channel.
+SSH as the escape hatch. The PWA as the daily driver.
+
+**They compose, which was not obvious.** Remote Control and the PWA are two doors into
+the same local session, not competing layers. The docs state you can send messages from
+terminal, browser, and phone interchangeably — and `tmux send-keys` *is* typing in the
+terminal. So a PWA driving the tmux session works fine on a session that also has Remote
+Control connected. Swipe UI for prompting, Claude's app for push.
+
+Also noted from the docs: they explicitly recommend tmux for keeping sessions alive
+across disconnects, so the wrapper is the documented approach rather than a workaround.
+And a separate feature, **Dispatch**, messages a task from the mobile app and spawns a
+session — closer to fire-and-forget delegation, worth a look if the PWA stalls.
+
+## Permissions
+
+An agent driving a desktop from a phone cannot prompt for every call, and blanket
+`bypassPermissions` on a machine holding SSH keys and browser sessions is the wrong
+answer. The rules live in `docs/permissions.json`, applied by
+`shell/install-permissions.sh`:
+
+- **allow** — read-only queries and reversible window moves. Fire constantly, cannot
+  lose work.
+- **ask** — `closewindow` (loses unsaved work), `killactive`, `hyprctl keyword`,
+  `tmux kill-*`, and **`tmux send-keys`**. That last one is the mechanism the whole
+  remote design rests on, and it can type arbitrary text into any open terminal. It
+  stays gated so that opening it is a deliberate decision when the PWA lands.
+- **deny** — `hyprctl dispatch exit`, which kills the Hyprland session outright.
+
+Claude Code **cannot apply this itself** — the auto mode classifier blocks an agent from
+widening its own permissions. Correct behaviour, and the reason there is an installer
+script rather than an edit.
+
+Deliberately not changed: `defaultMode`. Sessions doing real file edits will still
+prompt from a phone. Loosening that before feeling where the friction actually lands
+is how you end up with a permission posture you did not choose.
 
 ## Network: Tailscale
 
@@ -167,12 +217,13 @@ Each of these was found by hitting it, not by reading docs. All are encoded in t
 
 ## Build order
 
-1. `claude()` tmux wrapper — everything remote sits on `send-keys`
-2. Remote Control experiment — may shrink or eliminate what follows
-3. SSH + tmux + Tailscale — the escape hatch, and what makes unlock experiments safe
-4. Deno server + Svelte PWA
-5. `ydotool` unlock
-6. wayvnc stream, only if genuinely missed
+1. ~~`claude()` tmux wrapper~~ — done, installed 2026-08-10
+2. ~~Remote Control experiment~~ — done; result above, PWA stays on the table
+3. ~~Permission rules~~ — done
+4. SSH + tmux + Tailscale — the escape hatch, and what makes unlock experiments safe
+5. Deno server + Svelte PWA — now the daily driver rather than a maybe
+6. `ydotool` unlock
+7. wayvnc stream, only if genuinely missed
 
 Live with each step before building the next. The likely failure mode is not that it
 does not work — it is that it works and is annoying enough to abandon.

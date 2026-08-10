@@ -21,6 +21,8 @@ is in [docs/decisions.md](docs/decisions.md).
 |---|---|
 | `desk-control` skill — query, move, capture, verify | **done, tested** |
 | `claude()` tmux wrapper — makes sessions addressable | **installed, tested** |
+| Permission rules — stop the prompt storm from a phone | **installed** |
+| Remote Control trial — works, too clunky for daily use | **done, see decisions** |
 | SSH + tmux + Tailscale reachability | not started |
 | Deno server — `tmux send-keys`, `hyprctl`, `grim` behind HTTP | not started |
 | Svelte PWA — swipe workspaces 1–10, prompt the session on each | not started |
