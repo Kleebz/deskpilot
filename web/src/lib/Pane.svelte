@@ -182,16 +182,8 @@
       {#if orphans.length}
         <div class="why">
           {orphans.length} session{orphans.length > 1 ? "s are" : " is"} running with no
-          window. Closing a terminal detaches a session rather than killing it — that is
-          what keeps work alive when your phone drops.
+          window — see the <b>sessions</b> index at the far left to open or kill them.
         </div>
-        {#each orphans as o (o.session)}
-          <div class="win">
-            <span class="t">{o.session} <span class="dim">{o.path}</span></span>
-            <button class="sm" onclick={() => adopt(o.session)}>open here</button>
-            <button class="sm" onclick={() => kill(o.session)}>kill</button>
-          </div>
-        {/each}
       {/if}
 
       <button disabled={starting} onclick={start}>

@@ -319,3 +319,21 @@ Remaining limit, accepted: a floating window occluded by another on the *same* w
 still captures the occluder. Fixing that means reordering the user's windows to take a
 screenshot, which is a worse trade than the occasional wrong capture of a buried
 floating window.
+
+## The workspace model needs an index
+
+Swiping workspaces 1–10 is a good way to reach a session that has a window. It cannot
+represent one that does not — and a session with no window is not an edge case, it is
+the normal result of closing a terminal, which detaches rather than kills.
+
+The first attempt bolted detached sessions onto empty panes. That was worse than
+nothing: the same session appeared on every empty screen, and was invisible from every
+screen that had one. A session whose window closed effectively vanished.
+
+Rail position 0 is now a **sessions index** listing everything — placed sessions with
+their workspace badge (tap to jump), detached ones with a screen picker, open and kill.
+The header status line carries a detached count, since that is precisely the state that
+hides. Panes keep a one-line pointer to the index rather than duplicating the list.
+
+The general lesson: a spatial UI needs a non-spatial index for the things that have no
+place. Spatial addressing is the fast path, not the only path.
