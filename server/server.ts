@@ -64,6 +64,16 @@ const fail = (msg: string, status = 400) => json({ error: msg }, status);
 // metacharacter is refused rather than escaped — this value reaches tmux.
 const SAFE_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 
+// Named keys reachable from the phone. Enough to drive a TUI dialog — trust
+// prompts, permission menus, pickers — without becoming a general escape into
+// tmux's key syntax. Notably absent: anything that manipulates tmux itself.
+const ALLOWED_KEYS = new Set([
+  "Up", "Down", "Left", "Right",
+  "Enter", "Escape", "Tab", "BTab", "Space", "BSpace",
+  "Home", "End", "PageUp", "PageDown",
+  "C-c", "C-d", "C-u", "C-l", "C-r",
+]);
+
 async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -117,13 +127,27 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ session: s, text: r.out }));
   }
 
+  // Two modes, deliberately separate:
+  //   { text }  literal typing, sent with -l so it can never be interpreted
+  //   { keys }  named keys from a fixed allowlist, for driving TUI dialogs
+  // Text can never become a key and a key can never be arbitrary — which is
+  // the whole point, since both end up as arguments to tmux send-keys.
   if (req.method === "POST" && path === "/api/send") {
     const body = await req.json().catch(() => null);
     const s = body?.session ?? "";
-    const text = body?.text ?? "";
     if (!SAFE_NAME.test(s)) return fail("bad session name");
+
+    if (Array.isArray(body?.keys)) {
+      const bad = body.keys.filter((k: unknown) => !ALLOWED_KEYS.has(String(k)));
+      if (bad.length) return fail(`key not allowed: ${bad.join(", ")}`);
+      if (!body.keys.length) return fail("no keys");
+      const r = await run("tmux", ["send-keys", "-t", s, ...body.keys.map(String)]);
+      if (r.code !== 0) return fail(r.err || "send failed", 500);
+      return withCookie(json({ ok: true, session: s, keys: body.keys }));
+    }
+
+    const text = body?.text ?? "";
     if (typeof text !== "string" || !text.length) return fail("empty text");
-    // -l sends the text literally, so it cannot be read as a tmux key name.
     const lit = await run("tmux", ["send-keys", "-t", s, "-l", text]);
     if (lit.code !== 0) return fail(lit.err || "send failed", 500);
     if (body?.enter !== false) await run("tmux", ["send-keys", "-t", s, "Enter"]);

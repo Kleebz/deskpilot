@@ -45,6 +45,8 @@
   .name.none { font-size:.95rem; font-weight:400; color:var(--dim); }
   .name .badge { font-size:.6rem; font-weight:400; letter-spacing:.08em; text-transform:uppercase;
                  color:var(--bg); background:var(--ok); border-radius:4px; padding:.1rem .3rem; }
+  .keys { display:flex; gap:.3rem; flex-wrap:wrap; }
+  .keys button { font-size:13px; padding:.35rem .5rem; min-width:2.2rem; }
   .why { font-size:11.5px; color:var(--dim); line-height:1.5;
          border-left:2px solid var(--line); padding-left:.5rem; }
   pre { margin:0; min-height:8rem; max-height:42vh; overflow:auto; white-space:pre-wrap;
@@ -117,7 +119,7 @@ function windowRow(w) {
       <button class="sm tile">tile</button>
       <select class="sm mv"><option value="">→</option>${
         WS.map(n => `<option value="${n}">${n}</option>`).join("")}</select>
-      <button class="sm shot">◉</button>
+      <button class="sm shot">look</button>
     </div>`);
 
   row.querySelector(".tile").onclick = async () => {
@@ -171,7 +173,19 @@ function pane(ws) {
             setTimeout(load, 700); }
       catch (e) { say(e.message, true); }
     };
-    sec.append(pre, form);
+    // Text alone cannot drive a TUI. Trust dialogs, permission menus and
+    // pickers all need arrows and a bare Enter.
+    const keys = el(`<div class="keys">${
+      [["↑","Up"],["↓","Down"],["←","Left"],["→","Right"],
+       ["⏎","Enter"],["esc","Escape"],["tab","Tab"],["^C","C-c"]]
+        .map(([label,k]) => `<button data-k="${k}">${label}</button>`).join("")}</div>`);
+    keys.onclick = async (ev) => {
+      const k = ev.target.dataset?.k; if (!k) return;
+      try { await post("/send", { session:s.session, keys:[k] });
+            say(`${k} → ${s.session}`); setTimeout(load, 400); }
+      catch (e) { say(e.message, true); }
+    };
+    sec.append(pre, form, keys);
     load();
   } else {
     sec.append(el(`<div class="name none">no session on this screen</div>`));
@@ -181,8 +195,9 @@ function pane(ws) {
     if (wins.some(w => /✳|✻/.test(w.title))) {
       sec.append(el(`<div class="why">There is an agent running here, but it was
         started outside tmux so there is no handle to type into. You can still move,
-        tile and capture its window below. Restart it with the wrapper to make it
-        promptable.</div>`));
+        tile and capture its window below — <b>look</b> screenshots it, which is the
+        only way to read a window with no tmux session behind it. Restart it with the
+        wrapper to make it promptable.</div>`));
     }
     const b = el(`<button>start a session here</button>`);
     b.onclick = async () => {
