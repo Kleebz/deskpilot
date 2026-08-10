@@ -269,3 +269,27 @@ Each of these was found by hitting it, not by reading docs. All are encoded in t
 
 Live with each step before building the next. The likely failure mode is not that it
 does not work — it is that it works and is annoying enough to abandon.
+
+## Screenshot cost, measured
+
+Intuition about image size is wrong here, so it is written down.
+
+**Content dominates, not dimensions.** The same 941x1030 terminal window measured 38 KB
+when mostly empty and 210 KB when full of syntax-coloured text.
+
+**Scale is a stronger lever than quality**, and that is unhelpful: 210 KB drops to 80 KB
+at `-s 0.6` but only to 132 KB at `-q 45`. Scaling is precisely what destroys the
+legibility a crop existed to preserve.
+
+**So the conclusion is not a tuning parameter, it is a routing rule: never screenshot a
+terminal.** `tmux capture-pane` returns the same information as ~2 KB of reflowable,
+searchable, scrollable text. Screenshots are for GUI windows where pixels are the only
+representation — a browser, a design tool, the app being built.
+
+Defaults settled on: crop to the window, `-q 70`, and scale down only past 1200px wide
+(`DESKPILOT_MAX_WIDTH`, `DESKPILOT_QUALITY`). A full-width Chromium window lands at
+132 KB.
+
+This is the third time the tier model has been vindicated by something unrelated to why
+it was chosen — text survives the lock screen, text needs no LLM, and now text is
+100x smaller than the pixels showing the same thing.

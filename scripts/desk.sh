@@ -68,14 +68,36 @@ case "$cmd" in
     echo "$out"
     ;;
 
-  # Cropped and full-scale: readable text, smaller file than a shrunk screen.
+  # Cropped, scaled down only past MAXW.
+  #
+  # Measured, because the intuition here is wrong: JPEG size is driven by
+  # CONTENT, not dimensions. The same 941x1030 terminal measured 38 KB when
+  # mostly empty and 210 KB when full of syntax-coloured text. Scale is a much
+  # stronger lever than quality (210 -> 80 KB at s=0.6; only 210 -> 132 KB at
+  # q45) but scaling is precisely what destroys the legibility a crop was for.
+  #
+  # The real conclusion: do not screenshot terminals. `tmux capture-pane`
+  # returns the same information as ~2 KB of text that reflows on a phone.
+  # This path is for GUI windows — a browser, a design tool, an app you are
+  # building — where pixels are the only representation.
   shot-window)
     addr=${1:?address required}; out=${2:-/tmp/desk-window.jpg}
+    maxw=${DESKPILOT_MAX_WIDTH:-1200}
+    q=${DESKPILOT_QUALITY:-70}
     is_locked && die "screen is locked — capture would return the lock screen"
-    geo=$(hyprctl clients -j | jq -r --arg a "$addr" \
-      'first(.[] | select(.address == $a) | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])") // empty')
-    [ -n "$geo" ] || die "no window with address $addr"
-    grim -g "$geo" -t jpeg -q 80 "$out" || die "grim failed"
+    info=$(hyprctl clients -j | jq -r --arg a "$addr" \
+      'first(.[] | select(.address == $a)
+        | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])|\(.size[0])") // empty')
+    [ -n "$info" ] || die "no window with address $addr"
+    geo=${info%|*}
+    w=${info##*|}
+
+    if [ "${w:-0}" -gt "$maxw" ]; then
+      scale=$(awk -v m="$maxw" -v w="$w" 'BEGIN{printf "%.3f", m/w}')
+      grim -g "$geo" -s "$scale" -t jpeg -q "$q" "$out" || die "grim failed"
+    else
+      grim -g "$geo" -t jpeg -q "$q" "$out" || die "grim failed"
+    fi
     echo "$out"
     ;;
 

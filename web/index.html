@@ -3,45 +3,61 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>deskpilot</title>
 <!--
-  Smoke-test client. Deliberately one file with no build step, so the API
-  contract can be proven before any framework goes on top. The Svelte version
-  replaces this — the scroll-snap pane model here is the layout it inherits.
+  Single file, no build. Proving the API and the interaction model before a
+  framework goes on top; the Svelte version inherits this pane layout.
+
+  Each pane is one workspace and has two halves:
+    agent    — capture + prompt, goes through whatever runs in that tmux session
+    windows  — tile / move / shoot, straight to hyprctl with no LLM involved
+  The second half is the part Remote Control structurally cannot do.
 -->
 <style>
-  :root { color-scheme: dark light; --bg:#111; --fg:#e8e8e8; --dim:#888; --line:#333; --accent:#4ea1ff; }
+  :root { color-scheme: dark light;
+          --bg:#111; --fg:#e8e8e8; --dim:#8a8a8a; --line:#333; --ok:#4ea1ff; --err:#ff6b6b; }
   @media (prefers-color-scheme: light) {
-    :root { --bg:#fafafa; --fg:#1a1a1a; --dim:#666; --line:#ddd; }
+    :root { --bg:#fafafa; --fg:#1a1a1a; --dim:#666; --line:#dcdcdc; }
   }
-  * { box-sizing: border-box; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+         font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; overscroll-behavior:none; }
   header { display:flex; gap:.5rem; align-items:center; padding:.5rem .75rem;
-           border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
-  header b { font-weight:600; }
-  header .sp { flex:1 }
-  button { font:inherit; background:transparent; color:var(--fg);
-           border:1px solid var(--line); border-radius:6px; padding:.3rem .6rem; }
+           border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:3; }
+  header b { font-weight:600; letter-spacing:.02em; }
+  .sp { flex:1 }
+  #dots { display:flex; gap:4px; }
+  #dots i { width:6px; height:6px; border-radius:50%; background:var(--line); display:block; }
+  #dots i.on { background:var(--ok); }
+  #dots i.has { background:var(--dim); }
+  button { font:inherit; background:transparent; color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:.28rem .55rem; }
   button:active { background:var(--line); }
+  button.sm { font-size:12px; padding:.2rem .45rem; }
   #rail { display:flex; overflow-x:auto; scroll-snap-type:x mandatory;
-          height:calc(100vh - 46px); -webkit-overflow-scrolling:touch; }
+          height:calc(100dvh - 46px); scrollbar-width:none; }
   #rail::-webkit-scrollbar { display:none; }
   section { flex:0 0 100%; scroll-snap-align:start; display:flex; flex-direction:column;
-            padding:.75rem; gap:.6rem; overflow:hidden; }
-  h2 { margin:0; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
-  .title { font-size:1rem; }
-  pre { flex:1; margin:0; overflow:auto; white-space:pre-wrap; word-break:break-word;
-        background:color-mix(in srgb, var(--fg) 6%, transparent);
-        border:1px solid var(--line); border-radius:8px; padding:.5rem; font-size:12px; }
+            gap:.55rem; padding:.7rem; overflow-y:auto; }
+  h2 { margin:0; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--dim); }
+  .name { font-size:.95rem; word-break:break-all; }
+  pre { margin:0; min-height:8rem; max-height:42vh; overflow:auto; white-space:pre-wrap;
+        word-break:break-word; font-size:11.5px; padding:.5rem; border-radius:8px;
+        border:1px solid var(--line); background:color-mix(in srgb, var(--fg) 6%, transparent); }
   form { display:flex; gap:.4rem; }
-  input { flex:1; font:inherit; background:transparent; color:var(--fg);
-          border:1px solid var(--line); border-radius:6px; padding:.45rem .6rem; }
-  img { max-width:100%; border:1px solid var(--line); border-radius:8px; }
-  .dim { color:var(--dim); }
-  .err { color:#ff6b6b; }
+  input, select { font:inherit; background:transparent; color:var(--fg);
+                  border:1px solid var(--line); border-radius:6px; padding:.42rem .55rem; }
+  input { flex:1; min-width:0; }
+  .win { display:flex; gap:.35rem; align-items:center; border:1px solid var(--line);
+         border-radius:8px; padding:.4rem .5rem; }
+  .win .t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+  .win .mode { font-size:10px; color:var(--dim); text-transform:uppercase; }
+  img { width:100%; border:1px solid var(--line); border-radius:8px; display:block; }
+  .dim { color:var(--dim) } .err { color:var(--err) }
+  .row { display:flex; gap:.4rem; align-items:center; }
 </style>
 
 <header>
   <b>deskpilot</b>
+  <div id="dots"></div>
   <span class="sp"></span>
   <span id="status" class="dim">…</span>
   <button id="refresh">↻</button>
@@ -49,76 +65,148 @@
 <div id="rail"></div>
 
 <script>
-const token = localStorage.getItem("dp_token") ??
+const WS = [1,2,3,4,5,6,7,8,9,10];
+const tok = localStorage.getItem("dp_token") ??
   (() => { const t = prompt("bearer token (~/.config/deskpilot/token)") ?? "";
            localStorage.setItem("dp_token", t); return t; })();
 
-const H = { authorization: `Bearer ${token}` };
 const api = async (p, opts = {}) => {
-  const r = await fetch(`/api${p}`, { ...opts, headers: { ...H, ...(opts.headers ?? {}) } });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? r.statusText);
-  return r.headers.get("content-type")?.includes("json") ? r.json() : r;
+  const r = await fetch(`/api${p}`, {
+    ...opts, headers: { authorization:`Bearer ${tok}`, ...(opts.headers ?? {}) },
+  });
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error ?? r.statusText);
+  const ct = r.headers.get("content-type") ?? "";
+  return ct.includes("json") ? r.json() : ct.includes("image") ? r.blob() : r.text();
 };
-const setStatus = (t, err) => {
+const post = (p, body) =>
+  api(p, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
+
+const say = (t, bad) => {
   const el = document.getElementById("status");
-  el.textContent = t; el.className = err ? "err" : "dim";
+  el.textContent = t; el.className = bad ? "err" : "dim";
 };
+const el = (html) => { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstElementChild; };
 
-const WORKSPACES = [1,2,3,4,5,6,7,8,9,10];
-let sessions = [];
+let sessions = [], windows = [], locked = false;
 
-function paneFor(ws) {
+function windowRow(w) {
+  const mode = w.fullscreen !== 0 ? "fs" : w.floating ? "float" : "tiled";
+  const row = el(`<div class="win">
+      <span class="t">${w.class} · <span class="dim">${w.title}</span></span>
+      <span class="mode">${mode}</span>
+      <button class="sm tile">tile</button>
+      <select class="sm mv"><option value="">→</option>${
+        WS.map(n => `<option value="${n}">${n}</option>`).join("")}</select>
+      <button class="sm shot">◉</button>
+    </div>`);
+
+  row.querySelector(".tile").onclick = async () => {
+    try { await post("/desk/tile", { address:w.address }); say("tiled"); refresh(); }
+    catch (e) { say(e.message, true); }
+  };
+  row.querySelector(".mv").onchange = async (ev) => {
+    const ws = ev.target.value; if (!ws) return;
+    try { await post("/desk/move", { address:w.address, workspace:Number(ws) });
+          say(`moved → ws${ws}`); refresh(); }
+    catch (e) { say(e.message, true); }
+  };
+  row.querySelector(".shot").onclick = async () => {
+    const holder = row.parentElement.querySelector(".shots");
+    try {
+      const blob = await api(`/desk/shot?address=${encodeURIComponent(w.address)}`);
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(blob);
+      img.onclick = () => img.remove();
+      holder.replaceChildren(img);
+      say(`${Math.round(blob.size/1024)} KB`);
+    } catch (e) { say(e.message, true); }
+  };
+  return row;
+}
+
+function pane(ws) {
   const s = sessions.find(x => x.workspace === ws);
-  const el = document.createElement("section");
-  el.dataset.ws = ws;
-  el.innerHTML = `
-    <h2>screen ${ws}${s ? "" : " · empty"}</h2>
-    <div class="title">${s ? s.session : '<span class="dim">no session here</span>'}</div>
-    <pre>${s ? "loading…" : ""}</pre>
-    ${s ? `<form><input placeholder="prompt ${s.session}" autocomplete="off"><button>send</button></form>`
-        : `<button class="start">start a session here</button>`}
-    <div class="shot"></div>`;
+  const wins = windows.filter(w => w.workspace === ws);
+  const sec = document.createElement("section");
+  sec.dataset.ws = ws;
 
+  sec.append(el(`<h2>screen ${ws}</h2>`));
+
+  // ---- agent half ----
   if (s) {
-    const pre = el.querySelector("pre");
+    sec.append(el(`<div class="name">${s.session}</div>`));
+    const pre = el(`<pre class="dim">loading…</pre>`);
+    const form = el(`<form><input placeholder="prompt ${s.session}" autocomplete="off"
+                       autocapitalize="off" autocorrect="off"><button>send</button></form>`);
     const load = () => api(`/capture?session=${encodeURIComponent(s.session)}&lines=40`)
-      .then(r => { pre.textContent = r.text.trimEnd(); pre.scrollTop = pre.scrollHeight; })
-      .catch(e => { pre.textContent = ""; setStatus(e.message, true); });
-    load();
-    el.querySelector("form").onsubmit = async ev => {
+      .then(r => { pre.className = ""; pre.textContent = r.text.trimEnd() || "(empty)";
+                   pre.scrollTop = pre.scrollHeight; })
+      .catch(e => { pre.className = "err"; pre.textContent = e.message; });
+    form.onsubmit = async (ev) => {
       ev.preventDefault();
-      const input = ev.target.querySelector("input");
-      const text = input.value; if (!text) return;
-      input.value = "";
-      try { await api("/send", { method:"POST", headers:{"content-type":"application/json"},
-                                 body: JSON.stringify({ session: s.session, text }) });
-            setStatus(`sent → ${s.session}`); setTimeout(load, 600); }
-      catch (e) { setStatus(e.message, true); }
+      const i = form.querySelector("input"), text = i.value.trim();
+      if (!text) return;
+      i.value = "";
+      try { await post("/send", { session:s.session, text }); say(`→ ${s.session}`);
+            setTimeout(load, 700); }
+      catch (e) { say(e.message, true); }
     };
+    sec.append(pre, form);
+    load();
   } else {
-    el.querySelector(".start").onclick = async () => {
+    sec.append(el(`<div class="name dim">no session on this screen</div>`));
+    const b = el(`<button>start a session here</button>`);
+    b.onclick = async () => {
       const name = prompt(`session name for screen ${ws}`, `ws${ws}`); if (!name) return;
-      try { await api("/sessions", { method:"POST", headers:{"content-type":"application/json"},
-              body: JSON.stringify({ name, workspace: ws, command: "bash" }) });
-            setStatus(`created ${name}`); refresh(); }
-      catch (e) { setStatus(e.message, true); }
+      try { await post("/sessions", { name, workspace:ws, command:"bash" });
+            say(`created ${name}`); refresh(); }
+      catch (e) { say(e.message, true); }
     };
+    sec.append(b);
   }
-  return el;
+
+  // ---- windows half: no LLM involved ----
+  sec.append(el(`<h2>windows${wins.length ? "" : " · none"}</h2>`));
+  wins.forEach(w => sec.append(windowRow(w)));
+  if (wins.length > 1) {
+    const t = el(`<button class="sm">tile all side by side</button>`);
+    t.onclick = async () => {
+      try { for (const w of wins) await post("/desk/tile", { address:w.address });
+            say("tiled all"); refresh(); }
+      catch (e) { say(e.message, true); }
+    };
+    sec.append(t);
+  }
+  sec.append(el(`<div class="shots"></div>`));
+  return sec;
+}
+
+function dots(active) {
+  const d = document.getElementById("dots");
+  d.replaceChildren(...WS.map(n => {
+    const i = document.createElement("i");
+    if (sessions.some(s => s.workspace === n) || windows.some(w => w.workspace === n)) i.className = "has";
+    if (n === active) i.className = "on";
+    return i;
+  }));
 }
 
 async function refresh() {
   try {
-    sessions = await api("/sessions");
+    [sessions, windows] = await Promise.all([api("/sessions"), api("/desk/state")]);
+    ({ locked } = await api("/desk/locked"));
     const rail = document.getElementById("rail");
     const keep = rail.scrollLeft;
-    rail.replaceChildren(...WORKSPACES.map(paneFor));
+    rail.replaceChildren(...WS.map(pane));
     rail.scrollLeft = keep;
-    const { locked } = await api("/desk/locked");
-    setStatus(locked ? "screen locked" : `${sessions.length} session(s)`);
-  } catch (e) { setStatus(e.message, true); }
+    dots(Math.round(keep / (rail.clientWidth || 1)) + 1);
+    say(locked ? "screen locked — captures unavailable" : `${sessions.length} session(s), ${windows.length} window(s)`);
+  } catch (e) { say(e.message, true); }
 }
 
 document.getElementById("refresh").onclick = refresh;
+document.getElementById("rail").addEventListener("scroll", (e) => {
+  dots(Math.round(e.target.scrollLeft / (e.target.clientWidth || 1)) + 1);
+}, { passive:true });
 refresh();
 </script>

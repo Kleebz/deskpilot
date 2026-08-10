@@ -42,10 +42,18 @@ state whenever the question is about *what is where* — what is open, which wor
 what has focus, is it tiled. Only reach for pixels when the question is about
 **rendering**: does this look right, did the layout break, what does that dialog say.
 
-When you do capture, prefer `shot-window` over `shot`. Cropping to the relevant window
-is both smaller and more readable than shrinking the whole screen — measured at 38 KB
-cropped and full-quality versus 85 KB for a half-scale full screen that was too coarse
-to read terminal text.
+When you do capture, prefer `shot-window` over `shot` — cropping to the relevant window
+is smaller and more readable than shrinking the whole screen.
+
+**Never screenshot a terminal.** If the window is a terminal running a tmux session,
+`tmux capture-pane -p -t <session> -S -40` returns the same information as ~2 KB of text
+that reflows on a phone. A screenshot of the same window measured 210 KB and cannot be
+searched, quoted, or scrolled. Screenshots are for GUI windows — a browser, a design
+tool, an app being built — where pixels are the only representation.
+
+Image size is driven by content, not dimensions: the same 941x1030 terminal measured
+38 KB when mostly empty and 210 KB when full of syntax-coloured text. Do not assume a
+crop is cheap.
 
 ## Verify by re-reading, not by exit code
 
