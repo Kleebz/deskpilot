@@ -82,15 +82,30 @@ async function handle(req: Request): Promise<Response> {
   if (!path.startsWith("/api/")) return new Response("not found", { status: 404 });
 
   // ---- auth ----
-  const auth = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    url.searchParams.get("token");
-  if (!tokenOk(auth)) return fail("unauthorized", 401);
+  // Three sources, same secret. The cookie exists because iOS Safari evicts
+  // localStorage after ~7 days of not visiting a site, which would re-prompt
+  // for the token exactly when you are away from the desk and least able to
+  // look it up. SameSite=Strict is what makes a cookie safe on an endpoint
+  // that runs commands: a cross-site request simply will not carry it.
+  const cookie = req.headers.get("cookie")
+    ?.match(/(?:^|;\s*)dp=([^;]+)/)?.[1];
+  const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+    url.searchParams.get("token") ?? cookie ?? null;
+  if (!tokenOk(given)) return fail("unauthorized", 401);
+
+  const setCookie = cookie
+    ? undefined
+    : `dp=${TOKEN}; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly`;
+  const withCookie = (r: Response) => {
+    if (setCookie) r.headers.append("set-cookie", setCookie);
+    return r;
+  };
 
   // ---- sessions ----
   if (req.method === "GET" && path === "/api/sessions") {
     const r = await run(`${SCRIPTS}/sessions.sh`, []);
     if (r.code !== 0) return fail(r.err || "sessions.sh failed", 500);
-    return new Response(r.out, { headers: { "content-type": "application/json" } });
+    return withCookie(new Response(r.out, { headers: { "content-type": "application/json" } }));
   }
 
   if (req.method === "GET" && path === "/api/capture") {
@@ -99,7 +114,7 @@ async function handle(req: Request): Promise<Response> {
     const lines = url.searchParams.get("lines") ?? "40";
     const r = await run("tmux", ["capture-pane", "-p", "-t", s, "-S", `-${Number(lines) || 40}`]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
-    return json({ session: s, text: r.out });
+    return withCookie(json({ session: s, text: r.out }));
   }
 
   if (req.method === "POST" && path === "/api/send") {
@@ -112,7 +127,7 @@ async function handle(req: Request): Promise<Response> {
     const lit = await run("tmux", ["send-keys", "-t", s, "-l", text]);
     if (lit.code !== 0) return fail(lit.err || "send failed", 500);
     if (body?.enter !== false) await run("tmux", ["send-keys", "-t", s, "Enter"]);
-    return json({ ok: true, session: s });
+    return withCookie(json({ ok: true, session: s }));
   }
 
   // Create a session. With `workspace`, a real terminal is placed there so it
@@ -134,7 +149,7 @@ async function handle(req: Request): Promise<Response> {
       const term = Deno.env.get("DESKPILOT_TERMINAL") ?? "alacritty";
       await run(`${SCRIPTS}/desk.sh`, ["place", String(ws), term, "-e", "tmux", "attach", "-t", name]);
     }
-    return json({ ok: true, session: name, workspace: ws ?? null });
+    return withCookie(json({ ok: true, session: name, workspace: ws ?? null }));
   }
 
   // ---- desktop ----
@@ -142,12 +157,12 @@ async function handle(req: Request): Promise<Response> {
     const ws = url.searchParams.get("ws") ?? "";
     const r = await run(`${SCRIPTS}/desk.sh`, ["json", ws]);
     if (r.code !== 0) return fail(r.err || "desk.sh failed", 500);
-    return new Response(r.out, { headers: { "content-type": "application/json" } });
+    return withCookie(new Response(r.out, { headers: { "content-type": "application/json" } }));
   }
 
   if (req.method === "GET" && path === "/api/desk/locked") {
     const r = await run(`${SCRIPTS}/desk.sh`, ["locked"]);
-    return json({ locked: r.out.trim() === "locked" });
+    return withCookie(json({ locked: r.out.trim() === "locked" }));
   }
 
   if (req.method === "GET" && path === "/api/desk/shot") {
@@ -159,24 +174,24 @@ async function handle(req: Request): Promise<Response> {
     if (r.code !== 0) return fail(r.err.trim() || "capture failed", 409);
     const bytes = await Deno.readFile(out);
     await Deno.remove(out).catch(() => {});
-    return new Response(bytes, { headers: { "content-type": "image/jpeg" } });
+    return withCookie(new Response(bytes, { headers: { "content-type": "image/jpeg" } }));
   }
 
   if (req.method === "POST" && path === "/api/desk/move") {
     const b = await req.json().catch(() => null);
     if (!b?.address || b?.workspace == null) return fail("address and workspace required");
     const r = await run(`${SCRIPTS}/desk.sh`, ["move", b.address, String(b.workspace)]);
-    return r.code === 0 ? json({ ok: true }) : fail(r.err || "move failed", 500);
+    return withCookie(r.code === 0 ? json({ ok: true }) : fail(r.err || "move failed", 500));
   }
 
   if (req.method === "POST" && path === "/api/desk/tile") {
     const b = await req.json().catch(() => null);
     if (!b?.address) return fail("address required");
     const r = await run(`${SCRIPTS}/desk.sh`, ["tile", b.address]);
-    return r.code === 0 ? json({ ok: true }) : fail(r.err || "tile failed", 500);
+    return withCookie(r.code === 0 ? json({ ok: true }) : fail(r.err || "tile failed", 500));
   }
 
-  return fail("not found", 404);
+  return withCookie(fail("not found", 404));
 }
 
 console.log(`deskpilot listening on http://${HOST}:${PORT}`);
