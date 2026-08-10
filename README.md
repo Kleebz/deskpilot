@@ -25,7 +25,7 @@ is in [docs/decisions.md](docs/decisions.md).
 | Remote Control trial — evaluated and **rejected** | **done, see decisions** |
 | SSH + tmux + Tailscale reachability | not started — the only step left needing sudo |
 | Deno server — wraps `scripts/` behind HTTP, runs as a user service | **built, tested** |
-| Web UI — swipe workspaces 1–10, prompt the session on each | **smoke-test client working**; Svelte next |
+| Svelte web UI — swipe workspaces 1–10, prompt, tile, look | **built, tested** |
 | `ydotool` remote unlock | not started |
 | Optional wayvnc stream | deferred, may never be needed |
 
@@ -35,6 +35,8 @@ terminal on this machine.
 ## Layout
 
 ```
+web/                    Svelte + Vite UI; `npm run build` before first use
+server/server.ts        Deno HTTP wrapper over scripts/ and tmux
 scripts/                portable shell — the actual desktop + session commands
   desk.sh               window state, screenshots, move/tile, place
   sessions.sh           tmux sessions and the workspace each is on

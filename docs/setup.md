@@ -142,10 +142,21 @@ SSH to the tailnet IP over cellular. Testing on wifi proves nothing.
 
 ## Step 4 — Server and web UI
 
-**Built.** A Deno server wrapping `scripts/`, plus a single-file smoke-test client.
-The Svelte version replaces `web/index.html` later; the API contract is proven first.
+**Built.** A Deno server wrapping `scripts/`, plus a Svelte web UI.
 
-Generate a token, then install the service:
+Build the UI first — `web/dist/` is gitignored, and the server returns a 503 telling
+you this if it is missing:
+
+```bash
+cd ~/Projects/deskpilot/web
+npm install
+npm run build
+```
+
+For UI work, `npm run dev` serves with hot reload on the LAN and proxies `/api` to the
+running service, so you edit against real sessions rather than mocks.
+
+Then generate a token and install the service:
 
 ```bash
 mkdir -p ~/.config/deskpilot

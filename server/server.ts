@@ -74,19 +74,63 @@ const ALLOWED_KEYS = new Set([
   "C-c", "C-d", "C-u", "C-l", "C-r",
 ]);
 
+const DIST = `${WEB}/dist`;
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
+};
+
+// Serves the built Svelte app. Paths are resolved and then checked to be
+// inside DIST, so a crafted ../ cannot read outside it.
+async function serveStatic(path: string): Promise<Response> {
+  const rel = path === "/" ? "/index.html" : path;
+  const full = `${DIST}${rel}`.split("/").reduce<string[]>((acc, part) => {
+    if (part === "" || part === ".") return acc;
+    if (part === "..") { acc.pop(); return acc; }
+    acc.push(part);
+    return acc;
+  }, []).join("/");
+  const abs = `/${full}`;
+  if (!abs.startsWith(`${DIST}/`) && abs !== DIST) {
+    return new Response("not found", { status: 404 });
+  }
+
+  try {
+    const bytes = await Deno.readFile(abs);
+    const ext = abs.slice(abs.lastIndexOf("."));
+    const headers: Record<string, string> = {
+      "content-type": MIME[ext] ?? "application/octet-stream",
+    };
+    // Hashed asset filenames are immutable; index.html must never be cached or
+    // a rebuild leaves the phone on a stale bundle.
+    headers["cache-control"] = abs.includes("/assets/")
+      ? "public, max-age=31536000, immutable"
+      : "no-store";
+    return new Response(bytes, { headers });
+  } catch {
+    if (rel === "/index.html") {
+      return new Response(
+        "No built UI. Run:  cd ~/Projects/deskpilot/web && npm install && npm run build",
+        { status: 503, headers: { "content-type": "text/plain" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  }
+}
+
 async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
   // ---- static UI (unauthenticated: it is just markup, the API is not) ----
-  if (req.method === "GET" && (path === "/" || path === "/index.html")) {
-    try {
-      return new Response(await Deno.readTextFile(`${WEB}/index.html`), {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-    } catch {
-      return new Response("no web/index.html yet", { status: 404 });
-    }
+  if (req.method === "GET" && !path.startsWith("/api/")) {
+    return await serveStatic(path);
   }
 
   if (!path.startsWith("/api/")) return new Response("not found", { status: 404 });
