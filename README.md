@@ -22,9 +22,9 @@ is in [docs/decisions.md](docs/decisions.md).
 | `desk-control` skill — query, move, capture, verify | **done, tested** |
 | `claude()` tmux wrapper — makes sessions addressable | **installed, tested** |
 | Permission rules — stop the prompt storm from a phone | **installed** |
-| Remote Control trial — works, too clunky for daily use | **done, see decisions** |
+| Remote Control trial — evaluated and **rejected** | **done, see decisions** |
 | SSH + tmux + Tailscale reachability | not started |
-| Deno server — `tmux send-keys`, `hyprctl`, `grim` behind HTTP | not started |
+| Deno server — wraps `scripts/` behind HTTP, runs as a user service | not started |
 | Svelte PWA — swipe workspaces 1–10, prompt the session on each | not started |
 | `ydotool` remote unlock | not started |
 | Optional wayvnc stream | deferred, may never be needed |
@@ -35,10 +35,18 @@ terminal on this machine.
 ## Layout
 
 ```
-skills/desk-control/    Claude Code skill; symlinked into ~/.claude/skills/
+scripts/                portable shell — the actual desktop + session commands
+  desk.sh               window state, screenshots, move/tile, place
+  sessions.sh           tmux sessions and the workspace each is on
 shell/claude-tmux.sh    bash wrapper — opt in by sourcing from ~/.bashrc
+skills/desk-control/    thin Claude Code pointer at scripts/; symlinked into ~/.claude/skills/
 docs/decisions.md       what was chosen, what was rejected, and why
+docs/setup.md           ordered install, each step with a check and a rollback
+docs/permissions.json   permission rules, applied by shell/install-permissions.sh
 ```
+
+Everything in `scripts/` is plain shell with no agent involved. That is deliberate — see
+the hard constraints in the decisions doc.
 
 ## The skill
 

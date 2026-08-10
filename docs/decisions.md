@@ -2,6 +2,36 @@
 
 Why the design is what it is, including options rejected. Dated 2026-08-10.
 
+## Hard constraints
+
+Two requirements set 2026-08-10 that override earlier reasoning:
+
+1. **No mobile app.** The phone side is a browser page. Remote Control and the Claude
+   app are out of the daily flow entirely.
+2. **No agent lock-in.** Claude Code must be a swappable component, not the foundation.
+
+Both are satisfied by putting `tmux send-keys` at the boundary. It types into a
+terminal and does not care what is running there — swap Claude Code for Aider, Codex,
+opencode, or a bare shell and nothing above the tmux layer changes.
+
+The layers split accordingly:
+
+| Portable | Disposable |
+|---|---|
+| `scripts/` — shell over hyprctl/grim/tmux | `skills/desk-control/SKILL.md` |
+| `server/` — Deno | `~/.claude/settings.json` permissions |
+| `web/` — PWA | |
+| the tmux layer | |
+
+The one real coupling that existed — finding sessions by the `✳` marker Claude Code puts
+in its terminal title — has been removed. Sessions now resolve through
+**tmux client pid → walk parent pids → matching Hyprland window → its workspace**, which
+mentions no agent at all. Verified: tmux session `Work` → ws6.
+
+A consequence worth noting: `/desk/*` endpoints mean the PWA can move and tile windows
+**with no LLM in the loop**. An agent is only needed for *interpretation* — "does this
+UI look right." That is the natural seam between the two halves.
+
 ## Architecture
 
 **Three tiers of visibility, cheapest first.**
@@ -86,8 +116,20 @@ permission rules configured at all**, so every Bash call prompted. That is a con
 not a property of Remote Control, and it is now fixed (see below). The clunkiness
 judgement survives the fix; the volume of prompts does not.
 
-**Revised roles.** Remote Control for push notifications and as an emergency channel.
-SSH as the escape hatch. The PWA as the daily driver.
+**Final call: Remote Control is out.** Beyond the clunkiness, the user does not want to
+interact with the Claude mobile app at all, which removes it as a daily path regardless
+of how well it works. It also surfaced the structural mismatch below. SSH is the escape
+hatch; the PWA is the daily driver.
+
+**The addressing mismatch, which is the cleanest argument for the PWA.** A message sent
+from the phone landed in the test session rather than the intended one. Not a bug —
+Remote Control addresses by *session name*, and only sessions that explicitly opted in.
+The four real working sessions (ws1, ws4, ws7, ws10) were plain `claude` processes with
+no bridge, so the phone could not see or reach them; the test session was the only
+possible destination. Remote Control has no concept of a workspace, a window, or where
+something is on screen. "The session on screen 4" is not expressible in it. That is
+structural, not a matter of taste, and it is exactly what the workspace-swipe model
+fixes.
 
 **They compose, which was not obvious.** Remote Control and the PWA are two doors into
 the same local session, not competing layers. The docs state you can send messages from
