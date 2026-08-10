@@ -121,8 +121,13 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === "GET" && path === "/api/capture") {
     const s = url.searchParams.get("session") ?? "";
     if (!SAFE_NAME.test(s)) return fail("bad session name");
-    const lines = url.searchParams.get("lines") ?? "40";
-    const r = await run("tmux", ["capture-pane", "-p", "-t", s, "-S", `-${Number(lines) || 40}`]);
+    // -J joins wrapped lines: a phone re-wraps text itself, and without this a
+    // long paragraph arrives pre-broken at the terminal's width and reads as
+    // truncated. 200 lines because agent replies routinely exceed 40 and the
+    // client scrolls anyway — it is text, so the cost is trivial.
+    const lines = url.searchParams.get("lines") ?? "200";
+    const r = await run("tmux",
+      ["capture-pane", "-p", "-J", "-t", s, "-S", `-${Number(lines) || 200}`]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
     return withCookie(json({ session: s, text: r.out }));
   }
@@ -169,11 +174,45 @@ async function handle(req: Request): Promise<Response> {
     const r = await run("tmux", args);
     if (r.code !== 0) return fail(r.err || "could not create session", 500);
 
+    // This box has detach-on-destroy off globally, so killing a session hands
+    // its clients to another session instead of closing them — a terminal
+    // silently becomes a second view of unrelated work. Set it per-session so
+    // deskpilot sessions close cleanly, without touching the global config.
+    await run("tmux", ["set-option", "-t", name, "detach-on-destroy", "on"]);
+
     if (ws != null) {
       const term = Deno.env.get("DESKPILOT_TERMINAL") ?? "alacritty";
       await run(`${SCRIPTS}/desk.sh`, ["place", String(ws), term, "-e", "tmux", "attach", "-t", name]);
     }
     return withCookie(json({ ok: true, session: name, workspace: ws ?? null }));
+  }
+
+  // Kill a session outright. Separate from closing its window, which only
+  // detaches — that distinction is tmux's whole point, but it means orphaned
+  // sessions need an explicit way to die or they accumulate invisibly.
+  if (req.method === "POST" && path === "/api/sessions/kill") {
+    const body = await req.json().catch(() => null);
+    const name = body?.session ?? "";
+    if (!SAFE_NAME.test(name)) return fail("bad session name");
+    const r = await run("tmux", ["kill-session", "-t", name]);
+    if (r.code !== 0) return fail(r.err || "no such session", 404);
+    return withCookie(json({ ok: true, killed: name }));
+  }
+
+  // Give an existing (usually detached) session a window on a workspace.
+  if (req.method === "POST" && path === "/api/sessions/attach") {
+    const body = await req.json().catch(() => null);
+    const name = body?.session ?? "";
+    const ws = body?.workspace;
+    if (!SAFE_NAME.test(name)) return fail("bad session name");
+    if (ws == null) return fail("workspace required");
+    const exists = await run("tmux", ["has-session", "-t", name]);
+    if (exists.code !== 0) return fail("no such session", 404);
+    const term = Deno.env.get("DESKPILOT_TERMINAL") ?? "alacritty";
+    const r = await run(`${SCRIPTS}/desk.sh`,
+      ["place", String(ws), term, "-e", "tmux", "attach", "-t", name]);
+    if (r.code !== 0) return fail(r.err || "place failed", 500);
+    return withCookie(json({ ok: true, session: name, workspace: ws }));
   }
 
   // ---- desktop ----

@@ -76,6 +76,13 @@
 
 <script>
 const WS = [1,2,3,4,5,6,7,8,9,10];
+// A name has to be the session's identity, not its location — windows move,
+// so "ws1" living on workspace 2 is the normal outcome, not an edge case.
+const suggestName = () => {
+  const taken = new Set(sessions.map(s => s.session));
+  for (let i = 1; i < 100; i++) if (!taken.has(`s${i}`)) return `s${i}`;
+  return "s";
+};
 // ?token=… lets you scan a QR instead of typing 64 hex characters on glass.
 // It is stripped from the URL immediately so it does not sit in history.
 const tok = (() => {
@@ -160,7 +167,7 @@ function pane(ws) {
     const pre = el(`<pre class="dim">loading…</pre>`);
     const form = el(`<form><input placeholder="prompt ${s.session}" autocomplete="off"
                        autocapitalize="off" autocorrect="off"><button>send</button></form>`);
-    const load = () => api(`/capture?session=${encodeURIComponent(s.session)}&lines=40`)
+    const load = () => api(`/capture?session=${encodeURIComponent(s.session)}&lines=200`)
       .then(r => { pre.className = ""; pre.textContent = r.text.trimEnd() || "(empty)";
                    pre.scrollTop = pre.scrollHeight; })
       .catch(e => { pre.className = "err"; pre.textContent = e.message; });
@@ -199,9 +206,45 @@ function pane(ws) {
         only way to read a window with no tmux session behind it. Restart it with the
         wrapper to make it promptable.</div>`));
     }
+    const orphans = sessions.filter(x => x.workspace === null);
+    if (orphans.length) {
+      sec.append(el(`<div class="why">${orphans.length} session(s) are running with no
+        window. Closing a terminal detaches a session rather than killing it — that is
+        what keeps work alive when your phone drops.</div>`));
+      orphans.forEach(o => {
+        const r = el(`<div class="win">
+            <span class="t">${o.session} <span class="dim">${o.path}</span></span>
+            <button class="sm att">open here</button>
+            <button class="sm kill">kill</button>
+          </div>`);
+        r.querySelector(".att").onclick = async () => {
+          try { await post("/sessions/attach", { session:o.session, workspace:ws });
+                say(`opening ${o.session}…`);
+                for (let i=0;i<12;i++){ await new Promise(r=>setTimeout(r,500));
+                  const l = await api("/sessions");
+                  if (l.some(x=>x.session===o.session && x.workspace===ws)) break; }
+                refresh(); }
+          catch (e) { say(e.message, true); }
+        };
+        r.querySelector(".kill").onclick = async () => {
+          if (!confirm(`Kill session "${o.session}"? Anything running in it is lost.`)) return;
+          try { await post("/sessions/kill", { session:o.session });
+                say(`killed ${o.session}`); refresh(); }
+          catch (e) { say(e.message, true); }
+        };
+        sec.append(r);
+      });
+    }
     const b = el(`<button>start a session here</button>`);
     b.onclick = async () => {
-      const name = prompt(`session name for screen ${ws}`, `ws${ws}`); if (!name) return;
+      const name = prompt(
+        `Name this session — what it is, not where it sits. Windows move.`,
+        suggestName());
+      if (!name) return;
+      if (sessions.some(x => x.session === name)) {
+        say(`"${name}" already exists — it may be detached, see the list above`, true);
+        return;
+      }
       b.disabled = true; b.textContent = "starting…";
       try {
         await post("/sessions", { name, workspace:ws, command:"bash" });

@@ -31,23 +31,28 @@ workspace_for_pid() {
   return 1
 }
 
-# session_name -> client pid (empty when detached)
-declare -A CLIENT_PID
+# session_name -> space-separated client pids. A session can be attached from
+# more than one terminal, so it legitimately appears on several workspaces —
+# reporting only the last one made sessions look like they had teleported.
+declare -A CLIENT_PIDS
 while read -r name pid; do
-  [ -n "${name:-}" ] && CLIENT_PID["$name"]="$pid"
+  [ -n "${name:-}" ] && CLIENT_PIDS["$name"]="${CLIENT_PIDS[$name]:-} $pid"
 done < <(tmux list-clients -F '#{session_name} #{client_pid}' 2>/dev/null)
 
 rows=()
 while IFS=$'\t' read -r name created path; do
   [ -z "${name:-}" ] && continue
-  ws=""
-  if [ -n "${CLIENT_PID[$name]:-}" ]; then
-    ws=$(workspace_for_pid "${CLIENT_PID[$name]}") || ws=""
-  fi
+  all=""
+  for cp in ${CLIENT_PIDS[$name]:-}; do
+    got=$(workspace_for_pid "$cp") && all="$all $got"
+  done
+  ws=$(printf '%s' "${all# }" | tr ' ' '\n' | grep -v '^$' | sort -n -u | head -1)
+  list=$(printf '%s' "${all# }" | tr ' ' '\n' | grep -v '^$' | sort -n -u | jq -R . | jq -sc 'map(tonumber)')
   rows+=("$(jq -nc \
-    --arg n "$name" --arg c "$created" --arg p "$path" --arg w "$ws" \
+    --arg n "$name" --arg c "$created" --arg p "$path" --arg w "$ws" --argjson l "${list:-[]}" \
     '{session:$n, created:($c|tonumber? // 0), path:$p,
       workspace:($w|if . == "" then null else tonumber end),
+      workspaces:$l,
       attached:($w != "")}')")
 done < <(tmux list-sessions -F '#{session_name}	#{session_created}	#{session_path}' 2>/dev/null)
 
