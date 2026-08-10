@@ -66,9 +66,21 @@
 
 <script>
 const WS = [1,2,3,4,5,6,7,8,9,10];
-const tok = localStorage.getItem("dp_token") ??
-  (() => { const t = prompt("bearer token (~/.config/deskpilot/token)") ?? "";
-           localStorage.setItem("dp_token", t); return t; })();
+// ?token=… lets you scan a QR instead of typing 64 hex characters on glass.
+// It is stripped from the URL immediately so it does not sit in history.
+const tok = (() => {
+  const q = new URLSearchParams(location.search).get("token");
+  if (q) {
+    localStorage.setItem("dp_token", q);
+    history.replaceState(null, "", location.pathname);
+    return q;
+  }
+  const stored = localStorage.getItem("dp_token");
+  if (stored) return stored;
+  const t = prompt("bearer token (~/.config/deskpilot/token)") ?? "";
+  localStorage.setItem("dp_token", t);
+  return t;
+})();
 
 const api = async (p, opts = {}) => {
   const r = await fetch(`/api${p}`, {
