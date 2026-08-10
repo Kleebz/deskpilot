@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(hyprctl clients*)",
+      "Bash(hyprctl monitors*)",
+      "Bash(hyprctl workspaces*)",
+      "Bash(hyprctl activewindow*)",
+      "Bash(hyprctl version*)",
+      "Bash(hyprctl dispatch focuswindow*)",
+      "Bash(hyprctl dispatch movefocus*)",
+      "Bash(hyprctl dispatch movetoworkspace*)",
+      "Bash(hyprctl dispatch workspace*)",
+      "Bash(hyprctl dispatch movewindow*)",
+      "Bash(hyprctl dispatch resizewindowpixel*)",
+      "Bash(hyprctl dispatch swapwindow*)",
+      "Bash(hyprctl dispatch togglefloating*)",
+      "Bash(hyprctl dispatch fullscreen*)",
+      "Bash(hyprctl dispatch centerwindow*)",
+      "Bash(hyprctl dispatch pin*)",
+      "Bash(grim *)",
+      "Bash(jq *)",
+      "Bash(pidof *)",
+      "Bash(tmux ls*)",
+      "Bash(tmux list-sessions*)",
+      "Bash(tmux capture-pane*)"
+    ],
+    "ask": [
+      "Bash(hyprctl dispatch closewindow*)",
+      "Bash(hyprctl dispatch killactive*)",
+      "Bash(hyprctl keyword*)",
+      "Bash(tmux send-keys*)",
+      "Bash(tmux kill-*)"
+    ],
+    "deny": [
+      "Bash(hyprctl dispatch exit*)"
+    ]
+  }
+}
