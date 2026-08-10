@@ -6,13 +6,15 @@
 
   // Pane-local state. This is the reason for the framework: a poll updates
   // `session`/`windows` from the parent without touching any of these, so the
-  // output keeps its scroll position, half-typed prompts survive, and a
+  // transcript keeps its scroll position, half-typed prompts survive, and a
   // screenshot you are looking at stays on screen.
   let output = $state("");
   let input = $state("");
   let starting = $state(false);
   let pre = $state(null);
-  let pinned = $state(true);   // stick to the bottom unless the user scrolls up
+  let pinned = $state(true);     // stick to the bottom unless the user scrolls up
+  let showWindows = $state(false);
+  let showKeys = $state(false);
 
   const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
 
@@ -44,11 +46,17 @@
     pinned = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
   }
 
+  function toBottom() {
+    pinned = true;
+    pre?.scrollTo(0, pre.scrollHeight);
+  }
+
   async function send(ev) {
     ev.preventDefault();
     const text = input.trim();
     if (!text || !session) return;
     input = "";
+    pinned = true;
     try {
       await post("/send", { session: session.session, text });
       onstatus(`→ ${session.session}`);
@@ -64,11 +72,16 @@
     } catch (e) { onstatus(e.message, true); }
   }
 
+  function suggestName() {
+    const taken = new Set(orphans.map((o) => o.session));
+    for (let i = 1; i < 100; i++) if (!taken.has(`s${i}`)) return `s${i}`;
+    return "s";
+  }
+
   async function start() {
-    const suggested = suggestName();
     const name = prompt(
       "Name this session — what it is, not where it sits. Windows move.",
-      suggested,
+      suggestName(),
     );
     if (!name) return;
     starting = true;
@@ -82,12 +95,6 @@
       onchanged();
     } catch (e) { onstatus(e.message, true); }
     finally { starting = false; }
-  }
-
-  function suggestName() {
-    const taken = new Set(orphans.map((o) => o.session));
-    for (let i = 1; i < 100; i++) if (!taken.has(`s${i}`)) return `s${i}`;
-    return "s";
   }
 
   async function adopt(name) {
@@ -114,105 +121,144 @@
   ];
 </script>
 
-<section>
-  <h2 class="first">screen {ws}</h2>
-
+<section class:composing={!!session}>
   {#if session}
-    <div class="name"><span class="badge">ws{ws}</span>{session.session}</div>
+    <!-- Transcript is the hero: it fills the pane, the composer pins to the
+         bottom, and everything secondary hides behind a toggle. -->
+    <div class="bar">
+      <span class="badge">ws{ws}</span>
+      <span class="name">{session.session}</span>
+      <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
+        {windows.length} win
+      </button>
+    </div>
+
+    {#if showWindows}
+      <div class="drawer">
+        {#each windows as w (w.address)}
+          <WindowRow win={w} {workspaces} {onstatus} {onchanged} />
+        {:else}
+          <div class="why">No windows on this screen.</div>
+        {/each}
+      </div>
+    {/if}
 
     <pre bind:this={pre} onscroll={onScroll}>{output || "…"}</pre>
 
     {#if !pinned}
-      <button class="sm jump" onclick={() => { pinned = true; pre?.scrollTo(0, pre.scrollHeight); }}>
-        ↓ jump to latest
-      </button>
+      <button class="sm jump" onclick={toBottom}>↓ latest</button>
     {/if}
 
-    <form onsubmit={send}>
-      <input
-        bind:value={input}
-        placeholder="prompt {session.session}"
-        autocomplete="off" autocapitalize="off" autocorrect="off" />
-      <button>send</button>
-    </form>
-
-    <div class="keys">
-      {#each KEYS as [label, k]}
-        <button onclick={() => key(k)}>{label}</button>
-      {/each}
+    <div class="composer">
+      <form onsubmit={send}>
+        <input
+          bind:value={input}
+          placeholder="prompt {session.session}"
+          autocomplete="off" autocapitalize="off" autocorrect="off" />
+        <button class="ghost" type="button" onclick={() => (showKeys = !showKeys)}>⌨</button>
+        <button>send</button>
+      </form>
+      {#if showKeys}
+        <div class="keys">
+          {#each KEYS as [label, k]}
+            <button onclick={() => key(k)}>{label}</button>
+          {/each}
+        </div>
+      {/if}
     </div>
   {:else}
-    <div class="name none">no session on this screen</div>
+    <div class="scroll">
+      <h2 class="first">screen {ws}</h2>
+      <div class="name none">no session on this screen</div>
 
-    {#if hasAgentWindow}
-      <div class="why">
-        There is an agent running here, but it was started outside tmux so there is no
-        handle to type into. You can still move, tile and <b>look</b> at its window
-        below. Restart it with the wrapper to make it promptable.
-      </div>
-    {/if}
-
-    {#if orphans.length}
-      <div class="why">
-        {orphans.length} session{orphans.length > 1 ? "s are" : " is"} running with no
-        window. Closing a terminal detaches a session rather than killing it — that is
-        what keeps work alive when your phone drops.
-      </div>
-      {#each orphans as o (o.session)}
-        <div class="win">
-          <span class="t">{o.session} <span class="dim">{o.path}</span></span>
-          <button class="sm" onclick={() => adopt(o.session)}>open here</button>
-          <button class="sm" onclick={() => kill(o.session)}>kill</button>
+      {#if hasAgentWindow}
+        <div class="why">
+          There is an agent running here, but it was started outside tmux so there is no
+          handle to type into. You can still move, tile and <b>look</b> at its window
+          below. Restart it with the wrapper to make it promptable.
         </div>
+      {/if}
+
+      {#if orphans.length}
+        <div class="why">
+          {orphans.length} session{orphans.length > 1 ? "s are" : " is"} running with no
+          window. Closing a terminal detaches a session rather than killing it — that is
+          what keeps work alive when your phone drops.
+        </div>
+        {#each orphans as o (o.session)}
+          <div class="win">
+            <span class="t">{o.session} <span class="dim">{o.path}</span></span>
+            <button class="sm" onclick={() => adopt(o.session)}>open here</button>
+            <button class="sm" onclick={() => kill(o.session)}>kill</button>
+          </div>
+        {/each}
+      {/if}
+
+      <button disabled={starting} onclick={start}>
+        {starting ? "starting…" : "start a session here"}
+      </button>
+
+      <h2>windows{windows.length ? "" : " · none"}</h2>
+      {#each windows as w (w.address)}
+        <WindowRow win={w} {workspaces} {onstatus} {onchanged} />
       {/each}
-    {/if}
-
-    <button disabled={starting} onclick={start}>
-      {starting ? "starting…" : "start a session here"}
-    </button>
+    </div>
   {/if}
-
-  <h2>windows{windows.length ? "" : " · none"}</h2>
-  {#each windows as w (w.address)}
-    <WindowRow win={w} {workspaces} {onstatus} {onchanged} />
-  {/each}
 </section>
 
 <style>
   section {
     flex: 0 0 100%; scroll-snap-align: start;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  /* With a session the pane does not scroll — the transcript does. */
+  section.composing { padding: .6rem; gap: .5rem; overflow: hidden; }
+  .scroll {
     display: flex; flex-direction: column; gap: .55rem;
     padding: .7rem; overflow-y: auto;
   }
+
+  .bar { display: flex; align-items: center; gap: .4rem; }
+  .name {
+    flex: 1; min-width: 0; font-size: 1.05rem; font-weight: 600; color: var(--ok);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .name.none { font-size: .95rem; font-weight: 400; color: var(--dim); }
+  .badge {
+    font-size: .6rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
+  }
+  .ghost { border-color: transparent; color: var(--dim); }
+
+  .drawer {
+    display: flex; flex-direction: column; gap: .4rem;
+    max-height: 40vh; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 8px; padding: .4rem;
+  }
+
+  pre {
+    flex: 1; min-height: 0; margin: 0; overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+    font-size: 12px; line-height: 1.5; padding: .6rem;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  }
+  .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }
+
+  .composer { display: flex; flex-direction: column; gap: .4rem; }
+  form { display: flex; gap: .4rem; }
+  form input { flex: 1; min-width: 0; }
+  .keys { display: flex; gap: .3rem; flex-wrap: wrap; }
+  .keys button { font-size: 13px; padding: .35rem .5rem; min-width: 2.2rem; }
+
   h2 {
     margin: 0; font-size: .72rem; letter-spacing: .09em; text-transform: uppercase;
     color: var(--dim); border-top: 1px solid var(--line); padding-top: .5rem;
   }
   h2.first { border-top: 0; padding-top: 0; }
-  .name {
-    font-size: 1.15rem; font-weight: 600; color: var(--ok);
-    display: flex; align-items: center; gap: .4rem; word-break: break-all;
-  }
-  .name.none { font-size: .95rem; font-weight: 400; color: var(--dim); }
-  .badge {
-    font-size: .6rem; font-weight: 400; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
-  }
   .why {
     font-size: 11.5px; color: var(--dim); line-height: 1.5;
     border-left: 2px solid var(--line); padding-left: .5rem;
   }
-  pre {
-    margin: 0; min-height: 9rem; max-height: 46vh; overflow: auto;
-    white-space: pre-wrap; word-break: break-word; font-size: 11.5px;
-    padding: .5rem; border: 1px solid var(--line); border-radius: 8px;
-    background: var(--panel);
-  }
-  .jump { align-self: flex-start; }
-  form { display: flex; gap: .4rem; }
-  form input { flex: 1; min-width: 0; }
-  .keys { display: flex; gap: .3rem; flex-wrap: wrap; }
-  .keys button { font-size: 13px; padding: .35rem .5rem; min-width: 2.2rem; }
   .win {
     display: flex; gap: .35rem; align-items: center;
     border: 1px solid var(--line); border-radius: 8px; padding: .4rem .5rem;
