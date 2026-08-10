@@ -72,9 +72,13 @@ Validated against real usage: **never more than one Claude session per workspace
 "prompt screen 4" is unambiguous. Six of ten workspaces were empty, so the UI should
 collapse empties while keeping the real numbers as labels.
 
-Addresses are resolved dynamically (workspace → window with `✳` title → its tmux
-session), not bound statically, so rearranging windows does not break routing. Muscle
-memory will briefly be wrong after a move; accepted.
+Addresses are resolved dynamically, not bound statically, so rearranging windows does
+not break routing. Muscle memory will briefly be wrong after a move; accepted.
+
+The resolution originally went workspace → window with a `✳` title → tmux session, which
+silently coupled the whole design to Claude Code's terminal-title marker. It now runs the
+other way and mentions no agent: **tmux client pid → parent pids → matching Hyprland
+window → its workspace.** See the hard constraints above.
 
 ## Routing: named tmux sessions
 
