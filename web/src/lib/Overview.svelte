@@ -1,5 +1,6 @@
 <script>
   import { api, post, waitFor } from "./api.js";
+  import NewSession from "./NewSession.svelte";
 
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
@@ -11,6 +12,9 @@
   const detached = $derived(sessions.filter((s) => s.workspace === null));
 
   let target = $state({});
+  let creating = $state(false);
+  let newWs = $state(1);
+  const allNames = $derived(sessions.map((s) => s.session));
   let pw = $state("");
   let unlocking = $state(false);
 
@@ -77,6 +81,26 @@
     </div>
   {/if}
 
+  <!-- Creating belongs here as well as on a pane. The index is where you manage
+       sessions, and with none running every pane says "no session on this
+       screen" — accurate, and no help at all. -->
+  {#if creating}
+    <div class="pick">
+      <span class="lbl">screen</span>
+      <select bind:value={newWs}>
+        {#each workspaces as n}<option value={n}>{n}</option>{/each}
+      </select>
+    </div>
+    <NewSession
+      ws={newWs}
+      taken={allNames}
+      {onstatus}
+      onchanged={() => { creating = false; onchanged(); onjump(newWs); }}
+      oncancel={() => (creating = false)} />
+  {:else}
+    <button class="new" onclick={() => (creating = true)}>+ new session</button>
+  {/if}
+
   {#if placed.length}
     {#each placed as s (s.session)}
       <div class="row">
@@ -88,8 +112,11 @@
         <button class="sm" onclick={() => kill(s.session)}>kill</button>
       </div>
     {/each}
-  {:else}
-    <div class="why">No session has a window right now.</div>
+  {:else if !detached.length}
+    <div class="why">
+      Nothing is running yet. Start one above — pick a project directory and whether to
+      run a shell or an agent.
+    </div>
   {/if}
 
   {#if detached.length}
@@ -160,6 +187,10 @@
     overflow-wrap: anywhere;
   }
   .hint { font-size: 11px; padding-top: .25rem; line-height: 1.5; }
+  .new { border-color: var(--ok); color: var(--ok); }
+  .pick { display: flex; align-items: center; gap: .45rem; min-width: 0; }
+  .pick select { flex: 1; min-width: 0; }
+  .lbl { font-size: .65rem; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
   .unlock { display: flex; gap: .4rem; min-width: 0; }
   .unlock input { flex: 1; min-width: 0; }
   .foot { margin-top: auto; }
