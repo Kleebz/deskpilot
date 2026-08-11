@@ -364,3 +364,23 @@ as they would on the device. Then assert three things per width, rather than eye
 Verified at 320 / 360 / 390 / 430. Note that a child of an `overflow:hidden` ellipsis
 container will look like it escapes — it is clipped when painted, so compare against the
 clipping ancestor, not the viewport, or it reports false positives.
+
+## "Unkillable" sessions
+
+Kill appeared to do nothing: the session list stayed populated and terminals stayed open.
+
+This box has `detach-on-destroy off` globally. With that setting, killing a tmux session
+does **not** close its attached clients — tmux hands each one to another session. The
+terminal survives, silently displaying unrelated work, and something always looks alive.
+Observed directly: a window still running `tmux attach -t placetest` an hour after
+`placetest` was killed, with tmux reporting that client attached to `ws1`.
+
+Two compounding effects made it worse than a stuck kill. Clients hopping between sessions
+made sessions look like they teleported between workspaces, since a session's workspace is
+derived from where its client's terminal lives. And the first fix set the option only on
+sessions the server created, which did nothing for the ones that already existed — the
+exact ones being killed.
+
+Correct fix: set `detach-on-destroy on` **on the target, immediately before killing it**.
+That covers every session regardless of origin, and leaves the user's global tmux config
+untouched.

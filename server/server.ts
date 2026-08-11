@@ -238,6 +238,12 @@ async function handle(req: Request): Promise<Response> {
     const body = await req.json().catch(() => null);
     const name = body?.session ?? "";
     if (!SAFE_NAME.test(name)) return fail("bad session name");
+    // Set this on the TARGET immediately before killing, not just on sessions
+    // we created. With detach-on-destroy off — the global default on this box —
+    // killing a session hands its clients to another session instead of closing
+    // them. The terminal stays open showing unrelated work and the session list
+    // never empties, which reads as "kill does nothing".
+    await run("tmux", ["set-option", "-t", name, "detach-on-destroy", "on"]);
     const r = await run("tmux", ["kill-session", "-t", name]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
     return withCookie(json({ ok: true, killed: name }));
