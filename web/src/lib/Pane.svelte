@@ -1,8 +1,9 @@
 <script>
   import { api, post, waitFor } from "./api.js";
   import WindowRow from "./WindowRow.svelte";
+  import NewSession from "./NewSession.svelte";
 
-  let { ws, session, windows, orphans, workspaces, active, onstatus, onchanged } = $props();
+  let { ws, session, windows, orphans, allNames, workspaces, active, onstatus, onchanged } = $props();
 
   // Pane-local state. This is the reason for the framework: a poll updates
   // `session`/`windows` from the parent without touching any of these, so the
@@ -10,11 +11,11 @@
   // screenshot you are looking at stays on screen.
   let output = $state("");
   let input = $state("");
-  let starting = $state(false);
   let pre = $state(null);
   let pinned = $state(true);     // stick to the bottom unless the user scrolls up
   let showWindows = $state(false);
   let showKeys = $state(false);
+  let creating = $state(false);
 
   const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
 
@@ -70,49 +71,6 @@
       await post("/send", { session: session.session, keys: [k] });
       setTimeout(load, 400);
     } catch (e) { onstatus(e.message, true); }
-  }
-
-  function suggestName() {
-    const taken = new Set(orphans.map((o) => o.session));
-    for (let i = 1; i < 100; i++) if (!taken.has(`s${i}`)) return `s${i}`;
-    return "s";
-  }
-
-  async function start() {
-    const name = prompt(
-      "Name this session — what it is, not where it sits. Windows move.",
-      suggestName(),
-    );
-    if (!name) return;
-    starting = true;
-    try {
-      await post("/sessions", { name, workspace: ws, command: "bash" });
-      await waitFor(async () => {
-        const list = await api("/sessions");
-        return list.some((s) => s.session === name && s.workspace === ws);
-      });
-      onstatus(`started ${name} on screen ${ws}`);
-      onchanged();
-    } catch (e) { onstatus(e.message, true); }
-    finally { starting = false; }
-  }
-
-  async function adopt(name) {
-    try {
-      await post("/sessions/attach", { session: name, workspace: ws });
-      onstatus(`opening ${name}…`);
-      await waitFor(async () => {
-        const list = await api("/sessions");
-        return list.some((s) => s.session === name && s.workspace === ws);
-      });
-      onchanged();
-    } catch (e) { onstatus(e.message, true); }
-  }
-
-  async function kill(name) {
-    if (!confirm(`Kill session "${name}"? Anything running in it is lost.`)) return;
-    try { await post("/sessions/kill", { session: name }); onstatus(`killed ${name}`); onchanged(); }
-    catch (e) { onstatus(e.message, true); }
   }
 
   const KEYS = [
@@ -186,9 +144,16 @@
         </div>
       {/if}
 
-      <button disabled={starting} onclick={start}>
-        {starting ? "starting…" : "start a session here"}
-      </button>
+      {#if creating}
+        <NewSession
+          {ws}
+          taken={allNames}
+          {onstatus}
+          onchanged={() => { creating = false; onchanged(); }}
+          oncancel={() => (creating = false)} />
+      {:else}
+        <button onclick={() => (creating = true)}>start a session here</button>
+      {/if}
 
       <h2>windows{windows.length ? "" : " · none"}</h2>
       {#each windows as w (w.address)}

@@ -384,3 +384,34 @@ exact ones being killed.
 Correct fix: set `detach-on-destroy on` **on the target, immediately before killing it**.
 That covers every session regardless of origin, and leaves the user's global tmux config
 untouched.
+
+## Terminal-first, and the width problem it exposes
+
+A session is a tmux session; what runs inside is arbitrary. That is what agent-agnosticism
+means in practice, and it means a pane is a *terminal* view, not a Claude view. Typing
+into a plain shell already worked — every session created from the phone was `bash`.
+
+The gap was the create flow, which hardcoded `bash` in `$HOME`, so the one thing this
+project exists for — start an agent on a project from away — was impossible. Creating now
+takes a directory (one level under `$DESKPILOT_DIRS`, default `~/Projects`), a command
+(shell / claude / claude --continue / custom), and a name that follows the directory
+basename until edited, matching the shell wrapper's rule.
+
+**Measured caveat: a TUI does not fit a phone.** Claude Code in a session attached to a
+1896px terminal renders at 130 columns. A phone at 390px fits roughly 48. `tmux
+window-size` is `latest`, so the session takes the size of the most recent client — the
+desktop terminal — and the capture is 130 columns wide regardless of what is reading it.
+A shell transcript reflows fine; box-drawing does not.
+
+Options, none taken yet because it should be lived with first:
+
+- `window-size smallest` — the desktop terminal shrinks to the phone's size, which
+  ruins the desk experience to improve the phone one.
+- `window-size manual` at a fixed narrow width — same trade, made permanent.
+- A reader that strips box-drawing and reflows for known commands — most work, keeps both
+  experiences intact, and is speculative until the raw version proves unusable.
+- Horizontal scroll in the transcript instead of wrapping — cheap, but nests a horizontal
+  scroll inside the horizontally-snapping rail.
+
+The honest position: a phone is a good remote for a shell and a poor window onto a TUI.
+That is a property of TUIs, not of this design.

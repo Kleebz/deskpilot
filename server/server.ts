@@ -213,8 +213,13 @@ async function handle(req: Request): Promise<Response> {
     const ws = body?.workspace;
     if (!SAFE_NAME.test(name)) return fail("bad session name");
 
+    // The command is passed to tmux as argv and exec'd directly — no shell, so
+    // there is no quoting hazard. Note that Deno's --allow-run allowlist does
+    // NOT constrain this: tmux execs whatever it is handed. That is inherent to
+    // an app whose purpose is running terminals, and no worse than send-keys,
+    // which can already type any command into any session.
     const args = ["new-session", "-d", "-s", name, "-c", cwd];
-    if (cmd) args.push("--", ...String(cmd).split(/\s+/));
+    if (cmd) args.push("--", ...String(cmd).split(/\s+/).filter(Boolean));
     const r = await run("tmux", args);
     if (r.code !== 0) return fail(r.err || "could not create session", 500);
 
@@ -229,6 +234,23 @@ async function handle(req: Request): Promise<Response> {
       await run(`${SCRIPTS}/desk.sh`, ["place", String(ws), term, "-e", "tmux", "attach", "-t", name]);
     }
     return withCookie(json({ ok: true, session: name, workspace: ws ?? null }));
+  }
+
+  // Candidate working directories for a new session. One level deep under a
+  // few roots — enough to pick a project on a phone, not a file browser.
+  if (req.method === "GET" && path === "/api/dirs") {
+    const home = Deno.env.get("HOME")!;
+    const roots = (Deno.env.get("DESKPILOT_DIRS") ?? `${home}/Projects`)
+      .split(":").filter(Boolean);
+    const out: string[] = [home];
+    for (const root of roots) {
+      try {
+        for await (const e of Deno.readDir(root)) {
+          if (e.isDirectory && !e.name.startsWith(".")) out.push(`${root}/${e.name}`);
+        }
+      } catch { /* a configured root that does not exist is not an error */ }
+    }
+    return withCookie(json(out.sort()));
   }
 
   // Kill a session outright. Separate from closing its window, which only

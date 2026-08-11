@@ -16,6 +16,7 @@
   let activeWs = $state(1);
 
   const orphans = $derived(sessions.filter((s) => s.workspace === null));
+  const allNames = $derived(sessions.map((s) => s.session));
 
   function onstatus(text, isErr = false) { status = text; bad = isErr; }
 
@@ -103,6 +104,7 @@
         session={sessionFor(ws)}
         windows={windowsFor(ws)}
         {orphans}
+        {allNames}
         workspaces={WORKSPACES}
         active={ws === activeWs}
         {onstatus}
