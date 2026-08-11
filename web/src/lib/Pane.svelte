@@ -67,6 +67,13 @@
     return () => clearInterval(id);
   });
 
+  // Shrinking the container leaves scrollTop where it was, which is no longer
+  // the bottom — so a keyboard opening scrolls the latest output out of view.
+  $effect(() => {
+    void vis.resizedAt;
+    if (pinned) queueMicrotask(() => pre?.scrollTo(0, pre.scrollHeight));
+  });
+
   function onScroll() {
     if (!pre) return;
     pinned = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;

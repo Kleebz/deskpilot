@@ -181,7 +181,10 @@
   .dots i.on { background: var(--ok); }
   .rail {
     display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
-    height: calc(100dvh - 46px); scrollbar-width: none;
+    /* --app-h follows the *visible* area, so the rail shrinks when the
+       keyboard opens instead of being covered by it. 100dvh is the fallback
+       before the first measurement. */
+    height: calc(var(--app-h, 100dvh) - 46px); scrollbar-width: none;
     /* Without contain, a swipe past the last pane scrolls the page behind it. */
     overscroll-behavior-x: contain;
   }
