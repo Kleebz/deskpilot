@@ -2,6 +2,7 @@
   import { api, post, waitFor } from "./api.js";
   import WindowRow from "./WindowRow.svelte";
   import NewSession from "./NewSession.svelte";
+  import { vis } from "./visible.svelte.js";
 
   let { ws, session, windows, orphans, allNames, workspaces, active, onstatus, onchanged } = $props();
 
@@ -33,10 +34,12 @@
     }
   }
 
-  // Only the visible pane polls. Ten panes each refetching would be pure waste,
-  // and on cellular it would be rude.
+  // Only the visible pane polls, and only while the page is actually on screen.
+  // Ten panes each refetching would be pure waste; polling a backgrounded tab
+  // is worse than waste on cellular.
   $effect(() => {
-    if (!active || !session) return;
+    if (!active || !session || !vis.visible) return;
+    void vis.wokeAt;
     load();
     const id = setInterval(load, 3000);
     return () => clearInterval(id);

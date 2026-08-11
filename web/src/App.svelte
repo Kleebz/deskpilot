@@ -2,6 +2,7 @@
   import { api, token, setToken } from "./lib/api.js";
   import Pane from "./lib/Pane.svelte";
   import Overview from "./lib/Overview.svelte";
+  import { vis } from "./lib/visible.svelte.js";
 
   const WORKSPACES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -40,7 +41,13 @@
 
   // Structural poll only — sessions and window geometry. Pane contents refresh
   // themselves, and only for the visible pane.
+  //
+  // Reading vis.visible and vis.wokeAt makes this effect re-run when the page
+  // is backgrounded or comes back, so returning to the app refetches at once
+  // rather than waiting for a timer the browser had suspended.
   $effect(() => {
+    if (!vis.visible) return;
+    void vis.wokeAt;
     refresh();
     const id = setInterval(refresh, 5000);
     return () => clearInterval(id);

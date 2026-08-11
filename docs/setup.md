@@ -182,7 +182,19 @@ curl -s -H "authorization: Bearer $T" localhost:8790/api/sessions | jq
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8790/api/sessions   # 401, no token
 ```
 
-Then open `http://localhost:8790` and paste the token when prompted.
+**Pairing a phone:**
+
+```bash
+~/Projects/deskpilot/shell/pair.sh
+```
+
+Prints a QR encoding the URL *with* the token. Scan it and add the page to your home
+screen — the token is stored in a one-year cookie as well as localStorage, so it is once
+per host. Re-run it whenever the address changes; moving from LAN to Tailscale is a
+different IP and a token saved against the old host does not carry over.
+
+It prefers the tailnet address when Tailscale is up, since that is the one that keeps
+working when you leave the house.
 
 **It binds to 127.0.0.1 until you change it.** Once Tailscale is up, set
 `DESKPILOT_HOST=0.0.0.0` in the unit. This endpoint runs commands on your machine — it
