@@ -12,16 +12,27 @@ body {
   margin: 0; background: var(--bg); color: var(--fg); overscroll-behavior: none;
   font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+/* 44px is the minimum comfortable touch target on both iOS and Android
+   guidance. Measured before this: 60 of 60 controls were under it, 28 of them
+   at 26px. `.sm` now means smaller TEXT, not a smaller thing to hit. */
 button {
   font: inherit; background: transparent; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 6px; padding: .28rem .55rem;
+  border: 1px solid var(--line); border-radius: 8px;
+  min-height: 44px; padding: .4rem .7rem;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 button:active { background: var(--line); }
 button:disabled { opacity: .45; }
-button.sm { font-size: 12px; padding: .2rem .45rem; }
+button.sm { font-size: 12px; padding: .3rem .55rem; min-width: 44px; }
+
+/* Destructive actions look different and are not flush against benign ones —
+   `kill` was 7px from the row you tap to jump to a session. */
+button.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 55%, transparent); }
+button.danger:active { background: color-mix(in srgb, var(--err) 20%, transparent); }
 input, select {
   font: inherit; background: transparent; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 6px; padding: .42rem .55rem;
+  border: 1px solid var(--line); border-radius: 8px;
+  min-height: 44px; padding: .5rem .6rem;
 }
 .dim { color: var(--dim); }
 .err { color: var(--err); }

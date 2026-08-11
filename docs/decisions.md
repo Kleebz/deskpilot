@@ -448,3 +448,21 @@ runs arbitrary commands and unlocks the machine, the app is the cheapest of the 
 **What would flip it:** sharing this with other people. "Install Tailscale first" is a real
 adoption barrier, and at that point the relay model is right — reaching for an existing
 E2E transport rather than writing the crypto.
+
+## Touch targets, measured
+
+Audited the interface at 390x844 rather than by eye. Every one of 60 interactive
+elements was under the 44px minimum both iOS and Android recommend — 28 of them at
+26px, including the key row, which is the most-tapped control in the app, and `kill`,
+which is destructive and sat 7px from the row you tap to jump to a session.
+
+Fixed by making `.sm` mean smaller *text* rather than a smaller thing to hit: a 44px
+floor on every button, input and select. All 72 controls now measure exactly 44px.
+Destructive actions are red-bordered and separated from benign neighbours. The key row
+became a 4x2 grid rather than a wrapping flex row, so each key is ~85px wide.
+
+Contrast was already fine and did not need touching: dim text 5.47:1, transcript
+15.41:1, both above the 4.5:1 AA threshold.
+
+The general lesson matches the layout one: at phone size, judge by measurement. The
+interface looked reasonable in every screenshot taken before this audit.

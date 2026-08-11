@@ -233,8 +233,8 @@
   .composer { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
   form { display: flex; gap: .4rem; min-width: 0; }
   form input { flex: 1; min-width: 0; }
-  .keys { display: flex; gap: .3rem; flex-wrap: wrap; }
-  .keys button { font-size: 13px; padding: .35rem .5rem; min-width: 2.2rem; }
+  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; }
+  .keys button { font-size: 14px; padding: .3rem; }
 
   h2 {
     margin: 0; font-size: .72rem; letter-spacing: .09em; text-transform: uppercase;

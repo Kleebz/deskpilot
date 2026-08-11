@@ -116,7 +116,7 @@
           <span class="nm">{s.session}</span>
           <span class="path dim">{s.path}</span>
         </button>
-        <button class="sm" onclick={() => kill(s.session)}>kill</button>
+        <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
       </div>
     {/each}
   {:else if !detached.length}
@@ -143,7 +143,7 @@
           {#each workspaces as n}<option value={n}>{n}</option>{/each}
         </select>
         <button class="sm" onclick={() => adopt(s.session)}>open</button>
-        <button class="sm" onclick={() => kill(s.session)}>kill</button>
+        <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
       </div>
     {/each}
   {/if}
@@ -188,6 +188,8 @@
     color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
   }
   .acts { display: flex; gap: .4rem; padding-left: .5rem; min-width: 0; }
+  /* extra separation before a destructive control */
+  .acts .danger, .row .danger { margin-left: .5rem; }
   .acts select { flex: 1; min-width: 0; }
   .why {
     font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
