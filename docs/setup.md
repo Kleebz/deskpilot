@@ -127,16 +127,31 @@ Only needed off the home network. On the LAN, skip it.
 
 ```bash
 sudo pacman -S tailscale
-sudo systemctl enable --now tailscaled
-sudo tailscale up
+sudo systemctl enable --now tailscaled     # the package ships it disabled
+tailscale up                                # opens a browser to authenticate
 ```
 
-Install the Tailscale app on the phone, sign in to the same tailnet.
+The middle line is the one people miss: installing the package leaves the daemon
+disabled, and `tailscale login` then fails with
+`dial unix /var/run/tailscale/tailscaled.sock: no such file or directory`, which reads
+like a broken install rather than a stopped service.
 
-**Verify** — `tailscale status` lists the phone. Then **turn off wifi on the phone** and
-SSH to the tailnet IP over cellular. Testing on wifi proves nothing.
+Install the Tailscale app on the phone and sign in to the same tailnet. Then:
 
-**Rollback** — `sudo tailscale down`, `sudo systemctl disable --now tailscaled sshd`.
+```bash
+~/Projects/deskpilot/shell/use-tailscale.sh
+```
+
+That moves the firewall from "anyone on my wifi" to "tailnet only", restarts the
+service, and prints a new pairing QR — the address changed, so the phone's saved token
+does not carry over.
+
+**Verify** — **turn off wifi on the phone** and load it over cellular. Testing on wifi
+proves nothing, because you are still on the LAN.
+
+**Rollback** — `sudo tailscale down`, `sudo systemctl disable --now tailscaled`, and
+re-add a LAN rule if you want it back:
+`sudo ufw allow from <subnet> to any port 8790 proto tcp`.
 
 ---
 
