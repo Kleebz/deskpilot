@@ -25,11 +25,16 @@
       "Bash(tmux capture-pane*)"
     ],
     "ask": [
+      "Bash(*/desk.sh click*)",
+      "Bash(*/desk.sh key*)",
+      "Bash(*/desk.sh type*)",
+      "Bash(*/desk.sh unlock*)",
       "Bash(hyprctl dispatch closewindow*)",
       "Bash(hyprctl dispatch killactive*)",
       "Bash(hyprctl keyword*)",
+      "Bash(tmux kill-*)",
       "Bash(tmux send-keys*)",
-      "Bash(tmux kill-*)"
+      "Bash(ydotool *)"
     ],
     "deny": [
       "Bash(hyprctl dispatch exit*)"

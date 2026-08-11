@@ -12,6 +12,15 @@
 #   desk.sh tile <addr>                clear float+fullscreen so the tiler takes over
 #   desk.sh place <ws> <cmd...>        launch a command in a window on a workspace
 #
+#   desk.sh type [text]                type into the FOCUSED window (stdin if no arg)
+#   desk.sh key <name...>              press keys: enter escape tab up down left right
+#   desk.sh click <x> <y>              move the pointer and left-click
+#   desk.sh unlock                     read a password on stdin and unlock hyprlock
+#
+# The input commands need ydotool — see shell/install-input.sh. They are
+# deliberately NOT exposed by the server except `unlock`: an agent you are
+# talking to may drive the desktop, an HTTP endpoint may not.
+#
 # Verified on Hyprland 0.56.0, single 1920x1080 output DP-2.
 
 set -uo pipefail
@@ -27,6 +36,27 @@ have_env || {
 have_env || die "no Hyprland instance found"
 
 is_locked() { pidof hyprlock >/dev/null; }
+
+need_ydotool() {
+  command -v ydotool >/dev/null || die "ydotool not installed — see shell/install-input.sh"
+  [ -S "${YDOTOOL_SOCKET:-/run/user/$(id -u)/.ydotool_socket}" ] \
+    || pidof ydotoold >/dev/null \
+    || die "ydotoold is not running — see shell/install-input.sh"
+}
+
+# Linux input keycodes for the keys worth reaching from a script.
+keycode() {
+  case "$1" in
+    enter|return) echo 28 ;;  escape|esc) echo 1 ;;
+    tab) echo 15 ;;           backspace) echo 14 ;;
+    space) echo 57 ;;         delete) echo 111 ;;
+    up) echo 103 ;;           down) echo 108 ;;
+    left) echo 105 ;;         right) echo 106 ;;
+    home) echo 102 ;;         end) echo 107 ;;
+    pageup) echo 104 ;;       pagedown) echo 109 ;;
+    *) return 1 ;;
+  esac
+}
 
 cmd=${1:-state}; shift || true
 
@@ -144,6 +174,53 @@ case "$cmd" in
     ws=${1:?workspace required}; shift
     [ $# -gt 0 ] || die "command required"
     hyprctl dispatch exec "[workspace $ws silent] $*"
+    ;;
+
+  # ---- input (ydotool). Everything below needs ydotoold running. ----
+
+  type)
+    need_ydotool
+    # Read from stdin when no argument, so a password never appears in argv —
+    # /proc/*/cmdline is world-readable.
+    if [ $# -gt 0 ]; then printf '%s' "$*" | ydotool type --file -
+    else ydotool type --file -
+    fi
+    ;;
+
+  key)
+    need_ydotool
+    [ $# -gt 0 ] || die "key name required"
+    codes=""
+    for k in "$@"; do
+      c=$(keycode "$k") || die "unknown key: $k"
+      codes="$codes $c:1 $c:0"
+    done
+    # shellcheck disable=SC2086
+    ydotool key $codes
+    ;;
+
+  click)
+    need_ydotool
+    x=${1:?x required}; y=${2:?y required}
+    ydotool mousemove --absolute -x "$x" -y "$y"
+    sleep 0.05
+    ydotool click 0xC0          # left press + release
+    ;;
+
+  # Types a password into hyprlock and presses enter. This goes THROUGH
+  # authentication — hyprlock validates via PAM exactly as if typed at the
+  # desk. Nothing is bypassed; a wrong password fails normally.
+  unlock)
+    need_ydotool
+    is_locked || die "screen is not locked"
+    ydotool type --file -       # password on stdin, never argv, never logged
+    sleep 0.2
+    ydotool key 28:1 28:0       # Enter
+    for _ in 1 2 3 4 5 6 7 8; do
+      sleep 0.5
+      is_locked || { echo unlocked; exit 0; }
+    done
+    die "still locked — wrong password, or ydotool is not reaching hyprlock"
     ;;
 
   *) die "unknown command: $cmd" ;;
