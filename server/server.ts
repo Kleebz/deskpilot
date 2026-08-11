@@ -287,6 +287,35 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ ok: true, session: name, workspace: ws }));
   }
 
+  // The only input capability exposed over HTTP. Everything else — type, key,
+  // click — stays in scripts/ where only an agent you are talking to can reach
+  // it. Unlock earns the exception because it is narrow, has one target, and is
+  // useless without the password.
+  //
+  // The password is piped to the script on stdin, never passed as an argument
+  // (/proc/*/cmdline is world-readable), never written to disk, and never
+  // echoed back in a response or a log line.
+  if (req.method === "POST" && path === "/api/unlock") {
+    const body = await req.json().catch(() => null);
+    const pw = body?.password;
+    if (typeof pw !== "string" || !pw.length) return fail("password required");
+
+    const child = new Deno.Command(`${SCRIPTS}/desk.sh`, {
+      args: ["unlock"],
+      stdin: "piped", stdout: "piped", stderr: "piped",
+    }).spawn();
+    const w = child.stdin.getWriter();
+    await w.write(new TextEncoder().encode(pw));
+    await w.close();
+    const { code, stderr } = await child.output();
+
+    if (code !== 0) {
+      const msg = new TextDecoder().decode(stderr).trim();
+      return withCookie(fail(msg || "unlock failed", 409));
+    }
+    return withCookie(json({ ok: true, locked: false }));
+  }
+
   // ---- desktop ----
   if (req.method === "GET" && path === "/api/desk/state") {
     const ws = url.searchParams.get("ws") ?? "";

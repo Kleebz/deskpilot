@@ -216,11 +216,15 @@ case "$cmd" in
     ydotool type --file -       # password on stdin, never argv, never logged
     sleep 0.2
     ydotool key 28:1 28:0       # Enter
-    for _ in 1 2 3 4 5 6 7 8; do
+    # PAM is not instant and a *failed* auth is deliberately slower still, so a
+    # short window reports failure for an unlock that is about to succeed. Ten
+    # seconds costs nothing on the wrong-password path, which stays locked
+    # regardless.
+    for _ in $(seq 1 20); do
       sleep 0.5
       is_locked || { echo unlocked; exit 0; }
     done
-    die "still locked — wrong password, or ydotool is not reaching hyprlock"
+    die "still locked — password rejected"
     ;;
 
   *) die "unknown command: $cmd" ;;

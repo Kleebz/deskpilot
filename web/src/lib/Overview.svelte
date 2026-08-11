@@ -11,6 +11,24 @@
   const detached = $derived(sessions.filter((s) => s.workspace === null));
 
   let target = $state({});
+  let pw = $state("");
+  let unlocking = $state(false);
+
+  // The password is held only in this field, sent once, and cleared. It is
+  // never stored — not in localStorage, not with the bearer token, nowhere.
+  async function unlock(ev) {
+    ev.preventDefault();
+    if (!pw) return;
+    unlocking = true;
+    const secret = pw;
+    pw = "";
+    try {
+      await post("/unlock", { password: secret });
+      onstatus("unlocked");
+      onchanged();
+    } catch (e) { onstatus(e.message, true); }
+    finally { unlocking = false; }
+  }
 
   async function adopt(name) {
     const ws = Number(target[name] ?? 0);
@@ -41,7 +59,20 @@
   <h2 class="first">sessions</h2>
 
   {#if locked}
-    <div class="why">Screen is locked. Text still works; captures do not.</div>
+    <div class="why">
+      Screen is locked, so screenshots would return the password prompt. Sessions and
+      window state are unaffected.
+    </div>
+    <form class="unlock" onsubmit={unlock}>
+      <input
+        type="password" bind:value={pw} disabled={unlocking}
+        placeholder="desktop password" autocomplete="current-password" />
+      <button disabled={unlocking || !pw}>{unlocking ? "…" : "unlock"}</button>
+    </form>
+    <div class="hint dim">
+      Typed into hyprlock through PAM, exactly as if entered at the desk — a wrong
+      password fails normally. Sent once and never stored.
+    </div>
   {/if}
 
   {#if placed.length}
@@ -81,7 +112,7 @@
     {/each}
   {/if}
 
-  <div class="hint dim">Swipe right for screens 1–10.</div>
+  <div class="hint dim foot">Swipe right for screens 1–10.</div>
 </section>
 
 <style>
@@ -126,5 +157,8 @@
     border-left: 2px solid var(--line); padding-left: .5rem;
     overflow-wrap: anywhere;
   }
-  .hint { font-size: 11px; margin-top: auto; padding-top: .5rem; }
+  .hint { font-size: 11px; padding-top: .25rem; line-height: 1.5; }
+  .unlock { display: flex; gap: .4rem; min-width: 0; }
+  .unlock input { flex: 1; min-width: 0; }
+  .foot { margin-top: auto; }
 </style>
