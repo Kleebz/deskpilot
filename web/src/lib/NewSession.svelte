@@ -21,6 +21,18 @@
 
   const command = $derived(preset === "custom" ? custom.trim() : preset);
 
+  // The server refuses anything outside this set rather than escaping it, since
+  // the name reaches tmux. Enforce it here so a space produces guidance in the
+  // field instead of "bad session name" after a round trip.
+  const OK = /^[A-Za-z0-9_.-]{1,64}$/;
+  const clash = $derived(taken.includes(name.trim()));
+  const nameProblem = $derived(
+    !name.trim() ? "required"
+    : !OK.test(name.trim()) ? "letters, numbers, dot, dash, underscore only"
+    : clash ? "already in use"
+    : "",
+  );
+
   $effect(() => {
     api("/dirs")
       .then((d) => { dirs = d; if (!dir) dir = d[1] ?? d[0] ?? ""; })
@@ -42,20 +54,30 @@
   }
 
   async function create() {
-    if (!name.trim()) { onstatus("name required", true); return; }
-    if (taken.includes(name.trim())) { onstatus(`"${name}" already exists`, true); return; }
+    if (nameProblem) { onstatus(`name: ${nameProblem}`, true); return; }
     if (!command) { onstatus("pick something to run", true); return; }
     busy = true;
+    const n = name.trim();
     try {
-      await post("/sessions", { name: name.trim(), path: dir, command, workspace: ws });
-      await waitFor(async () => {
-        const list = await api("/sessions");
-        return list.some((s) => s.session === name.trim() && s.workspace === ws);
-      });
-      onstatus(`${name} · ${command} · screen ${ws}`);
-      onchanged();
-    } catch (e) { onstatus(e.message, true); }
-    finally { busy = false; }
+      await post("/sessions", { name: n, path: dir, command, workspace: ws });
+    } catch (e) {
+      onstatus(e.message, true);
+      busy = false;
+      return;
+    }
+    // Creation succeeded. The window takes a moment to appear, and if it never
+    // does the session still exists — reporting that as a failure would be a
+    // lie that also hides a working session.
+    onstatus(`${n} created, opening window…`);
+    const placed = await waitFor(async () => {
+      const list = await api("/sessions");
+      return list.some((s) => s.session === n && s.workspace === ws);
+    });
+    onstatus(placed
+      ? `${n} · ${command} · screen ${ws}`
+      : `${n} created but has no window yet — see the sessions index`);
+    busy = false;
+    onchanged();
   }
 </script>
 
@@ -88,14 +110,23 @@
   <label>
     <span class="lbl">name</span>
     <input
+      class:bad={touchedName && nameProblem}
       bind:value={name}
-      oninput={() => (touchedName = true)}
+      oninput={(e) => {
+        touchedName = true;
+        // spaces are the common case; turn them into something legal as you type
+        const fixed = e.currentTarget.value.replace(/\s+/g, "-");
+        if (fixed !== e.currentTarget.value) name = fixed;
+      }}
       placeholder="session name" autocapitalize="off" autocorrect="off" />
+    {#if touchedName && nameProblem}
+      <span class="hint err">{nameProblem}</span>
+    {/if}
   </label>
 
   <div class="acts">
     <button onclick={oncancel}>cancel</button>
-    <button class="go" disabled={busy} onclick={create}>
+    <button class="go" disabled={busy || !!nameProblem} onclick={create}>
       {busy ? "starting…" : `start on screen ${ws}`}
     </button>
   </div>
@@ -114,4 +145,7 @@
   .acts { display: flex; gap: .4rem; min-width: 0; }
   .acts button { flex: 1; min-width: 0; }
   .acts .go { border-color: var(--ok); color: var(--ok); }
+  .acts .go:disabled { border-color: var(--line); color: var(--dim); }
+  input.bad { border-color: var(--err); }
+  .hint { font-size: 11px; }
 </style>
