@@ -1,7 +1,7 @@
 <script>
   import { api, post } from "./api.js";
 
-  let { win, workspaces, onstatus, onchanged } = $props();
+  let { win, workspaces, onstatus, onchanged, self = false } = $props();
 
   let shot = $state(null);      // object URL, kept across polls
   let busy = $state(false);
@@ -48,8 +48,11 @@
   }
 </script>
 
-<div class="win">
-  <span class="t">{win.class} <span class="dim">{win.title}</span></span>
+<div class="win" class:self>
+  <span class="t">
+    {#if self}<span class="tag">this session</span>{/if}
+    {win.class} <span class="dim">{win.title}</span>
+  </span>
   <span class="mode">{mode}</span>
   <button class="sm" disabled={busy} onclick={tile}>tile</button>
   <select class="sm" disabled={busy} onchange={move}>
@@ -88,6 +91,14 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .mode { font-size: 10px; color: var(--dim); text-transform: uppercase; flex: none; }
+  /* A session and the terminal hosting it are the same thing. Listing both
+     without saying so makes one session plus one window look like three. */
+  .win.self { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+  .tag {
+    font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--bg); background: var(--ok); border-radius: 3px; padding: .05rem .25rem;
+    margin-right: .25rem;
+  }
   .thumb {
     width: 100%; display: block; border-radius: 8px;
     border: 1px solid var(--line);

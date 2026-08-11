@@ -18,14 +18,17 @@ set -uo pipefail
 
 CLIENTS=$(hyprctl clients -j 2>/dev/null || echo '[]')
 
-# Walk up the process tree until a pid matches a Hyprland window.
+# Walk up the process tree until a pid matches a Hyprland window. Emits
+# "<workspace> <address>" so callers can also identify the hosting window —
+# the client needs it to avoid listing a session's own terminal as if it were
+# an unrelated window.
 workspace_for_pid() {
-  local p="${1:-}" ws
+  local p="${1:-}" hit
   for _ in 1 2 3 4 5 6; do
     if [ -z "$p" ] || [ "$p" = "1" ] || [ "$p" = "0" ]; then return 1; fi
-    ws=$(printf '%s' "$CLIENTS" | jq -r --argjson p "$p" \
-      'first(.[] | select(.pid == $p) | .workspace.id) // empty' 2>/dev/null)
-    if [ -n "$ws" ]; then printf '%s' "$ws"; return 0; fi
+    hit=$(printf '%s' "$CLIENTS" | jq -r --argjson p "$p" \
+      'first(.[] | select(.pid == $p) | "\(.workspace.id) \(.address)") // empty' 2>/dev/null)
+    if [ -n "$hit" ]; then printf '%s' "$hit"; return 0; fi
     p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
   done
   return 1
@@ -42,20 +45,25 @@ done < <(tmux list-clients -F '#{session_name} #{client_pid}' 2>/dev/null)
 rows=()
 while IFS=$'\t' read -r name created path command; do
   [ -z "${name:-}" ] && continue
-  all=""
+  all=""; addrs=""
   for cp in ${CLIENT_PIDS[$name]:-}; do
-    got=$(workspace_for_pid "$cp") && all="$all $got"
+    if got=$(workspace_for_pid "$cp"); then
+      all="$all ${got%% *}"
+      addrs="$addrs ${got##* }"
+    fi
   done
   ws=$(printf '%s' "${all# }" | tr ' ' '\n' | grep -v '^$' | sort -n -u | head -1)
   list=$(printf '%s' "${all# }" | tr ' ' '\n' | grep -v '^$' | sort -n -u | jq -R . | jq -sc 'map(tonumber)')
+  addrlist=$(printf '%s' "${addrs# }" | tr ' ' '\n' | grep -v '^$' | sort -u | jq -R . | jq -sc .)
   # What is running matters to the client: advice for a shell is wrong advice
   # for an agent, and vice versa.
   rows+=("$(jq -nc \
     --arg n "$name" --arg c "$created" --arg p "$path" --arg w "$ws" \
     --arg cmd "${command:-}" --argjson l "${list:-[]}" \
+    --argjson a "${addrlist:-[]}" \
     '{session:$n, created:($c|tonumber? // 0), path:$p, command:$cmd,
       workspace:($w|if . == "" then null else tonumber end),
-      workspaces:$l,
+      workspaces:$l, windows:$a,
       attached:($w != "")}')")
 done < <(tmux list-sessions -F '#{session_name}	#{session_created}	#{session_path}	#{pane_current_command}' 2>/dev/null)
 

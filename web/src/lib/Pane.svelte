@@ -22,6 +22,12 @@
 
   const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
 
+  // The window hosting this session is not a separate thing to manage, so it
+  // is tagged and excluded from the count. Otherwise one session in one
+  // terminal plus one other window reads as three.
+  const ownWindows = $derived(new Set(session?.windows ?? []));
+  const otherCount = $derived(windows.filter((w) => !ownWindows.has(w.address)).length);
+
   // Re-evaluated by the poll tick, so it decays on its own.
   let now = $state(Date.now());
   $effect(() => {
@@ -138,14 +144,14 @@
       <span class="name">{session.session}</span>
       {#if working}<span class="pulse" title="output changing"></span>{/if}
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
-        {windows.length} win
+        {otherCount} other
       </button>
     </div>
 
     {#if showWindows}
       <div class="drawer">
         {#each windows as w (w.address)}
-          <WindowRow win={w} {workspaces} {onstatus} {onchanged} />
+          <WindowRow win={w} {workspaces} {onstatus} {onchanged} self={ownWindows.has(w.address)} />
         {:else}
           <div class="why">No windows on this screen.</div>
         {/each}

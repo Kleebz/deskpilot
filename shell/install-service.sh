@@ -42,6 +42,14 @@ mkdir -p "$UNIT_DIR"
 # paths — WorkingDirectory, the scoped --allow-run list, the script itself.
 # A checked-in unit with a hardcoded ~/Projects/deskpilot silently fails to
 # start for anyone who cloned somewhere else.
+# Remove first: earlier versions symlinked this into the repo, and `cat >`
+# follows a symlink and writes to its target. That silently resurrected a file
+# that had been deleted from the repo, and left a dangling link when it was
+# deleted again.
+rm -f "$UNIT_DIR/deskpilot.service" \
+      "$UNIT_DIR/graphical-session.target.wants/deskpilot.service" \
+      "$UNIT_DIR/default.target.wants/deskpilot.service"
+
 cat > "$UNIT_DIR/deskpilot.service" <<UNIT
 [Unit]
 Description=deskpilot — phone-facing control server for the desktop
