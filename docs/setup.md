@@ -30,6 +30,9 @@ any terminal on this machine.
 ln -s ~/Projects/deskpilot/skills/desk-control ~/.claude/skills/desk-control
 ```
 
+Claude Code only loads skills from `~/.claude/skills/`, so the symlink is what lets the
+skill live in the repo and still be picked up — edits are live, and it stays in git.
+
 **Verify** — ask Claude Code "what's on workspace 1". It should answer from
 `hyprctl clients -j` without taking a screenshot.
 
@@ -171,18 +174,19 @@ npm run build
 For UI work, `npm run dev` serves with hot reload on the LAN and proxies `/api` to the
 running service, so you edit against real sessions rather than mocks.
 
-Then generate a token and install the service:
+Then install the service:
 
 ```bash
-mkdir -p ~/.config/deskpilot
-openssl rand -hex 32 > ~/.config/deskpilot/token
-chmod 600 ~/.config/deskpilot/token
-
-mkdir -p ~/.config/systemd/user
-ln -s ~/Projects/deskpilot/systemd/deskpilot.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now deskpilot
+~/Projects/deskpilot/shell/install-service.sh          # localhost only
+~/Projects/deskpilot/shell/install-service.sh --lan    # also on your home wifi
 ```
+
+It generates a token if you have none, links the unit into
+`~/.config/systemd/user/` (systemd only reads units from its own directories; a symlink
+keeps the file version-controlled and edits live), enables it, and prints the URL.
+
+Skip `--lan` if you are going straight to Tailscale — step 3c makes the port
+tailnet-only anyway, and there is no reason to open it on your wifi in between.
 
 It runs as a user service rather than a Hyprland `exec-once` because uwsm already
 imports `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` into the systemd user
