@@ -46,12 +46,14 @@
 
   {#if placed.length}
     {#each placed as s (s.session)}
-      <button class="row" onclick={() => onjump(s.workspace)}>
-        <span class="badge">ws{s.workspace}</span>
-        <span class="nm">{s.session}</span>
-        <span class="path dim">{s.path}</span>
-        <span class="go dim">›</span>
-      </button>
+      <div class="row">
+        <button class="go" onclick={() => onjump(s.workspace)}>
+          <span class="badge">ws{s.workspace}</span>
+          <span class="nm">{s.session}</span>
+          <span class="path dim">{s.path}</span>
+        </button>
+        <button class="sm" onclick={() => kill(s.session)}>kill</button>
+      </div>
     {/each}
   {:else}
     <div class="why">No session has a window right now.</div>
@@ -97,7 +99,13 @@
   .row {
     display: flex; align-items: center; gap: .45rem; min-width: 0;
     width: 100%; text-align: left;
-    border: 1px solid var(--line); border-radius: 8px; padding: .5rem;
+    border: 1px solid var(--line); border-radius: 8px; padding: .4rem .5rem;
+  }
+  /* the tap-to-jump area; the kill button sits outside it so we never nest
+     interactive elements inside a button */
+  .go {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: .45rem;
+    border: 0; padding: .2rem 0; text-align: left; background: transparent;
   }
   .row.static { border-style: dashed; }
   .nm { font-weight: 600; color: var(--ok); flex: 0 1 auto; min-width: 0;
