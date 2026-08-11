@@ -415,3 +415,36 @@ Options, none taken yet because it should be lived with first:
 
 The honest position: a phone is a good remote for a shell and a poor window onto a TUI.
 That is a property of TUIs, not of this design.
+
+## Network transport: Tailscale, and what would change it
+
+Revisited repeatedly, so the reasoning is here rather than re-derived.
+
+**The tension nobody named for a while:** a stated constraint was "no mobile app", and
+Tailscale is a mobile app. A different one — passive, set-and-forget via Android's
+always-on VPN — but an app that must be installed and running. That is a real cost, not
+a rounding error.
+
+**What decided it is specific to this service: it carries the desktop unlock password.**
+
+- **Cloudflare Tunnel** terminates TLS. Traffic is encrypted browser→Cloudflare and
+  Cloudflare→here, but plaintext *inside* Cloudflare. The tunnel operator can in
+  principle see the password. Tailscale cannot: WireGuard is end-to-end and the
+  coordination server only brokers keys. Secondary risks: an over-permissive Access
+  policy fails silently, and the hostname is public in DNS and CT logs whether or not
+  anyone gets in.
+- **A self-hosted relay** — desktop polls outbound, phone posts, nothing listens — is
+  architecturally the best fit for the constraints. But without end-to-end encryption
+  *through* the relay it has Cloudflare's problem with a worse security team: yours.
+  With E2E it is strictly better, and it means owning key derivation, nonce handling and
+  replay protection on a channel that unlocks a computer. Very doable, very easy to get
+  subtly wrong.
+- **Self-hosted WireGuard** keeps the app and adds DDNS and a forwarded port.
+
+**Decision: Tailscale, 2026-08-11.** Its cost is one app. Cloudflare's is an intermediary
+that can read the password. A relay's is becoming that intermediary. For an endpoint that
+runs arbitrary commands and unlocks the machine, the app is the cheapest of the three.
+
+**What would flip it:** sharing this with other people. "Install Tailscale first" is a real
+adoption barrier, and at that point the relay model is right — reaching for an existing
+E2E transport rather than writing the crypto.
