@@ -230,10 +230,16 @@
     display: flex; flex-direction: column;
   }
   /* With a session the pane does not scroll — the transcript does. */
-  section.composing { padding: .6rem; gap: .5rem; overflow: hidden; }
+  section.composing {
+    padding: .6rem; gap: .5rem; overflow: hidden;
+    /* the composer is the lowest thing on screen — keep it clear of the
+       gesture bar */
+    padding-bottom: calc(.6rem + env(safe-area-inset-bottom, 0px));
+  }
   .scroll {
     display: flex; flex-direction: column; gap: .55rem;
-    padding: .7rem; overflow-y: auto; min-width: 0;
+    padding: .7rem; padding-bottom: calc(.7rem + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto; min-width: 0;
   }
 
   .bar { display: flex; align-items: center; gap: .4rem; min-width: 0; }

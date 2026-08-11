@@ -1,0 +1,36 @@
+# deskpilot configuration
+#
+# Copy to ~/.config/deskpilot/config and edit. Everything here has a default
+# that suits a stock Omarchy box; the file exists so nothing about one machine
+# is baked into the code.
+#
+#   cp deskpilot.conf.example ~/.config/deskpilot/config
+#
+# Read by the scripts, the server, and the generated systemd unit.
+
+# Terminal used when placing a session on a workspace. Must accept `-e CMD`.
+# Known to work: alacritty, foot, kitty, ghostty (all use -e).
+DESKPILOT_TERMINAL=alacritty
+
+# Directories offered when creating a session. Colon-separated; each is scanned
+# one level deep. $HOME is always included.
+DESKPILOT_DIRS=$HOME/Projects
+
+# Workspaces the phone UI shows, as a count. Hyprland numbers them from 1.
+DESKPILOT_WORKSPACES=10
+
+# Lock detection. deskpilot refuses to screenshot while locked, because the
+# capture would be of the password prompt. This is the process name to look
+# for — hyprlock on Omarchy, swaylock elsewhere.
+DESKPILOT_LOCK_PROCESS=hyprlock
+
+# Where the server listens. 127.0.0.1 is the safe default: this endpoint runs
+# commands and can unlock the machine, so it must never face the internet.
+# Widen it only behind Tailscale or an equivalent.
+DESKPILOT_HOST=127.0.0.1
+DESKPILOT_PORT=8790
+
+# Screenshot tuning. Content drives JPEG size far more than dimensions do, so
+# these are a floor on legibility rather than a bandwidth target.
+DESKPILOT_MAX_WIDTH=1200
+DESKPILOT_QUALITY=70

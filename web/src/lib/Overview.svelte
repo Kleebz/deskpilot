@@ -164,7 +164,11 @@
        feels loose. */
     scroll-snap-stop: always;
     display: flex; flex-direction: column; gap: .5rem;
-    padding: .7rem; overflow-y: auto;
+    padding: .7rem;
+    /* Android's gesture bar and iOS's home indicator overlap the bottom of the
+       viewport. Without this the sticky action sits underneath them. */
+    padding-bottom: calc(.7rem + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
   }
   h2 {
     margin: .2rem 0 0; font-size: .72rem; letter-spacing: .09em; text-transform: uppercase;
@@ -208,7 +212,7 @@
   .foot { margin-top: auto; padding-bottom: .3rem; }
   .new {
     border-color: var(--ok); color: var(--ok);
-    position: sticky; bottom: 0; width: 100%;
+    position: sticky; bottom: env(safe-area-inset-bottom, 0px); width: 100%;
     background: var(--bg); box-shadow: 0 -8px 12px -8px var(--bg);
   }
   .pick { display: flex; align-items: center; gap: .45rem; min-width: 0; }

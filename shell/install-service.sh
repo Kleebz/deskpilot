@@ -24,6 +24,8 @@ REPO="$(dirname "$(readlink -f "$0")")/.."
 REPO="$(cd "$REPO" && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
 TOKEN="$HOME/.config/deskpilot/token"
+CONF="$HOME/.config/deskpilot/config"
+[ -f "$CONF" ] && . "$CONF"
 
 command -v deno >/dev/null || { echo "deno is required"; exit 1; }
 
@@ -35,7 +37,43 @@ if [ ! -f "$TOKEN" ]; then
 fi
 
 mkdir -p "$UNIT_DIR"
-ln -sf "$REPO/systemd/deskpilot.service" "$UNIT_DIR/deskpilot.service"
+
+# The unit is generated rather than shipped, because it has to name absolute
+# paths — WorkingDirectory, the scoped --allow-run list, the script itself.
+# A checked-in unit with a hardcoded ~/Projects/deskpilot silently fails to
+# start for anyone who cloned somewhere else.
+cat > "$UNIT_DIR/deskpilot.service" <<UNIT
+[Unit]
+Description=deskpilot — phone-facing control server for the desktop
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=$REPO
+Environment=DESKPILOT_HOST=${DESKPILOT_HOST:-127.0.0.1}
+Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
+
+# --allow-run is scoped to two scripts plus tmux. This is why the server is
+# Deno rather than Bun: an injection bug still cannot reach rm, ssh or curl.
+ExecStart=$(command -v deno) run \\
+  --allow-net \\
+  --allow-read \\
+  --allow-env \\
+  --allow-run=$REPO/scripts/desk.sh,$REPO/scripts/sessions.sh,tmux \\
+  $REPO/server/server.ts
+
+# CRITICAL: tmux new-session starts the tmux *server* as a child of this
+# process, so it joins this unit's cgroup. The default KillMode=control-group
+# would kill the tmux server — and every session in it — on any restart.
+KillMode=process
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
+UNIT
 
 DROPIN="$UNIT_DIR/deskpilot.service.d/local.conf"
 if [ "${1:-}" = "--lan" ]; then

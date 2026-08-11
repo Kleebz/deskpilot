@@ -8,16 +8,36 @@ prints something or tells you it failed.
 
 ---
 
-## Step 0 — What is already here
+## Step 0 — Preflight
 
 ```bash
-for c in grim slurp hyprctl jq tmux wl-copy deno; do
-  printf '%-10s %s\n' "$c" "$(command -v $c || echo MISSING)"
-done
+~/Projects/deskpilot/shell/check.sh
 ```
 
-All of these should be present on a stock Omarchy box. Installed later, only when the
-step that needs them arrives: `tailscale` (step 3), `ydotool` (step 5).
+Checks every assumption — tools, compositor, the systemd user environment, lock
+program, terminal, uinput permissions, shell integration, service state, reachability —
+and prints the fix beside anything missing. Essential failures exit non-zero; optional
+things only warn.
+
+Run it now, and again whenever something behaves oddly. Most failures in this project
+have been silent, and this is what makes them visible.
+
+**Assumptions worth knowing**, all overridable in the config below:
+
+| | |
+|---|---|
+| Compositor | **Hyprland** — `hyprctl` and numbered workspaces are load-bearing |
+| Lock | `hyprlock`, detected by process name |
+| Terminal | `alacritty`, must accept `-e CMD` |
+| Shell | bash or zsh for the wrapper |
+| Session env | systemd user manager must have `WAYLAND_DISPLAY` (uwsm does this) |
+
+Copy the config if you need to change any of them:
+
+```bash
+mkdir -p ~/.config/deskpilot
+cp ~/Projects/deskpilot/deskpilot.conf.example ~/.config/deskpilot/config
+```
 
 ---
 

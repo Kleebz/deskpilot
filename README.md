@@ -15,6 +15,14 @@ Step-by-step install is in **[docs/setup.md](docs/setup.md)** — ordered, each 
 a verification and a rollback. Full reasoning, including the options rejected and why,
 is in [docs/decisions.md](docs/decisions.md).
 
+## Start here
+
+```bash
+shell/check.sh            # verifies every assumption, tells you what is missing
+shell/install-service.sh  # token, unit, enable, print the URL
+shell/pair.sh             # QR to pair a phone
+```
+
 ## Status
 
 | Piece | State |
@@ -35,6 +43,8 @@ terminal on this machine.
 ## Layout
 
 ```
+CLAUDE.md               context for an agent working on this repo
+deskpilot.conf.example  terminal, lock program, dirs, host — copy to ~/.config/deskpilot/config
 web/                    Svelte + Vite UI; `npm run build` before first use
 server/server.ts        Deno HTTP wrapper over scripts/ and tmux
 scripts/                portable shell — the actual desktop + session commands

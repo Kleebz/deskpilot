@@ -1,42 +1,26 @@
 [Unit]
-# Install:
-#   mkdir -p ~/.config/systemd/user
-#   ln -s ~/Projects/deskpilot/systemd/deskpilot.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now deskpilot
-#
-# This runs as a user service rather than a Hyprland exec-once because uwsm
-# already imports WAYLAND_DISPLAY and HYPRLAND_INSTANCE_SIGNATURE into the
-# systemd user manager, so hyprctl and grim work here directly — and unlike
-# exec-once, systemd restarts it when it dies.
 Description=deskpilot — phone-facing control server for the desktop
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Projects/deskpilot
-
-# Bind to localhost until Tailscale is up. Then set DESKPILOT_HOST=0.0.0.0
-# here — the endpoint can run commands, so it must never face the internet.
+WorkingDirectory=/home/jacob/Projects/deskpilot
 Environment=DESKPILOT_HOST=127.0.0.1
 Environment=DESKPILOT_PORT=8790
 
-# --allow-run is scoped to three executables. This is the reason the server is
-# Deno rather than Bun: an injection bug still cannot reach rm, ssh, or curl.
+# --allow-run is scoped to two scripts plus tmux. This is why the server is
+# Deno rather than Bun: an injection bug still cannot reach rm, ssh or curl.
 ExecStart=/usr/bin/deno run \
   --allow-net \
   --allow-read \
   --allow-env \
-  --allow-run=%h/Projects/deskpilot/scripts/desk.sh,%h/Projects/deskpilot/scripts/sessions.sh,tmux \
-  %h/Projects/deskpilot/server/server.ts
+  --allow-run=/home/jacob/Projects/deskpilot/scripts/desk.sh,/home/jacob/Projects/deskpilot/scripts/sessions.sh,tmux \
+  /home/jacob/Projects/deskpilot/server/server.ts
 
 # CRITICAL: tmux new-session starts the tmux *server* as a child of this
 # process, so it joins this unit's cgroup. The default KillMode=control-group
-# would then kill the tmux server — and every session in it — on any restart of
-# deskpilot. That destroyed sessions repeatedly during development before the
-# cause was found: work vanishing was blamed on tmux, on kill semantics, on the
-# UI, on everything except a service restart.
+# would kill the tmux server — and every session in it — on any restart.
 KillMode=process
 
 Restart=on-failure
