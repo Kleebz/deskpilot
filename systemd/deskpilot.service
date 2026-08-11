@@ -31,6 +31,14 @@ ExecStart=/usr/bin/deno run \
   --allow-run=%h/Projects/deskpilot/scripts/desk.sh,%h/Projects/deskpilot/scripts/sessions.sh,tmux \
   %h/Projects/deskpilot/server/server.ts
 
+# CRITICAL: tmux new-session starts the tmux *server* as a child of this
+# process, so it joins this unit's cgroup. The default KillMode=control-group
+# would then kill the tmux server — and every session in it — on any restart of
+# deskpilot. That destroyed sessions repeatedly during development before the
+# cause was found: work vanishing was blamed on tmux, on kill semantics, on the
+# UI, on everything except a service restart.
+KillMode=process
+
 Restart=on-failure
 RestartSec=2
 

@@ -39,9 +39,12 @@
     finally { busy = false; }
   }
 
+  let zoom = $state(false);
+
   function clearShot() {
     if (shot) URL.revokeObjectURL(shot);
     shot = null;
+    zoom = false;
   }
 </script>
 
@@ -58,7 +61,20 @@
 
 {#if shot}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-  <img src={shot} alt="{win.class} window" onclick={clearShot} />
+  <img class="thumb" src={shot} alt="{win.class} window" onclick={() => (zoom = true)} />
+{/if}
+
+{#if zoom}
+  <!-- A 1200px capture shown at 375px tells you something rendered, not what it
+       says. Full screen with native scrolling and pinch-zoom does. -->
+  <div class="lightbox">
+    <div class="lbbar">
+      <span class="lbname">{win.class}</span>
+      <button class="sm" onclick={() => (zoom = false)}>close</button>
+      <button class="sm" onclick={clearShot}>discard</button>
+    </div>
+    <div class="lbscroll"><img src={shot} alt="{win.class} window, full size" /></div>
+  </div>
 {/if}
 
 <style>
@@ -72,8 +88,22 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .mode { font-size: 10px; color: var(--dim); text-transform: uppercase; flex: none; }
-  img {
+  .thumb {
     width: 100%; display: block; border-radius: 8px;
     border: 1px solid var(--line);
   }
+  .lightbox {
+    position: fixed; inset: 0; z-index: 50; background: var(--bg);
+    display: flex; flex-direction: column;
+  }
+  .lbbar {
+    display: flex; align-items: center; gap: .4rem; padding: .5rem .6rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .lbname {
+    flex: 1; min-width: 0; font-size: 12px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lbscroll { flex: 1; overflow: auto; touch-action: pinch-zoom pan-x pan-y; }
+  .lbscroll img { display: block; max-width: none; }
 </style>

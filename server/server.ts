@@ -52,10 +52,16 @@ async function run(cmd: string, args: string[]) {
   };
 }
 
+// Every API response is no-store. Without it a browser may heuristically cache
+// a GET that has no cache headers, and the app then renders a stale session
+// list — observed: a session running on ws9 shown as "no session on this
+// screen" while the server was reporting it correctly.
+const NO_STORE = { "cache-control": "no-store" };
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...NO_STORE },
   });
 
 const fail = (msg: string, status = 400) => json({ error: msg }, status);
@@ -159,7 +165,9 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === "GET" && path === "/api/sessions") {
     const r = await run(`${SCRIPTS}/sessions.sh`, []);
     if (r.code !== 0) return fail(r.err || "sessions.sh failed", 500);
-    return withCookie(new Response(r.out, { headers: { "content-type": "application/json" } }));
+    return withCookie(new Response(r.out, {
+      headers: { "content-type": "application/json", ...NO_STORE },
+    }));
   }
 
   if (req.method === "GET" && path === "/api/capture") {
@@ -173,7 +181,24 @@ async function handle(req: Request): Promise<Response> {
     const r = await run("tmux",
       ["capture-pane", "-p", "-J", "-t", s, "-S", `-${Number(lines) || 200}`]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
-    return withCookie(json({ session: s, text: r.out }));
+
+    // A capture is padded to the pane height, so most of it is blank: measured
+    // 38 blank lines out of 58 on a real reply. Trim trailing spaces and
+    // collapse blank runs to one — 3665 bytes becomes 1244 with nothing lost.
+    // Deliberately NOT stripping box-drawing: the conversation itself is plain
+    // prose, and the only boxed thing is the banner, which scrolls away.
+    const text = r.out
+      .split("\n")
+      .map((l) => l.replace(/\s+$/, ""))
+      .reduce<string[]>((acc, l) => {
+        if (l === "" && acc[acc.length - 1] === "") return acc;
+        acc.push(l);
+        return acc;
+      }, [])
+      .join("\n")
+      .trim();
+
+    return withCookie(json({ session: s, text }));
   }
 
   // Two modes, deliberately separate:
@@ -321,7 +346,9 @@ async function handle(req: Request): Promise<Response> {
     const ws = url.searchParams.get("ws") ?? "";
     const r = await run(`${SCRIPTS}/desk.sh`, ["json", ws]);
     if (r.code !== 0) return fail(r.err || "desk.sh failed", 500);
-    return withCookie(new Response(r.out, { headers: { "content-type": "application/json" } }));
+    return withCookie(new Response(r.out, {
+      headers: { "content-type": "application/json", ...NO_STORE },
+    }));
   }
 
   if (req.method === "GET" && path === "/api/desk/locked") {
@@ -338,7 +365,9 @@ async function handle(req: Request): Promise<Response> {
     if (r.code !== 0) return fail(r.err.trim() || "capture failed", 409);
     const bytes = await Deno.readFile(out);
     await Deno.remove(out).catch(() => {});
-    return withCookie(new Response(bytes, { headers: { "content-type": "image/jpeg" } }));
+    return withCookie(new Response(bytes, {
+      headers: { "content-type": "image/jpeg", ...NO_STORE },
+    }));
   }
 
   if (req.method === "POST" && path === "/api/desk/move") {

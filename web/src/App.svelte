@@ -9,7 +9,7 @@
   let sessions = $state([]);
   let windows = $state([]);
   let locked = $state(false);
-  let status = $state("…");
+  let status = $state("");
   let bad = $state(false);
   let needToken = $state(!token);
   let offline = $state(false);
@@ -21,7 +21,16 @@
   const orphans = $derived(sessions.filter((s) => s.workspace === null));
   const allNames = $derived(sessions.map((s) => s.session));
 
-  function onstatus(text, isErr = false) { status = text; bad = isErr; }
+  // The header shows transient feedback and then gets out of the way. Errors
+  // persist — they are not noise, and a stale error is better than a silent
+  // failure. Successes clear themselves.
+  let clearTimer;
+  function onstatus(text, isErr = false) {
+    status = text;
+    bad = isErr;
+    clearTimeout(clearTimer);
+    if (!isErr && text) clearTimer = setTimeout(() => { if (status === text) status = ""; }, 4000);
+  }
 
   async function refresh() {
     try {
@@ -32,11 +41,11 @@
       needToken = false;
       offline = false;
       lastSeen = new Date();
-      const det = s.filter((x) => x.workspace === null).length;
-      onstatus(locked
-        ? "screen locked — text only"
-        : `${s.length} session${s.length === 1 ? "" : "s"}` +
-          (det ? `, ${det} detached` : ""));
+      // The header is for transient messages. Counts belong in the index,
+      // where there is room and where you go to act on them — repeating them
+      // in a 12px truncating strip was noise that crowded out real feedback.
+      if (locked) onstatus("locked");
+      else if (bad) onstatus("");   // recovered from an error
     } catch (e) {
       if (e.status === 401) { needToken = true; onstatus("token required", true); }
       else if (e.unreachable) { offline = true; onstatus("offline", true); }
@@ -50,10 +59,14 @@
   // Reading vis.visible and vis.wokeAt makes this effect re-run when the page
   // is backgrounded or comes back, so returning to the app refetches at once
   // rather than waiting for a timer the browser had suspended.
+  // Fetch once unconditionally: a page can start hidden — restored in a
+  // background tab, or a PWA launched behind the lock screen — and gating the
+  // first load on visibility leaves it permanently empty. Only the *polling*
+  // is conditional.
   $effect(() => {
-    if (!vis.visible) return;
     void vis.wokeAt;
     refresh();
+    if (!vis.visible) return;
     const id = setInterval(refresh, 5000);
     return () => clearInterval(id);
   });

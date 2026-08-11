@@ -62,7 +62,14 @@
 </script>
 
 <section>
-  <h2 class="first">sessions</h2>
+  <h2 class="first">
+    sessions
+    {#if sessions.length}
+      <span class="count">
+        {placed.length} on screen{detached.length ? ` · ${detached.length} detached` : ""}
+      </span>
+    {/if}
+  </h2>
 
   {#if locked}
     <div class="why">
@@ -156,6 +163,7 @@
     color: var(--dim); border-top: 1px solid var(--line); padding-top: .5rem;
   }
   h2.first { border-top: 0; padding-top: 0; }
+  .count { float: right; text-transform: none; letter-spacing: 0; }
   .row {
     display: flex; align-items: center; gap: .45rem; min-width: 0;
     width: 100%; text-align: left;

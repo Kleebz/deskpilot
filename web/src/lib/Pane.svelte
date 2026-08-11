@@ -14,11 +14,21 @@
   let input = $state("");
   let pre = $state(null);
   let pinned = $state(true);     // stick to the bottom unless the user scrolls up
+  let lastChange = $state(0);    // when the transcript last differed
   let showWindows = $state(false);
   let showKeys = $state(false);
   let creating = $state(false);
 
   const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
+
+  // Re-evaluated by the poll tick, so it decays on its own.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!active || !session || !vis.visible) return;
+    const id = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+  const working = $derived(lastChange > 0 && now - lastChange < 6000);
 
   async function load() {
     if (!session) return;
@@ -27,6 +37,9 @@
         `/capture?session=${encodeURIComponent(session.session)}&lines=200`,
       );
       const wasPinned = pinned;
+      // Comparing captures is the only agent-agnostic way to know something is
+      // happening — no spinner to parse, no protocol to speak.
+      if (r.text !== output) lastChange = Date.now();
       output = r.text.trimEnd();
       if (wasPinned) queueMicrotask(() => pre?.scrollTo(0, pre.scrollHeight));
     } catch (e) {
@@ -38,9 +51,10 @@
   // Ten panes each refetching would be pure waste; polling a backgrounded tab
   // is worse than waste on cellular.
   $effect(() => {
-    if (!active || !session || !vis.visible) return;
+    if (!active || !session) return;
     void vis.wokeAt;
-    load();
+    load();                       // once regardless, same reason as App
+    if (!vis.visible) return;
     const id = setInterval(load, 3000);
     return () => clearInterval(id);
   });
@@ -89,6 +103,7 @@
     <div class="bar">
       <span class="badge">ws{ws}</span>
       <span class="name">{session.session}</span>
+      {#if working}<span class="pulse" title="output changing"></span>{/if}
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {windows.length} win
       </button>
@@ -194,6 +209,12 @@
     color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
   }
   .ghost { border-color: transparent; color: var(--dim); }
+  .pulse {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: var(--ok); animation: breathe 1.2s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; opacity: .8 } }
 
   .drawer {
     display: flex; flex-direction: column; gap: .4rem; min-width: 0;
