@@ -63,14 +63,15 @@
 
 <style>
   .win {
-    display: flex; gap: .35rem; align-items: center;
+    display: flex; gap: .35rem; align-items: center; min-width: 0;
     border: 1px solid var(--line); border-radius: 8px; padding: .4rem .5rem;
   }
+  .win :global(button), .win :global(select) { flex: none; }
   .t {
     flex: 1; min-width: 0; font-size: 12px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .mode { font-size: 10px; color: var(--dim); text-transform: uppercase; }
+  .mode { font-size: 10px; color: var(--dim); text-transform: uppercase; flex: none; }
   img {
     width: 100%; display: block; border-radius: 8px;
     border: 1px solid var(--line);

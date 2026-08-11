@@ -337,3 +337,30 @@ hides. Panes keep a one-line pointer to the index rather than duplicating the li
 
 The general lesson: a spatial UI needs a non-spatial index for the things that have no
 place. Spatial addressing is the fast path, not the only path.
+
+## Layout: min-width:auto, and how to actually test it
+
+The panes rendered at 600px inside a 375px rail. Cause: **flex items default to
+`min-width: auto`**, which refuses to shrink below content size, so each pane inflated
+to fit its widest window row and dragged the rail out of shape. `flex: 0 0 100%` does
+not protect against this — the basis is 100%, but the minimum still wins.
+
+Fix is mechanical and applies to every flex container in the app: `min-width: 0` on the
+pane and on each flex row, `flex: none` on things that must not shrink (badges, buttons,
+selects, the reload control), and exactly one flexible child per row that truncates.
+
+**The testing lesson matters more than the fix.** I claimed a layout was "verified in a
+narrow viewport" when the browser window was 941px — `resize_window` had silently not
+taken effect and I never checked the screenshot dimensions against what I asked for.
+
+What works: render the app in a **same-origin iframe** of the target width and measure
+inside it. An iframe gets a true viewport, so flex, media queries and `100dvh` all behave
+as they would on the device. Then assert three things per width, rather than eyeballing:
+
+- every `.rail > section` is exactly the viewport width
+- `header.scrollWidth <= header.clientWidth`
+- no element's box escapes its own pane's box
+
+Verified at 320 / 360 / 390 / 430. Note that a child of an `overflow:hidden` ellipsis
+container will look like it escapes — it is clipped when painted, so compare against the
+clipping ancestor, not the viewport, or it reports false positives.

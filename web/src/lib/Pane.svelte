@@ -199,18 +199,23 @@
 </section>
 
 <style>
+  /* min-width:0 is load-bearing. Flex items default to min-width:auto, which
+     refuses to shrink below content size — a pane then inflates past the
+     viewport to fit its widest row and the whole rail goes wonky. */
   section {
-    flex: 0 0 100%; scroll-snap-align: start;
-    display: flex; flex-direction: column; min-height: 0;
+    flex: 0 0 100%; width: 100%; max-width: 100%;
+    min-width: 0; min-height: 0;
+    scroll-snap-align: start;
+    display: flex; flex-direction: column;
   }
   /* With a session the pane does not scroll — the transcript does. */
   section.composing { padding: .6rem; gap: .5rem; overflow: hidden; }
   .scroll {
     display: flex; flex-direction: column; gap: .55rem;
-    padding: .7rem; overflow-y: auto;
+    padding: .7rem; overflow-y: auto; min-width: 0;
   }
 
-  .bar { display: flex; align-items: center; gap: .4rem; }
+  .bar { display: flex; align-items: center; gap: .4rem; min-width: 0; }
   .name {
     flex: 1; min-width: 0; font-size: 1.05rem; font-weight: 600; color: var(--ok);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -223,7 +228,7 @@
   .ghost { border-color: transparent; color: var(--dim); }
 
   .drawer {
-    display: flex; flex-direction: column; gap: .4rem;
+    display: flex; flex-direction: column; gap: .4rem; min-width: 0;
     max-height: 40vh; overflow-y: auto;
     border: 1px solid var(--line); border-radius: 8px; padding: .4rem;
   }
@@ -236,8 +241,8 @@
   }
   .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }
 
-  .composer { display: flex; flex-direction: column; gap: .4rem; }
-  form { display: flex; gap: .4rem; }
+  .composer { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+  form { display: flex; gap: .4rem; min-width: 0; }
   form input { flex: 1; min-width: 0; }
   .keys { display: flex; gap: .3rem; flex-wrap: wrap; }
   .keys button { font-size: 13px; padding: .35rem .5rem; min-width: 2.2rem; }
@@ -248,11 +253,12 @@
   }
   h2.first { border-top: 0; padding-top: 0; }
   .why {
-    font-size: 11.5px; color: var(--dim); line-height: 1.5;
+    font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
     border-left: 2px solid var(--line); padding-left: .5rem;
+    overflow-wrap: anywhere;
   }
   .win {
-    display: flex; gap: .35rem; align-items: center;
+    display: flex; gap: .35rem; align-items: center; min-width: 0;
     border: 1px solid var(--line); border-radius: 8px; padding: .4rem .5rem;
   }
   .t {

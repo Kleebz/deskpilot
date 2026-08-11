@@ -68,16 +68,15 @@
 </script>
 
 <header>
-  <b>deskpilot</b>
+  <b class="brand">deskpilot</b>
   <button class="dots" onclick={() => jump(0)} title="all sessions">
     <i class:on={activeWs === 0} class="idx"></i>
     {#each WORKSPACES as n}
       <i class:on={n === activeWs} class:has={occupied(n)}></i>
     {/each}
   </button>
-  <span class="sp"></span>
   <span class:err={bad} class="dim status">{status}</span>
-  <button onclick={refresh}>↻</button>
+  <button class="reload" onclick={refresh}>↻</button>
 </header>
 
 {#if needToken}
@@ -113,16 +112,26 @@
 {/if}
 
 <style>
+  /* Every child is flex:none except the status, which absorbs the slack and
+     truncates. Without this the header overflowed below ~360px. */
   header {
-    display: flex; gap: .5rem; align-items: center;
-    padding: .5rem .75rem; border-bottom: 1px solid var(--line);
+    display: flex; gap: .5rem; align-items: center; min-width: 0;
+    padding: .5rem .6rem; border-bottom: 1px solid var(--line);
     position: sticky; top: 0; background: var(--bg); z-index: 3;
   }
-  header b { font-weight: 600; letter-spacing: .02em; }
-  .sp { flex: 1; }
-  .status { font-size: 12px; text-align: right; }
+  .brand { flex: none; font-weight: 600; letter-spacing: .02em; }
+  .reload { flex: none; }
+  .status {
+    flex: 1 1 auto; min-width: 0; font-size: 12px; text-align: right;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Narrow phones: the wordmark is the first thing that can go. */
+  @media (max-width: 359px) {
+    .brand { display: none; }
+    header { gap: .4rem; }
+  }
   .dots {
-    display: flex; gap: 4px; align-items: center;
+    display: flex; gap: 4px; align-items: center; flex: none;
     border: 0; padding: .3rem .2rem; background: transparent;
   }
   .dots i {

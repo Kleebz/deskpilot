@@ -84,7 +84,8 @@
 
 <style>
   section {
-    flex: 0 0 100%; scroll-snap-align: start;
+    flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0;
+    scroll-snap-align: start;
     display: flex; flex-direction: column; gap: .5rem;
     padding: .7rem; overflow-y: auto;
   }
@@ -94,24 +95,28 @@
   }
   h2.first { border-top: 0; padding-top: 0; }
   .row {
-    display: flex; align-items: center; gap: .45rem; width: 100%; text-align: left;
+    display: flex; align-items: center; gap: .45rem; min-width: 0;
+    width: 100%; text-align: left;
     border: 1px solid var(--line); border-radius: 8px; padding: .5rem;
   }
   .row.static { border-style: dashed; }
-  .nm { font-weight: 600; color: var(--ok); }
+  .nm { font-weight: 600; color: var(--ok); flex: 0 1 auto; min-width: 0;
+         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .path {
     flex: 1; min-width: 0; font-size: 11px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .badge {
+    flex: none;
     font-size: .6rem; letter-spacing: .08em; text-transform: uppercase;
     color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
   }
-  .acts { display: flex; gap: .4rem; padding-left: .5rem; }
+  .acts { display: flex; gap: .4rem; padding-left: .5rem; min-width: 0; }
   .acts select { flex: 1; min-width: 0; }
   .why {
-    font-size: 11.5px; color: var(--dim); line-height: 1.5;
+    font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
     border-left: 2px solid var(--line); padding-left: .5rem;
+    overflow-wrap: anywhere;
   }
   .hint { font-size: 11px; margin-top: auto; padding-top: .5rem; }
 </style>
