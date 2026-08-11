@@ -104,8 +104,6 @@
       {onstatus}
       onchanged={() => { creating = false; onchanged(); onjump(newWs); }}
       oncancel={() => (creating = false)} />
-  {:else}
-    <button class="new" onclick={() => (creating = true)}>+ new session</button>
   {/if}
 
   {#if placed.length}
@@ -149,12 +147,22 @@
   {/if}
 
   <div class="hint dim foot">Swipe right for screens 1–10.</div>
+
+  <!-- Pinned to the bottom: the top of an 844px screen is a stretch one-handed,
+       and this is the action you reach for most. -->
+  {#if !creating}
+    <button class="new" onclick={() => (creating = true)}>+ new session</button>
+  {/if}
 </section>
 
 <style>
   section {
     flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0;
     scroll-snap-align: start;
+    /* `always` makes momentum stop at the next pane instead of flying past
+       several. Without it a slightly-too-hard swipe overshoots and the rail
+       feels loose. */
+    scroll-snap-stop: always;
     display: flex; flex-direction: column; gap: .5rem;
     padding: .7rem; overflow-y: auto;
   }
@@ -197,7 +205,12 @@
     overflow-wrap: anywhere;
   }
   .hint { font-size: 11px; padding-top: .25rem; line-height: 1.5; }
-  .new { border-color: var(--ok); color: var(--ok); }
+  .foot { margin-top: auto; padding-bottom: .3rem; }
+  .new {
+    border-color: var(--ok); color: var(--ok);
+    position: sticky; bottom: 0; width: 100%;
+    background: var(--bg); box-shadow: 0 -8px 12px -8px var(--bg);
+  }
   .pick { display: flex; align-items: center; gap: .45rem; min-width: 0; }
   .pick select { flex: 1; min-width: 0; }
   .lbl { font-size: .65rem; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }

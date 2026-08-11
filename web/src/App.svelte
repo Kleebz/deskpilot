@@ -182,6 +182,8 @@
   .rail {
     display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
     height: calc(100dvh - 46px); scrollbar-width: none;
+    /* Without contain, a swipe past the last pane scrolls the page behind it. */
+    overscroll-behavior-x: contain;
   }
   .rail::-webkit-scrollbar { display: none; }
   .offline {

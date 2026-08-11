@@ -40,7 +40,7 @@ while read -r name pid; do
 done < <(tmux list-clients -F '#{session_name} #{client_pid}' 2>/dev/null)
 
 rows=()
-while IFS=$'\t' read -r name created path; do
+while IFS=$'\t' read -r name created path command; do
   [ -z "${name:-}" ] && continue
   all=""
   for cp in ${CLIENT_PIDS[$name]:-}; do
@@ -48,13 +48,16 @@ while IFS=$'\t' read -r name created path; do
   done
   ws=$(printf '%s' "${all# }" | tr ' ' '\n' | grep -v '^$' | sort -n -u | head -1)
   list=$(printf '%s' "${all# }" | tr ' ' '\n' | grep -v '^$' | sort -n -u | jq -R . | jq -sc 'map(tonumber)')
+  # What is running matters to the client: advice for a shell is wrong advice
+  # for an agent, and vice versa.
   rows+=("$(jq -nc \
-    --arg n "$name" --arg c "$created" --arg p "$path" --arg w "$ws" --argjson l "${list:-[]}" \
-    '{session:$n, created:($c|tonumber? // 0), path:$p,
+    --arg n "$name" --arg c "$created" --arg p "$path" --arg w "$ws" \
+    --arg cmd "${command:-}" --argjson l "${list:-[]}" \
+    '{session:$n, created:($c|tonumber? // 0), path:$p, command:$cmd,
       workspace:($w|if . == "" then null else tonumber end),
       workspaces:$l,
       attached:($w != "")}')")
-done < <(tmux list-sessions -F '#{session_name}	#{session_created}	#{session_path}' 2>/dev/null)
+done < <(tmux list-sessions -F '#{session_name}	#{session_created}	#{session_path}	#{pane_current_command}' 2>/dev/null)
 
 if [ "${1:-}" = "--plain" ]; then
   if [ ${#rows[@]} -eq 0 ]; then echo "(no tmux sessions)"; exit 0; fi

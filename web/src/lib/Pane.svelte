@@ -15,6 +15,7 @@
   let pre = $state(null);
   let pinned = $state(true);     // stick to the bottom unless the user scrolls up
   let lastChange = $state(0);    // when the transcript last differed
+  let sent = $state("");         // echoed locally until the capture catches up
   let showWindows = $state(false);
   let showKeys = $state(false);
   let creating = $state(false);
@@ -41,6 +42,7 @@
       // happening — no spinner to parse, no protocol to speak.
       if (r.text !== output) lastChange = Date.now();
       output = r.text.trimEnd();
+      if (sent && output.includes(sent)) sent = "";   // the real transcript has it now
       if (wasPinned) queueMicrotask(() => pre?.scrollTo(0, pre.scrollHeight));
     } catch (e) {
       onstatus(e.message, true);
@@ -75,11 +77,15 @@
     if (!text || !session) return;
     input = "";
     pinned = true;
+    // Acknowledge the tap straight away. Waiting for the next poll to notice a
+    // change leaves a gap where nothing confirms the prompt landed.
+    lastChange = Date.now();
+    sent = text;
     try {
       await post("/send", { session: session.session, text });
       onstatus(`→ ${session.session}`);
       setTimeout(load, 600);
-    } catch (e) { onstatus(e.message, true); input = text; }
+    } catch (e) { onstatus(e.message, true); input = text; sent = ""; }
   }
 
   async function key(k) {
@@ -89,6 +95,33 @@
       setTimeout(load, 400);
     } catch (e) { onstatus(e.message, true); }
   }
+
+  // Advice for a shell is wrong advice for an agent, so the hints follow
+  // pane_current_command rather than assuming Claude is on the other end.
+  const AGENT_HINTS = [
+    "does the app on screen {ws} look right?",
+    "what changed in the last commit?",
+    "run the tests and summarise failures",
+    "take a look at the browser window and describe it",
+  ];
+  const SHELL_HINTS = [
+    "git status",
+    "npm run build",
+    "tail -f the log",
+    "df -h",
+  ];
+  const isAgent = $derived(!/^(bash|zsh|fish|sh)$/.test(session?.command ?? ""));
+  const hints = $derived((isAgent ? AGENT_HINTS : SHELL_HINTS)
+    .map((h) => h.replace("{ws}", String(ws))));
+
+  // Rotate only while the field is empty and the pane is on screen, so it never
+  // shifts under someone mid-thought.
+  let hintIdx = $state(0);
+  $effect(() => {
+    if (!active || !session || input || !vis.visible) return;
+    const id = setInterval(() => (hintIdx = (hintIdx + 1) % hints.length), 6000);
+    return () => clearInterval(id);
+  });
 
   const KEYS = [
     ["↑", "Up"], ["↓", "Down"], ["←", "Left"], ["→", "Right"],
@@ -119,7 +152,8 @@
       </div>
     {/if}
 
-    <pre bind:this={pre} onscroll={onScroll}>{output || "…"}</pre>
+    <pre bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
+<span class="pending">› {sent}</span>{/if}</pre>
 
     {#if !pinned}
       <button class="sm jump" onclick={toBottom}>↓ latest</button>
@@ -129,7 +163,7 @@
       <form onsubmit={send}>
         <input
           bind:value={input}
-          placeholder="prompt {session.session}"
+          placeholder={hints[hintIdx % hints.length]}
           autocomplete="off" autocapitalize="off" autocorrect="off" />
         <button class="ghost" type="button" onclick={() => (showKeys = !showKeys)}>⌨</button>
         <button>send</button>
@@ -189,6 +223,10 @@
     flex: 0 0 100%; width: 100%; max-width: 100%;
     min-width: 0; min-height: 0;
     scroll-snap-align: start;
+    /* `always` makes momentum stop at the next pane instead of flying past
+       several. Without it a slightly-too-hard swipe overshoots and the rail
+       feels loose. */
+    scroll-snap-stop: always;
     display: flex; flex-direction: column;
   }
   /* With a session the pane does not scroll — the transcript does. */
@@ -229,6 +267,7 @@
     border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
   }
   .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }
+  .pending { color: var(--dim); font-style: italic; }
 
   .composer { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
   form { display: flex; gap: .4rem; min-width: 0; }
