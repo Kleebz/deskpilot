@@ -23,7 +23,9 @@
     const secret = pw;
     pw = "";
     try {
-      await post("/unlock", { password: secret });
+      // desk.sh polls PAM for up to 10s; the default 8s client deadline would
+      // abort a successful unlock and report it as unreachable.
+      await post("/unlock", { password: secret }, { timeoutMs: 20000 });
       onstatus("unlocked");
       onchanged();
     } catch (e) { onstatus(e.message, true); }

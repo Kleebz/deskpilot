@@ -12,6 +12,8 @@
   let status = $state("…");
   let bad = $state(false);
   let needToken = $state(!token);
+  let offline = $state(false);
+  let lastSeen = $state(null);
   let tokenInput = $state("");
   let rail = $state(null);
   let activeWs = $state(1);
@@ -28,6 +30,8 @@
       ]);
       sessions = s; windows = w; locked = l.locked;
       needToken = false;
+      offline = false;
+      lastSeen = new Date();
       const det = s.filter((x) => x.workspace === null).length;
       onstatus(locked
         ? "screen locked — text only"
@@ -35,6 +39,7 @@
           (det ? `, ${det} detached` : ""));
     } catch (e) {
       if (e.status === 401) { needToken = true; onstatus("token required", true); }
+      else if (e.unreachable) { offline = true; onstatus("offline", true); }
       else onstatus(e.message, true);
     }
   }
@@ -86,6 +91,16 @@
   <span class:err={bad} class="dim status">{status}</span>
   <button class="reload" onclick={refresh}>↻</button>
 </header>
+
+{#if offline && !needToken}
+  <div class="offline">
+    <b>Can't reach the desktop.</b>
+    Check Tailscale is switched on — the app being signed in is not the same as the
+    tunnel running. The page is not broken; nothing answered.
+    {#if lastSeen}<br /><span class="dim">Last contact {lastSeen.toLocaleTimeString()}.</span>{/if}
+    <button onclick={refresh}>retry</button>
+  </div>
+{/if}
 
 {#if needToken}
   <form class="gate" onsubmit={saveToken}>
@@ -156,6 +171,12 @@
     height: calc(100dvh - 46px); scrollbar-width: none;
   }
   .rail::-webkit-scrollbar { display: none; }
+  .offline {
+    margin: .6rem; padding: .6rem .7rem; border-radius: 8px; line-height: 1.5;
+    font-size: 12px; border: 1px solid var(--err);
+    background: color-mix(in srgb, var(--err) 12%, transparent);
+  }
+  .offline button { margin-top: .4rem; display: block; }
   .gate { padding: 1rem; display: flex; flex-direction: column; gap: .6rem; }
   .gate p { margin: 0; font-size: 12px; line-height: 1.5; }
 </style>
