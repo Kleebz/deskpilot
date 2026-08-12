@@ -28,10 +28,13 @@
   const ownWindows = $derived(new Set(session?.windows ?? []));
   const otherCount = $derived(windows.filter((w) => !ownWindows.has(w.address)).length);
 
-  // Re-evaluated by the poll tick, so it decays on its own.
+  // Ticks so `working` decays on its own. Deliberately NOT gated on page
+  // visibility: if the clock stops while hidden, `working` can never expire and
+  // the pane comes back claiming to be busy forever. Browsers throttle timers
+  // in background tabs anyway, which is the correct amount of saving here.
   let now = $state(Date.now());
   $effect(() => {
-    if (!active || !session || !vis.visible) return;
+    if (!active || !session) return;
     const id = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(id);
   });
@@ -165,7 +168,7 @@
       </div>
     {/if}
 
-    <pre bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
+    <pre class:spin-border={working} bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
 <span class="pending">› {sent}</span>{/if}</pre>
 
     {#if !pinned}
@@ -296,6 +299,25 @@
     /* fades the top edge so scrolled content does not collide with the title */
     mask-image: linear-gradient(to bottom, transparent, #000 10px);
   }
+  /* A border that sweeps cyan to magenta, shown ONLY while output is changing —
+     motion that means "working" rather than decoration, and idle most of the
+     time so it costs nothing on a phone.
+
+     Two backgrounds: the fill clipped to the padding box, the gradient clipped
+     to the border box, so the gradient shows only in the border itself. The
+     angle is animatable because it is registered with @property in app.css;
+     without that registration a conic gradient cannot be interpolated. */
+  pre.spin-border {
+    border-color: transparent;
+    background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      conic-gradient(from var(--angle), var(--ok), var(--magenta), var(--ok)) border-box;
+    animation: sweep 3s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    pre.spin-border { animation: none; --angle: 45deg; }
+  }
+
   .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }
   .pending { color: var(--dim); font-style: italic; }
 

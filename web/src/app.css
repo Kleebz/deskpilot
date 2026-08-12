@@ -20,6 +20,7 @@
 
   /* Neon is a highlight, not a texture. Only the accent glows, and only where
      something is genuinely active. */
+  --magenta: #ff00ff;
   --glow: 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
           0 0 12px -2px color-mix(in srgb, var(--ok) 45%, transparent);
 }
@@ -74,3 +75,13 @@ input:focus, select:focus {
 ::placeholder { color: var(--dim); opacity: 1; }
 .dim { color: var(--dim); }
 .err { color: var(--err); }
+
+/* An animatable angle. Without @property the browser cannot interpolate a
+   conic-gradient's rotation, so the border would jump rather than sweep. */
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes sweep { to { --angle: 360deg; } }
