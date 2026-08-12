@@ -135,8 +135,15 @@ async function handle(req: Request): Promise<Response> {
   const path = url.pathname;
 
   // ---- static UI (unauthenticated: it is just markup, the API is not) ----
-  if (req.method === "GET" && !path.startsWith("/api/")) {
-    return await serveStatic(path);
+  // HEAD as well as GET: browsers and install flows probe assets with HEAD, and
+  // answering 404 to those made the manifest icons look missing even though GET
+  // served them fine.
+  if ((req.method === "GET" || req.method === "HEAD") && !path.startsWith("/api/")) {
+    const res = await serveStatic(path);
+    if (req.method === "HEAD") {
+      return new Response(null, { status: res.status, headers: res.headers });
+    }
+    return res;
   }
 
   if (!path.startsWith("/api/")) return new Response("not found", { status: 404 });

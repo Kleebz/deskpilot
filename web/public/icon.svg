@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- deskpilot: a screen, seen from a distance, with one pane lit.
+       The row of dots is the rail indicator from the app header. -->
+  <rect width="512" height="512" rx="112" fill="#111111"/>
+  <rect x="96" y="120" width="320" height="212" rx="20"
+        fill="none" stroke="#4ea1ff" stroke-width="20"/>
+  <rect x="136" y="160" width="112" height="132" rx="10" fill="#4ea1ff" opacity="0.35"/>
+  <rect x="264" y="160" width="112" height="132" rx="10" fill="#4ea1ff"/>
+  <g fill="#4ea1ff">
+    <circle cx="196" cy="404" r="14" opacity="0.35"/>
+    <circle cx="256" cy="404" r="14"/>
+    <circle cx="316" cy="404" r="14" opacity="0.35"/>
+  </g>
+</svg>

@@ -1,6 +1,7 @@
 <script>
   import { api, post, waitFor } from "./api.js";
   import NewSession from "./NewSession.svelte";
+  import Install from "./Install.svelte";
 
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
@@ -146,7 +147,9 @@
     {/each}
   {/if}
 
-  <div class="hint dim foot">Swipe right for screens 1–10.</div>
+  <div class="foot"></div>
+  <Install />
+  <div class="hint dim">Swipe right for screens 1–10.</div>
 
   <!-- Pinned to the bottom: the top of an 844px screen is a stretch one-handed,
        and this is the action you reach for most. -->
@@ -209,7 +212,7 @@
     overflow-wrap: anywhere;
   }
   .hint { font-size: 11px; padding-top: .25rem; line-height: 1.5; }
-  .foot { margin-top: auto; padding-bottom: .3rem; }
+  .foot { margin-top: auto; }
   .new {
     border-color: var(--ok); color: var(--ok);
     position: sticky; bottom: env(safe-area-inset-bottom, 0px); width: 100%;
