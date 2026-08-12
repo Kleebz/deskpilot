@@ -3,3 +3,5 @@ dist/
 .env
 *.log
 token
+*.ts.net.crt
+*.ts.net.key
