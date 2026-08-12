@@ -134,6 +134,20 @@ async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
+  // Reaching the app directly on its port over plain HTTP, using the MagicDNS
+  // name, means bypassing Tailscale Serve — and that origin is not a secure
+  // context, so the app silently loses installability and looks "insecure".
+  // It is an easy mistake: an old QR, a bookmark, a typed URL.
+  //
+  // Redirect that one case to HTTPS. Bare IPs and LAN addresses are left
+  // alone: Serve only answers to the hostname (it routes on SNI), so
+  // redirecting those would send someone somewhere that cannot serve them.
+  const host = req.headers.get("host") ?? "";
+  const m = host.match(/^([a-z0-9-]+\.[a-z0-9-]+\.ts\.net):\d+$/i);
+  if (m) {
+    return Response.redirect(`https://${m[1]}${path}${url.search}`, 308);
+  }
+
   // ---- static UI (unauthenticated: it is just markup, the API is not) ----
   // HEAD as well as GET: browsers and install flows probe assets with HEAD, and
   // answering 404 to those made the manifest icons look missing even though GET
