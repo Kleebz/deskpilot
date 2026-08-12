@@ -169,6 +169,26 @@ That moves the firewall from "anyone on my wifi" to "tailnet only", restarts the
 service, and prints a new pairing QR — the address changed, so the phone's saved token
 does not carry over.
 
+### 3d. HTTPS, and why it is not optional
+
+```bash
+~/Projects/deskpilot/shell/use-https.sh
+```
+
+Requires enabling **HTTPS Certificates** once at
+<https://login.tailscale.com/admin/dns>.
+
+Plain HTTP on a private IP is not a *secure context*, and browsers gate real features
+behind that — most visibly, **no browser will offer to install the PWA**, with no
+explanation given. Tailscale Serve fixes it with a genuine Let's Encrypt certificate for
+`<host>.<tailnet>.ts.net`, renewed automatically, no self-signed warning and no CA to
+install on the phone.
+
+It is also a security improvement rather than a cost. Serve reaches the app over
+loopback, so afterwards the server listens on **127.0.0.1 only** — better than binding
+`0.0.0.0` and trusting a firewall rule, because there is nothing to reach even if the
+rule is wrong. The script removes the bind-everywhere override for you.
+
 **Verify** — **turn off wifi on the phone** and load it over cellular. Testing on wifi
 proves nothing, because you are still on the LAN.
 
