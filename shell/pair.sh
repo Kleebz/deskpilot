@@ -37,7 +37,18 @@ pick_host() {
 
 HOST=$(pick_host "$@")
 [ -n "$HOST" ] || { echo "could not determine an address; pass one explicitly" >&2; exit 1; }
-URL="http://${HOST}:${PORT}/?token=${TOKEN}"
+
+# Prefer the HTTPS name when Tailscale Serve is fronting the app: it is on 443
+# with no port, and it is the only origin browsers treat as secure — which is
+# what makes the app installable.
+BASE="http://${HOST}:${PORT}"
+if command -v tailscale >/dev/null; then
+  SERVED=$(tailscale serve status 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+' | head -1)
+  if [ -n "$SERVED" ] && curl -s -m 8 -o /dev/null "$SERVED/"; then
+    BASE="$SERVED"
+  fi
+fi
+URL="${BASE}/?token=${TOKEN}"
 
 if ! systemctl --user is-active --quiet deskpilot; then
   echo "warning: the deskpilot service is not running" >&2
@@ -45,8 +56,8 @@ fi
 
 # Check the server is actually reachable on this address before handing out a
 # QR that will not load.
-if ! curl -s -m 3 -o /dev/null "http://${HOST}:${PORT}/"; then
-  echo "warning: nothing answered at http://${HOST}:${PORT}/" >&2
+if ! curl -s -m 8 -o /dev/null "${BASE}/"; then
+  echo "warning: nothing answered at ${BASE}/" >&2
   echo "         if this is a new interface, the firewall may need a rule:" >&2
   echo "         sudo ufw allow from <subnet> to any port ${PORT} proto tcp" >&2
 fi
