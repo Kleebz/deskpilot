@@ -11,6 +11,8 @@ if ("serviceWorker" in navigator) {
   });
 }
 import "./app.css";
+// Imported for its side effect: arms the install listener before anything renders.
+import "./lib/installable.svelte.js";
 import App from "./App.svelte";
 
 export default mount(App, { target: document.getElementById("app") });

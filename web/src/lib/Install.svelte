@@ -1,65 +1,32 @@
 <script>
-  // Installing matters more than it sounds: standalone mode drops the browser
-  // chrome, which is ~100px of vertical space back on a phone, and iOS exempts
-  // installed apps from the localStorage eviction that would otherwise lose the
-  // token after a week of not using it.
-  //
-  // Android exposes beforeinstallprompt and can do it in one tap. iOS has no
-  // API at all — Add to Home Screen lives in the Share sheet — so the honest
-  // thing there is instructions rather than a button that cannot work.
+  import { installable, doInstall } from "./installable.svelte.js";
 
-  let deferred = $state(null);
-  let installed = $state(false);
+  // The listener itself lives in installable.svelte.js, armed at page load.
+  // This component only renders what that captured — it must not own the
+  // listener, because it mounts after the token gate and the event fires
+  // before that.
+
   let dismissed = $state(localStorage.getItem("dp_install_dismissed") === "1");
 
-  const isStandalone = () =>
-    window.matchMedia("(display-mode: standalone)").matches ||
-    window.navigator.standalone === true;
-
-  const isIOS = () =>
-    /iphone|ipad|ipod/i.test(navigator.userAgent) ||
-    // iPadOS reports as a Mac; the touch check separates them
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
-  let standalone = $state(isStandalone());
-  const ios = isIOS();
-
-  $effect(() => {
-    const onPrompt = (e) => { e.preventDefault(); deferred = e; };
-    const onInstalled = () => { installed = true; deferred = null; };
-    window.addEventListener("beforeinstallprompt", onPrompt);
-    window.addEventListener("appinstalled", onInstalled);
-    const mq = window.matchMedia("(display-mode: standalone)");
-    const onMode = () => (standalone = isStandalone());
-    mq.addEventListener?.("change", onMode);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onPrompt);
-      window.removeEventListener("appinstalled", onInstalled);
-      mq.removeEventListener?.("change", onMode);
-    };
-  });
-
-  async function install() {
-    if (!deferred) return;
-    deferred.prompt();
-    const { outcome } = await deferred.userChoice;
-    if (outcome === "accepted") installed = true;
-    deferred = null;
-  }
+  const show = $derived(
+    !installable.standalone && !installable.installed && !dismissed &&
+    (installable.prompt || ios),
+  );
 
   function dismiss() {
     dismissed = true;
     localStorage.setItem("dp_install_dismissed", "1");
   }
-
-  const show = $derived(!standalone && !installed && !dismissed && (deferred || ios));
 </script>
 
 {#if show}
   <div class="install">
-    {#if deferred}
+    {#if installable.prompt}
       <span class="txt">Add to your home screen for a full-screen app.</span>
-      <button class="sm go" onclick={install}>install</button>
+      <button class="sm go" onclick={doInstall}>install</button>
     {:else}
       <span class="txt">
         Add to your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.
