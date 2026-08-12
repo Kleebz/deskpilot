@@ -16,7 +16,9 @@
   let lastSeen = $state(null);
   let tokenInput = $state("");
   let rail = $state(null);
-  let activeWs = $state(1);
+  // Rail position 0 is the sessions index, which is where the app opens.
+  // Starting this at 1 lit the wrong dot until the first swipe.
+  let activeWs = $state(0);
 
   const orphans = $derived(sessions.filter((s) => s.workspace === null));
   const allNames = $derived(sessions.map((s) => s.session));
