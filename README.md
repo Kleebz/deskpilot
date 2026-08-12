@@ -23,6 +23,25 @@ shell/install-service.sh  # token, unit, enable, print the URL
 shell/pair.sh             # QR to pair a phone
 ```
 
+## Which scripts you run, and how often
+
+Everything except `check.sh` and `pair.sh` is **one-time**. The state each one sets up
+persists across reboots — systemd units, a Tailscale Serve config, a udev rule, a line
+in `.bashrc`.
+
+| Script | When |
+|---|---|
+| `check.sh` | any time — diagnostic, changes nothing |
+| `install-service.sh` | once, and again only if you move the repo |
+| `install-permissions.sh` | once, and again if the rule set changes |
+| `install-input.sh` | once — needed for remote unlock and typing |
+| `use-tailscale.sh` | once — makes the port tailnet-only |
+| `use-https.sh` | once — real certificate, and the PWA becomes installable |
+| `pair.sh` | per device, and whenever the address changes |
+
+The address changes twice by design — LAN to tailnet, then tailnet to the HTTPS name —
+so expect to re-pair at each step. A token is stored per host and does not carry over.
+
 ## Status
 
 | Piece | State |
