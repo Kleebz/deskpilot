@@ -466,3 +466,22 @@ Contrast was already fine and did not need touching: dim text 5.47:1, transcript
 
 The general lesson matches the layout one: at phone size, judge by measurement. The
 interface looked reasonable in every screenshot taken before this audit.
+
+## Service worker: needed after all, but caching still refused
+
+I originally skipped the service worker, reasoning that this is a live view of a machine
+and caching it offline would show sessions that no longer exist. That reasoning was
+right. The conclusion was wrong, because **Chrome will not fire `beforeinstallprompt`
+without a service worker that has a fetch handler** — so "no service worker" silently
+meant "not installable", and no amount of manifest work would have fixed it.
+
+Resolved by separating the two things I had conflated. `public/sw.js` has a fetch
+handler and caches nothing: it handles navigations by going straight to the network and
+lets everything else fall through untouched, which also avoids interfering with range
+requests and image streaming.
+
+Checked against the documented criteria rather than assumed — this had already cost a
+long detour through TLS, DNS and firewalls looking for a cause that was never there.
+
+Sources: [Chrome installability criteria](https://developer.chrome.com/blog/update-install-criteria),
+[web.dev install criteria](https://web.dev/articles/install-criteria)
