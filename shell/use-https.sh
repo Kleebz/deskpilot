@@ -63,6 +63,18 @@ if ! tailscale serve --bg --yes "$PORT" 2>/dev/null; then
   fi
 fi
 
+# Serve listens on 443, not on the app's port. The tailnet firewall rule from
+# use-tailscale.sh only opens 8790, so without this the tunnel comes up and
+# every packet is dropped — which looks exactly like a certificate problem.
+if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+  if ! sudo ufw status | grep -q "443.*tailscale0"; then
+    sudo ufw allow in on tailscale0 to any port 443 proto tcp comment 'deskpilot https'
+    say "opened 443 on tailscale0"
+  else
+    say "443 already allowed on tailscale0"
+  fi
+fi
+
 URL="https://$DNSNAME"
 ok=0
 for _ in $(seq 1 10); do
@@ -93,10 +105,14 @@ if [ -f "$DROPIN" ]; then
          systemctl --user daemon-reload; systemctl --user restart deskpilot; exit 1; }
 fi
 
-# The firewall rule is no longer doing anything: nothing listens off-loopback.
-if command -v ufw >/dev/null && sudo -n ufw status 2>/dev/null | grep -q "$PORT"; then
-  say "note: ufw still has a rule for $PORT. It is now redundant — the server"
-  say "      only listens on loopback. Remove it with: sudo ufw status numbered"
+# With the app on loopback only, the port rule protects nothing. Remove it so
+# the tailnet surface is exactly one port: 443.
+if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+  mapfile -t nums < <(sudo ufw status numbered \
+    | grep -E "\b${PORT}/tcp" \
+    | sed -E 's/^\[[[:space:]]*([0-9]+)\].*/\1/' | sort -rn)
+  for n in "${nums[@]}"; do sudo ufw --force delete "$n"; done
+  [ "${#nums[@]}" -gt 0 ] && say "removed ${#nums[@]} now-redundant rule(s) for port $PORT"
 fi
 
 echo
