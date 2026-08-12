@@ -17,6 +17,17 @@ body {
   margin: 0; background: var(--bg); color: var(--fg); overscroll-behavior: none;
   font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* An app shell, not a document: the page itself never scrolls, the panes do.
+   This previously subtracted a hardcoded header height from the viewport, which
+   silently broke when the header grew — raising buttons to 44px made it 61px
+   against an assumed 46px, leaving 15px of page scroll. Flex removes the
+   number, so the header can be any height and the rail takes exactly the rest. */
+#app {
+  display: flex; flex-direction: column;
+  height: var(--app-h, 100dvh);
+  overflow: hidden;
+}
 /* 44px is the minimum comfortable touch target on both iOS and Android
    guidance. Measured before this: 60 of 60 controls were under it, 28 of them
    at 26px. `.sm` now means smaller TEXT, not a smaller thing to hit. */

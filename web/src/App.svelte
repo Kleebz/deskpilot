@@ -153,8 +153,9 @@
      truncates. Without this the header overflowed below ~360px. */
   header {
     display: flex; gap: .5rem; align-items: center; min-width: 0;
+    flex: none;
     padding: .5rem .6rem; border-bottom: 1px solid var(--line);
-    position: sticky; top: 0; background: var(--bg); z-index: 3;
+    background: var(--bg); z-index: 3;
   }
   .brand { flex: none; font-weight: 600; letter-spacing: .02em; }
   .reload { flex: none; }
@@ -181,10 +182,9 @@
   .dots i.on { background: var(--ok); }
   .rail {
     display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
-    /* --app-h follows the *visible* area, so the rail shrinks when the
-       keyboard opens instead of being covered by it. 100dvh is the fallback
-       before the first measurement. */
-    height: calc(var(--app-h, 100dvh) - 46px); scrollbar-width: none;
+    /* Takes whatever is left after the header — no assumed header height.
+       min-height:0 is required or a flex child refuses to shrink. */
+    flex: 1; min-height: 0; scrollbar-width: none;
     /* Without contain, a swipe past the last pane scrolls the page behind it. */
     overscroll-behavior-x: contain;
   }
@@ -195,6 +195,6 @@
     background: color-mix(in srgb, var(--err) 12%, transparent);
   }
   .offline button { margin-top: .4rem; display: block; }
-  .gate { padding: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+  .gate { padding: 1rem; display: flex; flex-direction: column; gap: .6rem; overflow-y: auto; }
   .gate p { margin: 0; font-size: 12px; line-height: 1.5; }
 </style>
