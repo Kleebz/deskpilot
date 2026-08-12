@@ -1,16 +1,27 @@
 :root {
-  color-scheme: dark light;
-  --bg: #111; --fg: #e8e8e8; --dim: #8a8a8a;
-  --line: #333; --ok: #4ea1ff; --err: #ff6b6b;
-  --panel: color-mix(in srgb, var(--fg) 6%, transparent);
-  /* One elevation step. Cards sit on it so they read as objects rather than
-     outlined regions — a 1px border alone gives no hierarchy. */
-  --card: color-mix(in srgb, var(--fg) 4%, transparent);
-  --card-line: color-mix(in srgb, var(--fg) 12%, transparent);
+  /* Cyberpunk Cyan, taken from the Omarchy theme this desktop runs, so the app
+     reads as part of the machine rather than a visitor. Roles are matched to
+     how the theme already uses them: cyan is what "active" looks like here
+     (window borders, the lock ring), #ff2a6d is what failure looks like. */
+  color-scheme: dark;
+
+  --bg:      #0a0a0f;
+  --fg:      #e0f7ff;
+  --dim:     #7d8ba1;   /* muted, still 4.5:1 on the background */
+  --line:    #1e2230;
+  --ok:      #00ffff;   /* accent — matches col.active_border */
+  --err:     #ff2a6d;   /* matches hyprlock's fail_color */
+  --warn:    #ffd700;
+
+  --panel:     #11131c;
+  --card:      #12141e;
+  --card-line: #23283a;
   --radius: 10px;
-}
-@media (prefers-color-scheme: light) {
-  :root { --bg: #fafafa; --fg: #1a1a1a; --dim: #666; --line: #dcdcdc; }
+
+  /* Neon is a highlight, not a texture. Only the accent glows, and only where
+     something is genuinely active. */
+  --glow: 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
+          0 0 12px -2px color-mix(in srgb, var(--ok) 45%, transparent);
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body {
@@ -39,6 +50,7 @@ button {
   transition: background-color .12s ease, border-color .12s ease, opacity .12s ease;
 }
 button:active { background: var(--line); transform: translateY(.5px); }
+button:focus-visible { outline: none; box-shadow: var(--glow); }
 button:disabled { opacity: .45; }
 button.sm { font-size: 12px; padding: .3rem .55rem; min-width: 44px; }
 
@@ -53,8 +65,12 @@ input, select {
   transition: border-color .12s ease;
 }
 input:focus, select:focus {
-  outline: none; border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+  outline: none;
+  border-color: color-mix(in srgb, var(--ok) 60%, transparent);
+  box-shadow: var(--glow);
 }
-::placeholder { color: color-mix(in srgb, var(--fg) 32%, transparent); }
+/* The placeholder carries the rotating hints, so it has to be readable — a
+   transparent tint measured 1.14:1 against the card, i.e. invisible. */
+::placeholder { color: var(--dim); opacity: 1; }
 .dim { color: var(--dim); }
 .err { color: var(--err); }

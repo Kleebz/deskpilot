@@ -157,7 +157,11 @@
     padding: .5rem .6rem; border-bottom: 1px solid var(--line);
     background: var(--bg); z-index: 3;
   }
-  .brand { flex: none; font-weight: 600; letter-spacing: .02em; }
+  .brand {
+    flex: none; font-weight: 600; letter-spacing: .06em;
+    color: var(--ok);
+    text-shadow: 0 0 14px color-mix(in srgb, var(--ok) 40%, transparent);
+  }
   .reload { flex: none; }
   .status {
     flex: 1 1 auto; min-width: 0; font-size: 12px; text-align: right;
@@ -179,7 +183,10 @@
   .dots i.has { background: var(--dim); }
   /* the index marker is a square so it reads as "not a screen" */
   .dots i.idx { border-radius: 2px; background: var(--dim); }
-  .dots i.on { background: var(--ok); }
+  .dots i.on {
+    background: var(--ok);
+    box-shadow: 0 0 8px -1px color-mix(in srgb, var(--ok) 70%, transparent);
+  }
   .rail {
     display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
     /* Takes whatever is left after the header — no assumed header height.
@@ -190,9 +197,10 @@
   }
   .rail::-webkit-scrollbar { display: none; }
   .offline {
-    margin: .6rem; padding: .6rem .7rem; border-radius: 8px; line-height: 1.5;
-    font-size: 12px; border: 1px solid var(--err);
-    background: color-mix(in srgb, var(--err) 12%, transparent);
+    margin: .6rem; padding: .6rem .7rem; border-radius: var(--radius); line-height: 1.5;
+    font-size: 12px; border: 1px solid color-mix(in srgb, var(--err) 60%, transparent);
+    background: color-mix(in srgb, var(--err) 10%, transparent);
+    box-shadow: 0 0 16px -6px color-mix(in srgb, var(--err) 60%, transparent);
   }
   .offline button { margin-top: .4rem; display: block; }
   .gate { padding: 1rem; display: flex; flex-direction: column; gap: .6rem; overflow-y: auto; }

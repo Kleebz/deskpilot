@@ -485,3 +485,26 @@ long detour through TLS, DNS and firewalls looking for a cause that was never th
 
 Sources: [Chrome installability criteria](https://developer.chrome.com/blog/update-install-criteria),
 [web.dev install criteria](https://web.dev/articles/install-criteria)
+
+## Theme: the desktop's own palette
+
+Rather than invent a look, the app takes the palette from the Omarchy theme this machine
+runs — "Cyberpunk Cyan" — so it reads as part of the desktop rather than a visitor.
+
+Roles were matched to how the theme already uses the colours, not just the hex values
+copied: `#00ffff` is what *active* looks like here (it is `col.active_border` and the
+hyprlock ring), and `#ff2a6d` is what *failure* looks like (hyprlock's `fail_color`). So
+cyan is the accent and pink is the error colour, and both mean the same thing in the app
+as they do everywhere else on screen.
+
+Neon is used as a highlight, not a texture: a glow on the wordmark, the active rail dot,
+the workspace badge, the working pulse, focus rings, and the primary action. Nothing
+else glows, because if everything does it stops signalling anything.
+
+Light mode was dropped. A cyberpunk palette has no coherent light variant and this
+desktop is dark.
+
+Contrast measured rather than trusted: body 17.8:1, dim 5.7:1, transcript on card
+16.5:1. That check caught a real failure — the placeholder was a transparent tint at
+**1.14:1**, effectively invisible, which silently killed the rotating hint feature that
+lives in it. Now 5.3:1.

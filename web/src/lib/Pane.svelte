@@ -259,19 +259,23 @@
   .bar { display: flex; align-items: center; gap: .4rem; min-width: 0; }
   .name {
     flex: 1; min-width: 0; font-size: 1.05rem; font-weight: 600; color: var(--ok);
+    text-shadow: 0 0 18px color-mix(in srgb, var(--ok) 30%, transparent);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .name.none { font-size: .95rem; font-weight: 400; color: var(--dim); }
   .badge {
-    font-size: .6rem; letter-spacing: .08em; text-transform: uppercase;
+    font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; flex: none;
     color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
+    box-shadow: 0 0 12px -2px color-mix(in srgb, var(--ok) 55%, transparent);
   }
   .ghost { border-color: transparent; color: var(--dim); }
   .keytoggle { min-width: 44px; font-size: 16px; }
   .keytoggle.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
   .pulse {
     width: 7px; height: 7px; border-radius: 50%; flex: none;
-    background: var(--ok); animation: breathe 1.2s ease-in-out infinite;
+    background: var(--ok);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 80%, transparent);
+    animation: breathe 1.2s ease-in-out infinite;
   }
   @keyframes breathe { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
   @media (prefers-reduced-motion: reduce) { .pulse { animation: none; opacity: .8 } }

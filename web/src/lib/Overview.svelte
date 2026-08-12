@@ -202,6 +202,7 @@
     flex: none;
     font-size: .6rem; letter-spacing: .08em; text-transform: uppercase;
     color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
+    box-shadow: 0 0 12px -2px color-mix(in srgb, var(--ok) 55%, transparent);
   }
   .acts { display: flex; gap: .4rem; min-width: 0; }
   /* extra separation before a destructive control */
@@ -217,6 +218,8 @@
   .new {
     border-color: color-mix(in srgb, var(--ok) 55%, transparent); color: var(--ok);
     background: color-mix(in srgb, var(--ok) 8%, transparent);
+    box-shadow: 0 0 20px -8px color-mix(in srgb, var(--ok) 80%, transparent);
+    letter-spacing: .04em;
     position: sticky; bottom: env(safe-area-inset-bottom, 0px); width: 100%;
     background: var(--bg); box-shadow: 0 -8px 12px -8px var(--bg);
   }
