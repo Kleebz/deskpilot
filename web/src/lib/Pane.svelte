@@ -296,8 +296,10 @@
     font-size: 12px; line-height: 1.5; padding: .6rem;
     border: 1px solid var(--card-line); border-radius: var(--radius);
     background: var(--card);
-    /* fades the top edge so scrolled content does not collide with the title */
-    mask-image: linear-gradient(to bottom, transparent, #000 10px);
+    /* No mask here. A mask plus a border-box background gradient is fragile
+       once touch promotes the element to a composited layer — the sweeping
+       border intermittently stops painting after a tap. The top fade it
+       provided is worth much less than the border being reliable. */
   }
   /* A border that sweeps cyan to magenta, shown ONLY while output is changing —
      motion that means "working" rather than decoration, and idle most of the
@@ -309,6 +311,9 @@
      without that registration a conic gradient cannot be interpolated. */
   pre.spin-border {
     border-color: transparent;
+    /* Hint that this element is animating so the compositor keeps a stable
+       layer for it rather than re-deciding mid-interaction. */
+    will-change: background;
     background:
       linear-gradient(var(--card), var(--card)) padding-box,
       conic-gradient(from var(--angle), var(--ok), var(--magenta), var(--ok)) border-box;
