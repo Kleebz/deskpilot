@@ -85,3 +85,11 @@ export async function waitFor(fn, { tries = 14, every = 500 } = {}) {
   }
   return false;
 }
+
+// Paths are shown in narrow rows where the prefix is the least useful part.
+// The server sends absolute paths; the UI shows them home-relative.
+export function tilde(path) {
+  if (!path) return "";
+  const home = path.match(/^\/(home|Users)\/[^/]+/)?.[0];
+  return home && path.startsWith(home) ? "~" + path.slice(home.length) : path;
+}

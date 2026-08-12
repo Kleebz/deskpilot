@@ -178,7 +178,8 @@
           bind:value={input}
           placeholder={hints[hintIdx % hints.length]}
           autocomplete="off" autocapitalize="off" autocorrect="off" />
-        <button class="ghost" type="button" onclick={() => (showKeys = !showKeys)}>⌨</button>
+        <button class="sm ghost keytoggle" class:on={showKeys} type="button"
+                aria-label="keys" onclick={() => (showKeys = !showKeys)}>⌨</button>
         <button>send</button>
       </form>
       {#if showKeys}
@@ -266,6 +267,8 @@
     color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
   }
   .ghost { border-color: transparent; color: var(--dim); }
+  .keytoggle { min-width: 44px; font-size: 16px; }
+  .keytoggle.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
   .pulse {
     width: 7px; height: 7px; border-radius: 50%; flex: none;
     background: var(--ok); animation: breathe 1.2s ease-in-out infinite;
@@ -276,14 +279,18 @@
   .drawer {
     display: flex; flex-direction: column; gap: .4rem; min-width: 0;
     max-height: 40vh; overflow-y: auto;
-    border: 1px solid var(--line); border-radius: 8px; padding: .4rem;
+    border: 1px solid var(--card-line); border-radius: var(--radius);
+    padding: .4rem; background: var(--panel);
   }
 
   pre {
     flex: 1; min-height: 0; margin: 0; overflow: auto;
     white-space: pre-wrap; word-break: break-word;
     font-size: 12px; line-height: 1.5; padding: .6rem;
-    border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+    border: 1px solid var(--card-line); border-radius: var(--radius);
+    background: var(--card);
+    /* fades the top edge so scrolled content does not collide with the title */
+    mask-image: linear-gradient(to bottom, transparent, #000 10px);
   }
   .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }
   .pending { color: var(--dim); font-style: italic; }
@@ -291,8 +298,19 @@
   .composer { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
   form { display: flex; gap: .4rem; min-width: 0; }
   form input { flex: 1; min-width: 0; }
-  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; }
-  .keys button { font-size: 14px; padding: .3rem; }
+  /* A 4x2 grid of full-width buttons read as a keypad and ate ~110px. A single
+     scrolling row keeps the 44px touch target but reads as a toolbar. */
+  .keys {
+    display: flex; gap: .35rem; overflow-x: auto;
+    scrollbar-width: none; padding-bottom: .1rem;
+    /* the fade is the only cue that this row scrolls */
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+  .keys::-webkit-scrollbar { display: none; }
+  .keys button {
+    flex: 0 0 auto; min-width: 3rem; font-size: 14px; padding: .3rem .5rem;
+    background: var(--card);
+  }
 
   h2 {
     margin: 0; font-size: .72rem; letter-spacing: .09em; text-transform: uppercase;
@@ -306,7 +324,9 @@
   }
   .win {
     display: flex; gap: .35rem; align-items: center; min-width: 0;
-    border: 1px solid var(--line); border-radius: 8px; padding: .4rem .5rem;
+    background: var(--card);
+    border: 1px solid var(--card-line); border-radius: var(--radius);
+    padding: .4rem .5rem;
   }
   .t {
     flex: 1; min-width: 0; font-size: 12px;

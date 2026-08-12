@@ -3,6 +3,11 @@
   --bg: #111; --fg: #e8e8e8; --dim: #8a8a8a;
   --line: #333; --ok: #4ea1ff; --err: #ff6b6b;
   --panel: color-mix(in srgb, var(--fg) 6%, transparent);
+  /* One elevation step. Cards sit on it so they read as objects rather than
+     outlined regions — a 1px border alone gives no hierarchy. */
+  --card: color-mix(in srgb, var(--fg) 4%, transparent);
+  --card-line: color-mix(in srgb, var(--fg) 12%, transparent);
+  --radius: 10px;
 }
 @media (prefers-color-scheme: light) {
   :root { --bg: #fafafa; --fg: #1a1a1a; --dim: #666; --line: #dcdcdc; }
@@ -17,11 +22,12 @@ body {
    at 26px. `.sm` now means smaller TEXT, not a smaller thing to hit. */
 button {
   font: inherit; background: transparent; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 8px;
+  border: 1px solid var(--card-line); border-radius: var(--radius);
   min-height: 44px; padding: .4rem .7rem;
   display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color .12s ease, border-color .12s ease, opacity .12s ease;
 }
-button:active { background: var(--line); }
+button:active { background: var(--line); transform: translateY(.5px); }
 button:disabled { opacity: .45; }
 button.sm { font-size: 12px; padding: .3rem .55rem; min-width: 44px; }
 
@@ -30,9 +36,14 @@ button.sm { font-size: 12px; padding: .3rem .55rem; min-width: 44px; }
 button.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 55%, transparent); }
 button.danger:active { background: color-mix(in srgb, var(--err) 20%, transparent); }
 input, select {
-  font: inherit; background: transparent; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 8px;
+  font: inherit; background: var(--card); color: var(--fg);
+  border: 1px solid var(--card-line); border-radius: var(--radius);
   min-height: 44px; padding: .5rem .6rem;
+  transition: border-color .12s ease;
 }
+input:focus, select:focus {
+  outline: none; border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+::placeholder { color: color-mix(in srgb, var(--fg) 32%, transparent); }
 .dim { color: var(--dim); }
 .err { color: var(--err); }

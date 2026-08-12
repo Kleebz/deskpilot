@@ -1,5 +1,5 @@
 <script>
-  import { api, post, waitFor } from "./api.js";
+  import { api, post, waitFor, tilde } from "./api.js";
 
   let { ws, taken, onstatus, onchanged, oncancel } = $props();
 
@@ -85,7 +85,7 @@
   <label>
     <span class="lbl">directory</span>
     <select bind:value={dir}>
-      {#each dirs as d}<option value={d}>{d.replace(/^\/home\/[^/]+/, "~")}</option>{/each}
+      {#each dirs as d}<option value={d}>{tilde(d)}</option>{/each}
     </select>
   </label>
 

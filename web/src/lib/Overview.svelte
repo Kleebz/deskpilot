@@ -1,5 +1,5 @@
 <script>
-  import { api, post, waitFor } from "./api.js";
+  import { api, post, waitFor, tilde } from "./api.js";
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
 
@@ -113,36 +113,34 @@
         <button class="go" onclick={() => onjump(s.workspace)}>
           <span class="badge">ws{s.workspace}</span>
           <span class="nm">{s.session}</span>
-          <span class="path dim">{s.path}</span>
+          <span class="path dim">{tilde(s.path)}</span>
         </button>
         <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
       </div>
     {/each}
   {:else if !detached.length}
     <div class="why">
-      Nothing is running yet. Start one above — pick a project directory and whether to
-      run a shell or an agent.
+      Nothing running yet. Start one below.
     </div>
   {/if}
 
   {#if detached.length}
     <h2>detached · {detached.length}</h2>
-    <div class="why">
-      Running, but with no window. Closing a terminal detaches a session rather than
-      killing it — that is what keeps work alive when your phone drops.
-    </div>
+    <div class="why">Running with no window — closing a terminal detaches, it does not kill.</div>
     {#each detached as s (s.session)}
-      <div class="row static">
-        <span class="nm">{s.session}</span>
-        <span class="path dim">{s.path}</span>
-      </div>
-      <div class="acts">
-        <select bind:value={target[s.session]}>
-          <option value="">screen…</option>
-          {#each workspaces as n}<option value={n}>{n}</option>{/each}
-        </select>
-        <button class="sm" onclick={() => adopt(s.session)}>open</button>
-        <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
+      <div class="card">
+        <div class="cardhead">
+          <span class="nm">{s.session}</span>
+          <span class="path dim">{tilde(s.path)}</span>
+        </div>
+        <div class="acts">
+          <select bind:value={target[s.session]}>
+            <option value="">screen…</option>
+            {#each workspaces as n}<option value={n}>{n}</option>{/each}
+          </select>
+          <button class="sm" onclick={() => adopt(s.session)}>open</button>
+          <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
+        </div>
       </div>
     {/each}
   {/if}
@@ -178,7 +176,10 @@
     color: var(--dim); border-top: 1px solid var(--line); padding-top: .5rem;
   }
   h2.first { border-top: 0; padding-top: 0; }
-  .count { float: right; text-transform: none; letter-spacing: 0; }
+  .count {
+    float: right; text-transform: none; letter-spacing: 0;
+    font-variant-numeric: tabular-nums; opacity: .85;
+  }
   .row {
     display: flex; align-items: center; gap: .45rem; min-width: 0;
     width: 100%; text-align: left;
@@ -202,7 +203,7 @@
     font-size: .6rem; letter-spacing: .08em; text-transform: uppercase;
     color: var(--bg); background: var(--ok); border-radius: 4px; padding: .1rem .3rem;
   }
-  .acts { display: flex; gap: .4rem; padding-left: .5rem; min-width: 0; }
+  .acts { display: flex; gap: .4rem; min-width: 0; }
   /* extra separation before a destructive control */
   .acts .danger, .row .danger { margin-left: .5rem; }
   .acts select { flex: 1; min-width: 0; }
@@ -214,7 +215,8 @@
   .hint { font-size: 11px; padding-top: .25rem; line-height: 1.5; }
   .foot { margin-top: auto; }
   .new {
-    border-color: var(--ok); color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 55%, transparent); color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 8%, transparent);
     position: sticky; bottom: env(safe-area-inset-bottom, 0px); width: 100%;
     background: var(--bg); box-shadow: 0 -8px 12px -8px var(--bg);
   }

@@ -48,18 +48,23 @@
   }
 </script>
 
+<!-- Two lines: three controls plus a title on one 390px row left about 150px
+     for the title, which truncated everything to "Alacritty jaco…". -->
 <div class="win" class:self>
-  <span class="t">
-    {#if self}<span class="tag">this session</span>{/if}
-    {win.class} <span class="dim">{win.title}</span>
-  </span>
-  <span class="mode">{mode}</span>
-  <button class="sm" disabled={busy} onclick={tile}>tile</button>
-  <select class="sm" disabled={busy} onchange={move}>
-    <option value="">→</option>
-    {#each workspaces as n}<option value={n}>{n}</option>{/each}
-  </select>
-  <button class="sm" disabled={busy} onclick={look}>look</button>
+  <div class="head">
+    {#if self}<span class="tag">this</span>{/if}
+    <span class="cls">{win.class}</span>
+    <span class="ttl dim">{win.title}</span>
+    <span class="mode">{mode}</span>
+  </div>
+  <div class="acts">
+    <button class="sm" disabled={busy} onclick={tile}>tile</button>
+    <select class="sm" disabled={busy} onchange={move}>
+      <option value="">move →</option>
+      {#each workspaces as n}<option value={n}>screen {n}</option>{/each}
+    </select>
+    <button class="sm" disabled={busy} onclick={look}>look</button>
+  </div>
 </div>
 
 {#if shot}
@@ -82,22 +87,28 @@
 
 <style>
   .win {
-    display: flex; gap: .35rem; align-items: center; min-width: 0;
-    border: 1px solid var(--line); border-radius: 8px; padding: .4rem .5rem;
+    display: flex; flex-direction: column; gap: .4rem; min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--card-line); border-radius: var(--radius);
+    padding: .45rem .5rem;
   }
-  .win :global(button), .win :global(select) { flex: none; }
-  .t {
+  .win.self { border-color: color-mix(in srgb, var(--ok) 45%, var(--card-line)); }
+  .head { display: flex; align-items: baseline; gap: .35rem; min-width: 0; }
+  .cls { font-size: 12px; flex: none; }
+  .ttl {
     flex: 1; min-width: 0; font-size: 12px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .mode { font-size: 10px; color: var(--dim); text-transform: uppercase; flex: none; }
+  .mode { font-size: 9px; color: var(--dim); text-transform: uppercase; flex: none; }
+  .acts { display: flex; gap: .35rem; min-width: 0; }
+  .acts :global(button) { flex: none; }
+  .acts select { flex: 1; min-width: 0; font-size: 12px; }
   /* A session and the terminal hosting it are the same thing. Listing both
      without saying so makes one session plus one window look like three. */
   .win.self { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
   .tag {
-    font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+    font-size: 9px; letter-spacing: .06em; text-transform: uppercase; flex: none;
     color: var(--bg); background: var(--ok); border-radius: 3px; padding: .05rem .25rem;
-    margin-right: .25rem;
   }
   .thumb {
     width: 100%; display: block; border-radius: 8px;
