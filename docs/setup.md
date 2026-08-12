@@ -241,6 +241,12 @@ curl -s -H "authorization: Bearer $T" localhost:8790/api/sessions | jq
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8790/api/sessions   # 401, no token
 ```
 
+**Installing on Android: use Chrome, not Brave.** Both show the install prompt, but
+Brave strips Google service integrations including WebAPK minting, so it can only ever
+create a home-screen shortcut. Chrome installs a real app — separate entry in the
+launcher and task switcher, standalone window, no URL bar. Verified on a tailnet-only
+origin, so a private address is not an obstacle.
+
 **Pairing a phone:**
 
 ```bash
