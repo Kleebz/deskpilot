@@ -46,26 +46,51 @@ if [ "$(tailscale status --json | jq -r '.CertDomains // empty')" = "" ]; then
   exit 1
 fi
 
-# Serve reaches the app over loopback, so the app itself can stop listening
-# anywhere else. Drop the LAN/tailnet binding override if one is present.
+# Set up Serve FIRST and prove it works. Only then narrow the binding.
+# Doing it the other way round means a failure here leaves the phone with no
+# route at all — which is exactly what happened the first time.
+say "pointing Tailscale Serve at 127.0.0.1:$PORT"
+if ! tailscale serve --bg --yes "$PORT" 2>/dev/null; then
+  if sudo -n true 2>/dev/null || [ -t 0 ]; then
+    say "serve needs root; retrying with sudo"
+    sudo tailscale serve --bg --yes "$PORT"
+  else
+    echo >&2
+    echo "tailscale serve needs root. Either run this in a terminal so it can" >&2
+    echo "prompt, or grant yourself permanent access once:" >&2
+    echo "  sudo tailscale set --operator=\$USER" >&2
+    exit 1
+  fi
+fi
+
+URL="https://$DNSNAME"
+ok=0
+for _ in $(seq 1 10); do
+  sleep 2
+  if curl -s -m 8 -o /dev/null "$URL/"; then ok=1; break; fi
+done
+if [ "$ok" != 1 ]; then
+  echo >&2
+  echo "No answer at $URL. Leaving the current binding alone so you are not" >&2
+  echo "cut off. Undo with: tailscale serve reset" >&2
+  exit 1
+fi
+say "reachable at $URL with a valid certificate"
+
+# Proven. Now the app can stop listening anywhere but loopback.
 DROPIN="$UNIT_DIR/deskpilot.service.d/local.conf"
 if [ -f "$DROPIN" ]; then
   rm -f "$DROPIN"
-  say "removed the bind-everywhere override — back to 127.0.0.1 only"
-fi
-systemctl --user daemon-reload
-systemctl --user restart deskpilot
-sleep 2
-
-say "pointing Tailscale Serve at 127.0.0.1:$PORT"
-tailscale serve --bg --yes "$PORT"
-
-sleep 2
-URL="https://$DNSNAME"
-if curl -s -m 10 -o /dev/null "$URL/"; then
-  say "reachable at $URL"
-else
-  say "warning: no answer at $URL yet — a first certificate can take a few seconds"
+  systemctl --user daemon-reload
+  systemctl --user restart deskpilot
+  sleep 2
+  say "removed the bind-everywhere override — listening on 127.0.0.1 only"
+  curl -s -m 8 -o /dev/null "$URL/" \
+    && say "still reachable through Serve after narrowing the binding" \
+    || { say "lost reachability after narrowing — restoring"; \
+         mkdir -p "$(dirname "$DROPIN")"; \
+         printf '[Service]\nEnvironment=DESKPILOT_HOST=0.0.0.0\n' > "$DROPIN"; \
+         systemctl --user daemon-reload; systemctl --user restart deskpilot; exit 1; }
 fi
 
 # The firewall rule is no longer doing anything: nothing listens off-loopback.
