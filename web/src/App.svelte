@@ -159,6 +159,13 @@
     padding: .5rem .6rem; border-bottom: 1px solid var(--line);
     background: var(--bg); z-index: 3;
   }
+  /* Landscape on a phone is wide and very short — 390px tall. Every row of
+     chrome costs a visible line of transcript, so the header slims down and
+     the wordmark goes. */
+  @media (max-height: 480px) {
+    header { padding: .25rem .5rem; }
+    .brand { display: none; }
+  }
   .brand {
     flex: none; font-weight: 600; letter-spacing: .06em;
     color: var(--ok);

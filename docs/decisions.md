@@ -508,3 +508,30 @@ Contrast measured rather than trusted: body 17.8:1, dim 5.7:1, transcript on car
 16.5:1. That check caught a real failure — the placeholder was a transparent tint at
 **1.14:1**, effectively invisible, which silently killed the rotating hint feature that
 lives in it. Now 5.3:1.
+
+## Reading a TUI on a phone: what actually helped
+
+Two changes did more than any amount of styling.
+
+**Collapse full-width rules.** A TUI draws separators the width of the terminal — 130
+columns here. A phone fits about 48, so each rule wraps to three display lines of solid
+box-drawing. Measured on a real Claude Code capture: 2 of 8 lines were pure rules, so
+six of the visible lines were separator. Collapsing any line that is *entirely* rule
+characters to 12 characters took the longest line from 130 to 51. Lines containing text
+are left untouched, including box edges around content, because stripping those risks
+mangling real output.
+
+**Allow landscape.** The manifest had `orientation: portrait`, which locks an installed
+PWA. Removing it roughly doubles the usable columns:
+
+| | columns | visible lines |
+|---|---|---|
+| portrait 390x844 | 51 | 36 |
+| landscape 844x390 | 114 | 12 |
+
+Neither is better in general — landscape stops wrapping and preserves alignment, portrait
+shows more history. Both are now available, which is the point. A `max-height: 480px`
+media query slims the chrome in landscape, where every row costs a visible line.
+
+The earlier conclusion that this needed a "reader mode" parser was wrong. The problem was
+never the prose, which was always fine — it was the separators, and one regex fixed it.

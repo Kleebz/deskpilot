@@ -147,7 +147,8 @@
 
   const KEYS = [
     ["↑", "Up"], ["↓", "Down"], ["←", "Left"], ["→", "Right"],
-    ["⏎", "Enter"], ["esc", "Escape"], ["tab", "Tab"], ["^C", "C-c"],
+    ["⏎", "Enter"], ["esc", "Escape"], ["tab", "Tab"], ["⇧tab", "BTab"],
+    ["^C", "C-c"],
   ];
 </script>
 
@@ -253,6 +254,15 @@
     display: flex; flex-direction: column;
   }
   /* With a session the pane does not scroll — the transcript does. */
+  @media (max-height: 480px) {
+    /* Reclaim vertical space for the transcript: tighter padding, and the
+       title bar loses its own line by sitting inline. */
+    section.composing { padding: .35rem .5rem; gap: .3rem; }
+    .bar { font-size: .9rem; }
+    .name { font-size: .95rem; }
+    .keys button { min-height: 38px; }
+    form input, form button { min-height: 38px; }
+  }
   section.composing {
     padding: .6rem; gap: .5rem; overflow: hidden;
     /* the composer is the lowest thing on screen — keep it clear of the

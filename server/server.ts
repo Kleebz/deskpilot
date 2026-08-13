@@ -208,9 +208,23 @@ async function handle(req: Request): Promise<Response> {
     // collapse blank runs to one — 3665 bytes becomes 1244 with nothing lost.
     // Deliberately NOT stripping box-drawing: the conversation itself is plain
     // prose, and the only boxed thing is the banner, which scrolls away.
+    // A TUI draws separators the full width of the terminal — 130 columns here.
+    // A phone fits about 48, so each rule wraps to three lines of solid box
+    // characters, and two of them swamp an eight-line reply. They carry no
+    // information a short rule does not, so they are collapsed.
+    //
+    // Only lines that are ENTIRELY rule characters are touched. Anything with
+    // text in it is left exactly as sent, including box edges around content —
+    // stripping those would risk mangling real output.
+    const RULE = /^[\s\u2500-\u257f]+$/;      // box-drawing block
+    const HAS_RULE_CHAR = /[\u2500-\u257f]/;
+
     const text = r.out
       .split("\n")
       .map((l) => l.replace(/\s+$/, ""))
+      .map((l) => (l.length > 12 && RULE.test(l) && HAS_RULE_CHAR.test(l)
+        ? l.trim()[0].repeat(12)
+        : l))
       .reduce<string[]>((acc, l) => {
         if (l === "" && acc[acc.length - 1] === "") return acc;
         acc.push(l);
