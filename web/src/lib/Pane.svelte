@@ -40,6 +40,12 @@
   });
   const working = $derived(lastChange > 0 && now - lastChange < 6000);
 
+  // The border sweeps whenever you are actually looking at a session — slow and
+  // cyan when quiet, faster and shot through with magenta when output is
+  // moving. Idle-but-present should still feel alive; it just should not shout.
+  // Gated on visibility so a backgrounded tab is not animating for nobody.
+  const alive = $derived(!!session && active && vis.visible);
+
   async function load() {
     if (!session) return;
     try {
@@ -168,7 +174,7 @@
       </div>
     {/if}
 
-    <pre class:spin-border={working} bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
+    <pre class:spin-border={alive} class:busy={working} bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
 <span class="pending">› {sent}</span>{/if}</pre>
 
     {#if !pinned}
@@ -309,18 +315,34 @@
      to the border box, so the gradient shows only in the border itself. The
      angle is animatable because it is registered with @property in app.css;
      without that registration a conic gradient cannot be interpolated. */
+  /* Present: a slow cyan sweep with a dim trough, so the edge always has some
+     life in it without competing with the text. */
   pre.spin-border {
     border-color: transparent;
-    /* Hint that this element is animating so the compositor keeps a stable
-       layer for it rather than re-deciding mid-interaction. */
+    /* Keeps the compositor on a stable layer rather than re-deciding
+       mid-interaction, which is what made the border drop out on tap. */
     will-change: background;
     background:
       linear-gradient(var(--card), var(--card)) padding-box,
-      conic-gradient(from var(--angle), var(--ok), var(--magenta), var(--ok)) border-box;
-    animation: sweep 3s linear infinite;
+      conic-gradient(from var(--angle),
+        var(--ok),
+        color-mix(in srgb, var(--ok) 18%, var(--card-line)),
+        var(--ok)) border-box;
+    animation: sweep 9s linear infinite;
   }
+
+  /* Working: faster, and magenta enters the sweep. Same motion, more urgency —
+     readable as a state change rather than a different effect. */
+  pre.spin-border.busy {
+    background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      conic-gradient(from var(--angle),
+        var(--ok), var(--magenta), var(--ok)) border-box;
+    animation-duration: 2.4s;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    pre.spin-border { animation: none; --angle: 45deg; }
+    pre.spin-border, pre.spin-border.busy { animation: none; --angle: 45deg; }
   }
 
   .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }
