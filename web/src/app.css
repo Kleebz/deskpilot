@@ -40,6 +40,21 @@ body {
   height: var(--app-h, 100dvh);
   overflow: hidden;
 }
+
+/* Turn the whole app 90° so it reads upright when the phone is held sideways.
+   This exists because Android auto-rotate may be off, and because an installed
+   PWA bakes its manifest orientation at install time — neither of which the
+   page can change. Rotating the content sidesteps both.
+
+   Swapping width and height makes the rotated box fill the screen; the
+   translate puts it back after rotating about the top-left corner. */
+#app.turned {
+  position: fixed; top: 0; left: 0;
+  width: var(--app-h, 100dvh);
+  height: 100dvw;
+  transform-origin: top left;
+  transform: rotate(90deg) translateY(-100%);
+}
 /* 44px is the minimum comfortable touch target on both iOS and Android
    guidance. Measured before this: 60 of 60 controls were under it, 28 of them
    at 26px. `.sm` now means smaller TEXT, not a smaller thing to hit. */

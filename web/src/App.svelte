@@ -16,6 +16,14 @@
   let lastSeen = $state(null);
   let tokenInput = $state("");
   let rail = $state(null);
+  let turned = $state(false);
+
+  // Applied to #app itself rather than a wrapper, so the rotation covers the
+  // header and rail together — it is one document and rotating part of it
+  // would leave the rest sideways.
+  $effect(() => {
+    document.getElementById("app")?.classList.toggle("turned", turned);
+  });
   // Rail position 0 is the sessions index, which is where the app opens.
   // Starting this at 1 lit the wrong dot until the first swipe.
   let activeWs = $state(0);
@@ -104,6 +112,8 @@
     {/each}
   </button>
   <span class:err={bad} class="dim status">{status}</span>
+  <button class="reload" class:on={turned} title="rotate"
+          onclick={() => (turned = !turned)}>⟳</button>
   <button class="reload" onclick={refresh}>↻</button>
 </header>
 
@@ -172,6 +182,7 @@
     text-shadow: 0 0 14px color-mix(in srgb, var(--ok) 40%, transparent);
   }
   .reload { flex: none; }
+  .reload.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
   .status {
     flex: 1 1 auto; min-width: 0; font-size: 12px; text-align: right;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
