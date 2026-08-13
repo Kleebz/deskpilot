@@ -315,8 +315,11 @@
      to the border box, so the gradient shows only in the border itself. The
      angle is animatable because it is registered with @property in app.css;
      without that registration a conic gradient cannot be interpolated. */
-  /* Present: a slow cyan sweep with a dim trough, so the edge always has some
-     life in it without competing with the text. */
+  /* Present: a visible cyan sweep. The first attempt at this was 9s with an
+     18%-cyan trough — so slow and so dim that it read as having stopped, which
+     is the same complaint the on/off version produced. Subtle is not the same
+     as absent: 5s and a 55% trough stays clearly in motion while still not
+     competing with the text. */
   pre.spin-border {
     border-color: transparent;
     /* Keeps the compositor on a stable layer rather than re-deciding
@@ -326,9 +329,9 @@
       linear-gradient(var(--card), var(--card)) padding-box,
       conic-gradient(from var(--angle),
         var(--ok),
-        color-mix(in srgb, var(--ok) 18%, var(--card-line)),
+        color-mix(in srgb, var(--ok) 55%, var(--card-line)),
         var(--ok)) border-box;
-    animation: sweep 9s linear infinite;
+    animation: sweep 5s linear infinite;
   }
 
   /* Working: faster, and magenta enters the sweep. Same motion, more urgency —
