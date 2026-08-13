@@ -121,8 +121,11 @@ async function serveStatic(path: string): Promise<Response> {
     return new Response(bytes, { headers });
   } catch {
     if (rel === "/index.html") {
+      // The real path, not a guessed one — this repo does not have to live in
+      // ~/Projects for anyone but its author, and an error message that names
+      // the wrong directory is worse than one that names none.
       return new Response(
-        "No built UI. Run:  cd ~/Projects/deskpilot/web && npm install && npm run build",
+        `No built UI. Run:  cd ${WEB} && npm install && npm run build\n`,
         { status: 503, headers: { "content-type": "text/plain" } },
       );
     }

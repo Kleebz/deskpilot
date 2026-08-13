@@ -1,17 +1,23 @@
 # Setup
 
-Steps are ordered and independent — each one is useful on its own, and each has a
-rollback. Do not skip ahead; step 4 depends on step 1 existing.
+Steps are ordered by dependency. Each one is useful on its own and each has a rollback.
 
 Verified on Omarchy / Arch, Hyprland 0.56.0. Every step ends with a check that either
 prints something or tells you it failed.
+
+`$REPO` below means wherever you cloned this. Nothing assumes a particular directory —
+the scripts resolve their own location — so substitute your path or set it once:
+
+```bash
+REPO=~/Projects/deskpilot        # or wherever you cloned it
+```
 
 ---
 
 ## Step 0 — Preflight
 
 ```bash
-~/Projects/deskpilot/shell/check.sh
+$REPO/shell/check.sh
 ```
 
 Checks every assumption — tools, compositor, the systemd user environment, lock
@@ -36,7 +42,7 @@ Copy the config if you need to change any of them:
 
 ```bash
 mkdir -p ~/.config/deskpilot
-cp ~/Projects/deskpilot/deskpilot.conf.example ~/.config/deskpilot/config
+cp $REPO/deskpilot.conf.example ~/.config/deskpilot/config
 ```
 
 ---
@@ -44,10 +50,12 @@ cp ~/Projects/deskpilot/deskpilot.conf.example ~/.config/deskpilot/config
 ## Step 1 — The skill
 
 Makes Claude able to inspect and drive the desktop. Nothing remote required; works from
-any terminal on this machine.
+any terminal on this machine. Skip it if you do not use Claude Code — nothing else
+depends on it.
 
 ```bash
-ln -s ~/Projects/deskpilot/skills/desk-control ~/.claude/skills/desk-control
+mkdir -p ~/.claude/skills
+ln -s $REPO/skills/desk-control ~/.claude/skills/desk-control
 ```
 
 Claude Code only loads skills from `~/.claude/skills/`, so the symlink is what lets the
@@ -56,97 +64,138 @@ skill live in the repo and still be picked up — edits are live, and it stays i
 **Verify** — ask Claude Code "what's on workspace 1". It should answer from
 `hyprctl clients -j` without taking a screenshot.
 
-**Rollback** — `rm ~/.claude/skills/desk-control` (removes the symlink, not the repo).
+Then apply the permission rules, or driving the desktop becomes a prompt storm — the
+read-only queries and window moves fire constantly:
+
+```bash
+$REPO/shell/install-permissions.sh
+```
+
+It merges into `~/.claude/settings.json`, backs up first, and is safe to re-run.
+**Claude Code cannot run this for you** — the classifier blocks an agent from widening
+its own permissions, which is correct behaviour. It allows reversible things, keeps
+`closewindow` and `tmux send-keys` on *ask* (both can destroy work or type into any
+terminal you have open), and denies `hyprctl dispatch exit` outright.
+
+**Rollback** — `rm ~/.claude/skills/desk-control` (removes the symlink, not the repo);
+the script leaves a timestamped backup of your settings beside the original.
 
 ---
 
 ## Step 2 — The tmux wrapper
 
-Makes each Claude session addressable by name, which everything remote is built on.
-Your desk experience does not change: you still type `claude`.
+Makes each session addressable by name, which everything remote is built on. Your desk
+experience does not change: you still type `claude`.
 
 ```bash
-echo 'source ~/Projects/deskpilot/shell/claude-tmux.sh' >> ~/.bashrc
+echo "source $REPO/shell/claude-tmux.sh" >> ~/.bashrc
 ```
 
 Takes effect in **new** terminals only. Sessions already running are untouched.
 
-**Verify** — open a new terminal, then:
+**Verify** — open a new terminal, then, in any project directory:
 
 ```bash
-cd ~/Projects/zigwam && claude     # should look completely normal
-tmux ls                            # from another terminal: a session named `zigwam`
-tmux send-keys -t zigwam "hello" Enter   # text appears in that Claude session
+cd ~/some-project && claude    # should look completely normal
+tmux ls                        # from another terminal: a session named `some-project`
+tmux send-keys -t some-project "hello" Enter   # text appears in that session
 ```
 
-That last line is the whole point — it is how the phone will talk to a specific session.
+That last line is the whole point — it is how the phone talks to a specific session.
 
 **Rollback** — remove the `source` line from `~/.bashrc`.
 
 ---
 
-## Step 3 — Reachability
+## Step 3 — Server and web UI
 
-Three sub-steps. Do them in order; the SSH check must pass before you rely on Tailscale.
+The daily driver, and what the reachability step exists to expose. Do this before
+Step 4: those scripts restart this service and re-pair against it.
 
-### 3a. Enable sshd
-
-```bash
-sudo systemctl enable --now sshd
-```
-
-Add your phone's public key (generate it in Termux/Blink first):
+Build the UI first — `web/dist/` is gitignored, and the server returns a 503 telling you
+this if it is missing:
 
 ```bash
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-cat >> ~/.ssh/authorized_keys    # paste the phone's pubkey, then Ctrl-D
-chmod 600 ~/.ssh/authorized_keys
+cd $REPO/web
+npm install
+npm run build
 ```
 
-Disable password auth via a drop-in — do **not** edit `/etc/ssh/sshd_config`, this box
-uses `Include /etc/ssh/sshd_config.d/*.conf`:
+For UI work, `npm run dev` serves with hot reload and proxies `/api` to the running
+service, so you edit against real sessions rather than mocks.
+
+Then install the service:
 
 ```bash
-printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' \
-  | sudo tee /etc/ssh/sshd_config.d/10-deskpilot.conf
-sudo sshd -t && sudo systemctl restart sshd
+$REPO/shell/install-service.sh          # binds 127.0.0.1 — the right default
+$REPO/shell/install-service.sh --lan    # also reachable on your home wifi
 ```
 
-`sshd -t` validates the config first. If it fails, fix it before restarting — otherwise
-you can lock yourself out.
+It generates a token if you have none, writes the unit into `~/.config/systemd/user/`
+with absolute paths resolved from where you cloned, enables it, and prints the URL.
 
-**Verify from the phone, on your home wifi, before going further:**
-`ssh jacob@<lan-ip>` should log in with the key and never prompt for a password.
+**Which one to pass depends on where you are going next**, and this is the one place
+the choice actually matters:
 
-### 3b. Persistent tmux session
+| Your goal | Use | Why |
+|---|---|---|
+| Reach it from anywhere (**recommended**) | no flag | Step 4's HTTPS route proxies from loopback, so the port never needs to be open at all |
+| Try it on your home wifi first | `--lan` | Nothing else will reach 127.0.0.1 |
+| Tailnet over plain HTTP (Step 4 fallback) | `--lan` | `use-tailscale.sh` firewalls the port rather than rebinding it, so the service must be listening beyond loopback |
 
-So a dropped connection does not kill Claude, and so the session inherits the Hyprland
-environment (`WAYLAND_DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`) that `grim` and `hyprctl`
-need.
+`--lan` means anything on your home network that can reach port 8790 gets to try the
+bearer token. That token is the only thing between a device on your wifi and a process
+that runs commands as you. Acceptable for testing from your own phone; not acceptable
+on a network you do not control. **Never port-forward this.**
 
-Add to `~/.config/hypr/autostart.conf`:
-
-```
-exec-once = tmux new -d -s phone
-```
-
-Plain `exec-once`, **not** `uwsm-app --`, despite that being the house style in this
-file. `tmux new -d` daemonizes and returns immediately; under a uwsm scope that can look
-like the app exiting and take the tmux server with it.
-
-**Verify** — log out and back in, then `tmux ls` should show `phone`. Confirm it has the
-environment:
+**Verify:**
 
 ```bash
-tmux new -d -s envtest 'echo $HYPRLAND_INSTANCE_SIGNATURE > /tmp/envcheck; sleep 1'
-sleep 2 && cat /tmp/envcheck    # non-empty means the env is inherited
+T=$(cat ~/.config/deskpilot/token)
+curl -s -H "authorization: Bearer $T" localhost:8790/api/sessions | jq
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8790/api/sessions   # 401, no token
 ```
 
-Connect with `ssh -t jacob@host tmux attach -t phone`.
+**Pairing a phone:**
 
-### 3c. Tailscale
+```bash
+$REPO/shell/pair.sh
+```
 
-Only needed off the home network. On the LAN, skip it.
+Prints a QR encoding the URL *with* the token. Scan it and add the page to your home
+screen — the token is stored in a one-year cookie as well as localStorage, so it is once
+per host. Re-run it whenever the address changes; each of the moves in Step 4 is a
+different address, and a token saved against the old one does not carry over.
+
+It prefers the HTTPS name when Tailscale Serve is up, then the tailnet address, then the
+LAN address — in each case the one that keeps working when you leave the house.
+
+**Installing on Android: use Chrome, not Brave.** Both show the install prompt, but
+Brave strips Google service integrations including WebAPK minting, so it can only ever
+create a home-screen shortcut. Chrome installs a real app — separate entry in the
+launcher and task switcher, standalone window, no URL bar. Verified on a tailnet-only
+origin, so a private address is not an obstacle. The prompt only appears over HTTPS
+(Step 4) — a private IP over plain HTTP is not a secure context and no browser will
+offer it, with no explanation given.
+
+**What you get:** swipe between screens 1–10, each showing the session on that
+workspace as a **real terminal** — a PTY sized to your phone, so programs lay out for
+the screen instead of being re-flowed afterwards. Plus a sessions index, window
+move/tile, screenshots, and remote unlock.
+
+The `--allow-run` allowlist is scoped to the two scripts, `tmux`, and `script(1)` — the
+last only because Deno has no PTY and the terminal view needs one. This is why the
+server is Deno rather than Bun. Do not widen it to bare `--allow-run`.
+
+**Rollback** — `systemctl --user disable --now deskpilot`.
+
+---
+
+## Step 4 — Reachability
+
+Only needed off the home network. On the LAN you are already done.
+
+### 4a. Tailscale
 
 ```bash
 sudo pacman -S tailscale
@@ -159,153 +208,136 @@ disabled, and `tailscale login` then fails with
 `dial unix /var/run/tailscale/tailscaled.sock: no such file or directory`, which reads
 like a broken install rather than a stopped service.
 
-Install the Tailscale app on the phone and sign in to the same tailnet. Then:
+Install the Tailscale app on the phone and sign in to the same tailnet.
 
-```bash
-~/Projects/deskpilot/shell/use-tailscale.sh
-```
-
-That moves the firewall from "anyone on my wifi" to "tailnet only", restarts the
-service, and prints a new pairing QR — the address changed, so the phone's saved token
-does not carry over.
-
-### 3d. HTTPS, and why it is not optional
-
-```bash
-~/Projects/deskpilot/shell/use-https.sh
-```
+### 4b. HTTPS — the recommended route
 
 Requires enabling **HTTPS Certificates** once at
 <https://login.tailscale.com/admin/dns>.
 
-Plain HTTP on a private IP is not a *secure context*, and browsers gate real features
-behind that — most visibly, **no browser will offer to install the PWA**, with no
-explanation given. Tailscale Serve fixes it with a genuine Let's Encrypt certificate for
-`<host>.<tailnet>.ts.net`, renewed automatically, no self-signed warning and no CA to
-install on the phone.
+```bash
+$REPO/shell/use-https.sh
+```
 
-It is also a security improvement rather than a cost. Serve reaches the app over
-loopback, so afterwards the server listens on **127.0.0.1 only** — better than binding
-`0.0.0.0` and trusting a firewall rule, because there is nothing to reach even if the
-rule is wrong. The script removes the bind-everywhere override for you.
+This is both the easier and the safer option, and it is what this machine runs:
+
+* Tailscale Serve terminates TLS with a genuine Let's Encrypt certificate for
+  `<host>.<tailnet>.ts.net`, renewed automatically — no self-signed warning, no CA to
+  install on the phone.
+* Serve reaches the app over **loopback**, so the server keeps listening on 127.0.0.1
+  only. That is strictly better than binding `0.0.0.0` and trusting a firewall rule,
+  because there is nothing to reach even if the rule is wrong. If you passed `--lan`
+  earlier, the script removes that override for you.
+* A secure context is what makes the PWA installable at all.
+
+The script proves the new route works *before* narrowing anything, and restores the
+previous binding if it cannot — an earlier version tore down the working setup first
+and stranded the phone.
 
 **Verify** — **turn off wifi on the phone** and load it over cellular. Testing on wifi
 proves nothing, because you are still on the LAN.
 
-**Rollback** — `sudo tailscale down`, `sudo systemctl disable --now tailscaled`, and
-re-add a LAN rule if you want it back:
-`sudo ufw allow from <subnet> to any port 8790 proto tcp`.
+### 4c. Tailnet over plain HTTP — the fallback
 
----
-
-## Step 4 — Server and web UI
-
-**Built.** A Deno server wrapping `scripts/`, plus a Svelte web UI.
-
-Build the UI first — `web/dist/` is gitignored, and the server returns a 503 telling
-you this if it is missing:
+Only if you cannot enable certificates. Requires `install-service.sh --lan` first,
+because it firewalls the port rather than rebinding the service.
 
 ```bash
-cd ~/Projects/deskpilot/web
-npm install
-npm run build
+$REPO/shell/use-tailscale.sh
 ```
 
-For UI work, `npm run dev` serves with hot reload on the LAN and proxies `/api` to the
-running service, so you edit against real sessions rather than mocks.
+Moves ufw from "anyone on my wifi" to "tailnet only", restarts the service, and prints
+a new pairing QR. You give up the PWA install and the padlock.
 
-Then install the service:
+**Rollback for this whole step** — `tailscale serve reset` undoes 4b on its own. To go
+further: `sudo tailscale down`, `sudo systemctl disable --now tailscaled`, and re-add a
+LAN rule if you want it back:
+`sudo ufw allow from <subnet> to any port 8790 proto tcp`. If you had been running
+loopback-only, you will also need `install-service.sh --lan` again to be reachable at
+all.
+
+### 4d. SSH — optional escape hatch
+
+**Nothing in deskpilot uses SSH.** It is worth having anyway before Step 5, because a
+remote unlock that misbehaves can leave you with no way into the GUI.
 
 ```bash
-~/Projects/deskpilot/shell/install-service.sh          # localhost only
-~/Projects/deskpilot/shell/install-service.sh --lan    # also on your home wifi
+sudo systemctl enable --now sshd
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+cat >> ~/.ssh/authorized_keys    # paste the phone's pubkey, then Ctrl-D
+chmod 600 ~/.ssh/authorized_keys
 ```
 
-It generates a token if you have none, links the unit into
-`~/.config/systemd/user/` (systemd only reads units from its own directories; a symlink
-keeps the file version-controlled and edits live), enables it, and prints the URL.
-
-Skip `--lan` if you are going straight to Tailscale — step 3c makes the port
-tailnet-only anyway, and there is no reason to open it on your wifi in between.
-
-It runs as a user service rather than a Hyprland `exec-once` because uwsm already
-imports `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` into the systemd user
-manager, so `hyprctl` and `grim` work directly — and systemd restarts it when it dies.
-Idle cost measured at 64 MB.
-
-**Verify:**
+Disable password auth via a drop-in — do **not** edit `/etc/ssh/sshd_config` if your
+box uses `Include /etc/ssh/sshd_config.d/*.conf`:
 
 ```bash
-T=$(cat ~/.config/deskpilot/token)
-curl -s -H "authorization: Bearer $T" localhost:8790/api/sessions | jq
-curl -s -o /dev/null -w '%{http_code}\n' localhost:8790/api/sessions   # 401, no token
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' \
+  | sudo tee /etc/ssh/sshd_config.d/10-deskpilot.conf
+sudo sshd -t && sudo systemctl restart sshd
 ```
 
-**Installing on Android: use Chrome, not Brave.** Both show the install prompt, but
-Brave strips Google service integrations including WebAPK minting, so it can only ever
-create a home-screen shortcut. Chrome installs a real app — separate entry in the
-launcher and task switcher, standalone window, no URL bar. Verified on a tailnet-only
-origin, so a private address is not an obstacle.
-
-**Pairing a phone:**
-
-```bash
-~/Projects/deskpilot/shell/pair.sh
-```
-
-Prints a QR encoding the URL *with* the token. Scan it and add the page to your home
-screen — the token is stored in a one-year cookie as well as localStorage, so it is once
-per host. Re-run it whenever the address changes; moving from LAN to Tailscale is a
-different IP and a token saved against the old host does not carry over.
-
-It prefers the tailnet address when Tailscale is up, since that is the one that keeps
-working when you leave the house.
-
-**It binds to 127.0.0.1 until you change it.** Once Tailscale is up, set
-`DESKPILOT_HOST=0.0.0.0` in the unit. This endpoint runs commands on your machine — it
-must never face the internet.
-
-The `--allow-run` allowlist is scoped to two scripts plus `tmux`, which is the reason
-the server is Deno rather than Bun. Do not widen it to bare `--allow-run`.
-
-**Rollback** — `systemctl --user disable --now deskpilot`.
+`sshd -t` validates the config first. If it fails, fix it before restarting — otherwise
+you can lock yourself out. Verify from the phone on your home wifi, before going
+further: `ssh <you>@<lan-ip>` should log in with the key and never prompt for a
+password.
 
 ---
 
 ## Step 5 — Remote unlock
 
-**Not built yet**, and optional. Only needed because the screen locks after ~60 minutes
-idle, and `grim` then returns a picture of the lock screen instead of your desktop
-(tier 1 window state keeps working regardless).
+**Built.** Optional, and only needed because the screen locks after idle and `grim`
+then returns a picture of the lock screen instead of your desktop. Window state as text
+keeps working regardless.
 
-Will require `ydotool`, which needs uinput access:
+Two prerequisites first, then the script — it checks for both and stops with the exact
+command if either is missing:
 
 ```bash
 sudo pacman -S ydotool
-sudo usermod -aG input $USER          # log out and back in
-systemctl --user enable --now ydotool.service
+sudo usermod -aG input $USER     # then log out and back in
+sudo -v && $REPO/shell/install-input.sh
 ```
+
+The script does the parts that are easy to miss: loads the `uinput` kernel module and
+persists it across reboots, and reloads the udev rules so the one `ydotool` ships
+actually takes effect. Without that reload `/dev/uinput` stays root-only `0600` and
+every call fails with a permission error that looks like a broken install.
+
+Re-run `check.sh` afterwards — it tests whether the device is genuinely writable rather
+than assuming the rule applied.
 
 `ydotool` rather than `wtype` because it writes to `/dev/uinput`, below the Wayland
 layer, so hyprlock receives real keystrokes and validates them through PAM. Nothing is
-bypassed. See decisions.md for why killing hyprlock was rejected.
+bypassed — you are typing your actual password, remotely. See decisions.md for why
+killing hyprlock was rejected.
 
-**Before relying on this remotely, test it at the desk.** If the mechanism does not work
-you are locked out of the GUI with only SSH as recourse — which is exactly why step 3
-comes first.
+**Using it:** the sessions index at the far left of the app shows an unlock field when
+the desktop is locked. The password is typed each time and **never stored** — not in
+localStorage, not in a file — and reaches the desktop on stdin rather than argv,
+because `/proc/*/cmdline` is world-readable.
+
+**Before relying on this remotely, test it at the desk.** If the mechanism does not
+work you are locked out of the GUI with only SSH as recourse — which is why 4d exists.
+
+Typing and clicking are deliberately **not** exposed over HTTP; they stay in
+`scripts/desk.sh` for an agent working on the machine. Unlock is the single exception.
+
+**Rollback** — `systemctl --user disable --now ydotool`, then
+`sudo gpasswd -d $USER input` and `sudo rm -f /etc/modules-load.d/uinput.conf` if you
+want the access removed too. The app still offers the unlock field whenever the screen
+is locked — it is gated on the lock, not on `ydotool` — and the attempt returns an
+error rather than doing nothing silently.
 
 ---
 
 ## Order and why
 
-1. Skill — useful immediately, needs nothing
-2. tmux wrapper — everything remote sits on `send-keys`
-3. Reachability — and the escape hatch that makes step 5 safe to experiment with
-4. Server + web UI — the daily driver
-5. Unlock — last, and only if the lock actually gets in your way
-
-Steps 1, 2 and 4 are done. Step 3 is what makes any of it reachable from outside the
-house, and it is the only remaining step that needs `sudo`.
+1. **Skill** — useful immediately, needs nothing, skippable
+2. **tmux wrapper** — everything remote sits on `send-keys`
+3. **Server + web UI** — the daily driver; Step 4 restarts and re-pairs against it
+4. **Reachability** — what makes it work outside the house
+5. **Unlock** — last, and only if the lock actually gets in your way
 
 Remote Control was evaluated and rejected — see decisions.md. It is not part of this
 setup and you never need the Claude mobile app.
