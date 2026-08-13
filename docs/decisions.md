@@ -671,3 +671,59 @@ Hyprland tiles the window regardless. Driving it over CDP and measuring inside a
 same-origin iframe sized to the target is what gives a true viewport —
 `Emulation.setDeviceMetricsOverride` supplies the pixel ratio. That is the only setup in
 which any of the numbers above were reproducible.
+
+## Removing the text view
+
+The terminal won. The text view is gone, and with it the mode toggle, the wrap
+toggle, the `↓ latest` button and the capture polling behind them.
+
+What that costs, stated plainly: the text view was the only one that rendered on a
+locked screen, needed no PTY, and was ~100× smaller on a bad connection. Those were
+real, and they are given up. `/api/capture` stays on the server — it is what an agent
+uses, and it is still the cheapest way to read a session — but nothing in the UI calls
+it any more.
+
+What it buys is more than a simpler screen. **Busy detection stopped being a poll.**
+Knowing whether output is moving used to mean fetching a 200-line capture every three
+seconds and diffing it against the last one. A PTY delivers bytes as they happen, so
+"something arrived on the socket" is the same signal, exactly as agent-agnostic — bytes
+are bytes — with no request, no interval and no diff. Verified end to end: idle border
+at 6s per revolution, a keystroke flips it to 2.2s with the pulse lit, and it decays
+back after six seconds.
+
+Two details that matter in that signal. Attaching repaints the whole screen, which is
+not news, so activity is ignored for 1200ms after connecting. And it is throttled to one
+update per 500ms, because a spinner should not schedule sixty state changes a second.
+
+### One terminal, not ten
+
+The rail renders all ten panes so swiping is instant. Each terminal costs a PTY and a
+tmux client, so mounting them all would open ten of each to render nine screens nobody
+is looking at. Only the active pane holds a terminal; the others show a bordered
+placeholder so a swipe does not reveal a collapsed layout mid-flight. Swiping back
+re-attaches and tmux repaints immediately.
+
+### Two sizes, not five
+
+`10px` through `14px` in single steps was a range where only the ends were useful: "as
+much of the session as fits" against "readable without squinting". They are now
+**normal** (10px, ~59 columns at 390px) and **large** (14px, ~42). The old `dp_font`
+value is read once to pick a sensible default for anyone who had already chosen.
+
+### The sweep, on the terminal
+
+The rotating cyan-to-magenta border moved from the old transcript element onto the
+terminal's frame. `--card` is the same value xterm paints its own background with, so
+the padding-box fill meets the glyphs with no seam. This is also the first time the
+animation was actually *verified* rather than assumed: sampling `--angle` gave 119.976°
+→ 179.982° across one second — 60°/s, exactly the six-second quiet revolution.
+
+### Dead peers
+
+A connection that ends without a close frame — a discarded tab, a phone that loses
+signal — used to pin its PTY and tmux client open indefinitely; one was found still
+attached eight minutes after its client was gone. `Deno.upgradeWebSocket` now takes
+`idleTimeout: 60`, so the runtime pings and closes when no pong comes back, which lands
+in `onclose` and reaps the child. Browsers answer pings themselves, so a quiet-but-live
+terminal is unaffected — verified by leaving one idle for 85 seconds, well past the
+timeout, with the connection still live and the PTY still held.

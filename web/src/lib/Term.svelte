@@ -5,7 +5,7 @@
   import "@xterm/xterm/css/xterm.css";
   import { token } from "./api.js";
 
-  let { session, fontPx = 12, onstatus } = $props();
+  let { session, fontPx = 10, alive = false, busy = false, onactivity } = $props();
 
   let host = $state(null);
   let term, fit, ws;
@@ -44,9 +44,24 @@
     if (cols !== term.cols) term.resize(cols, term.rows);
   }
 
+  // Data arriving is the signal that something is happening on the other end.
+  // It replaces diffing successive captures: no polling, no protocol to speak,
+  // and it is exactly as agent-agnostic — bytes are bytes.
+  let quietUntil = 0;
+  let lastPing = 0;
+  function activity() {
+    const t = performance.now();
+    // Attaching repaints the whole screen, which is not news. Nor is every
+    // frame of a spinner worth a state update.
+    if (t < quietUntil || t - lastPing < 500) return;
+    lastPing = t;
+    onactivity?.();
+  }
+
   function connect() {
     if (!term) return;
     state = "connecting";
+    quietUntil = performance.now() + 1200;
     const proto = location.protocol === "https:" ? "wss" : "ws";
     // A WebSocket cannot carry an Authorization header; the same-origin cookie
     // covers it, and the token is a fallback for a session that has not got one.
@@ -60,6 +75,7 @@
     ws.onopen = () => (state = "live");
     ws.onmessage = (e) => {
       term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data));
+      activity();
     };
     ws.onclose = () => (state = "closed");
     ws.onerror = () => (state = "closed");
@@ -134,7 +150,7 @@
   });
 </script>
 
-<div class="wrap">
+<div class="wrap" class:sweeping={alive} class:busy>
   <div class="host" bind:this={host}></div>
   {#if state !== "live"}
     <div class="state">
@@ -150,7 +166,28 @@
   .wrap {
     position: relative; flex: 1; min-height: 0;
     border: 1px solid var(--card-line); border-radius: var(--radius);
-    background: #12141e; padding: .35rem .3rem; overflow: hidden;
+    background: var(--card); padding: .35rem .3rem; overflow: hidden;
+  }
+
+  /* The border sweeps whenever you are actually looking at a live session —
+     slow when quiet, faster when output is moving. Cyan-to-magenta in both
+     states: an earlier version dropped the magenta when idle, and losing the
+     colour reads as the animation having stopped even though it is still
+     turning.
+
+     --card is the same value the terminal paints its own background with, so
+     the padding-box fill meets the glyphs with no seam. */
+  .wrap.sweeping {
+    border-color: transparent;
+    background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      conic-gradient(from var(--angle), var(--ok), var(--magenta), var(--ok)) border-box;
+    animation: sweep 6s linear infinite;
+  }
+  .wrap.sweeping.busy { animation-duration: 2.2s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wrap.sweeping, .wrap.sweeping.busy { animation: none; --angle: 45deg; }
   }
   .host { width: 100%; height: 100%; }
   /* The columns above are computed against the full host width, so nothing may

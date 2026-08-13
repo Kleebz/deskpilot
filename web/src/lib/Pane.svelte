@@ -1,5 +1,5 @@
 <script>
-  import { api, post, waitFor } from "./api.js";
+  import { post } from "./api.js";
   import WindowRow from "./WindowRow.svelte";
   import NewSession from "./NewSession.svelte";
   import Term from "./Term.svelte";
@@ -8,36 +8,23 @@
   let { ws, session, windows, orphans, allNames, workspaces, active, onstatus, onchanged } = $props();
 
   // Pane-local state. This is the reason for the framework: a poll updates
-  // `session`/`windows` from the parent without touching any of these, so the
-  // transcript keeps its scroll position, half-typed prompts survive, and a
-  // screenshot you are looking at stays on screen.
-  let output = $state("");
+  // `session`/`windows` from the parent without touching any of these, so a
+  // half-typed prompt survives and the drawer you opened stays open.
   let input = $state("");
-  let pre = $state(null);
-  let pinned = $state(true);     // stick to the bottom unless the user scrolls up
-  let lastChange = $state(0);    // when the transcript last differed
-  let sent = $state("");         // echoed locally until the capture catches up
+  let lastChange = $state(0);    // when output last moved
   let showWindows = $state(false);
   let showKeys = $state(false);
 
-  // Prose reflows fine at any width. Aligned output — code, diffs, ls, tables —
-  // does not: re-wrapping at 51 columns destroys the columns that carry the
-  // meaning. So wrapping is a choice, not a setting to get right once.
-  // Persisted, because it is a preference about how you read, not per-session.
-  let wrap = $state(localStorage.getItem("dp_wrap") !== "0");
-  let fontPx = $state(Number(localStorage.getItem("dp_font")) || 12);
-  $effect(() => localStorage.setItem("dp_wrap", wrap ? "1" : "0"));
-  $effect(() => localStorage.setItem("dp_font", String(fontPx)));
-  const cycleFont = () => (fontPx = fontPx >= 14 ? 10 : fontPx + 1);
+  // Two sizes, not a range. The useful choice on a phone is "as much of the
+  // session as fits" against "readable without squinting"; the steps between
+  // only trade columns for nothing. 10px gives ~59 columns at 390px, 14px ~42.
+  const savedBig = localStorage.getItem("dp_big");
+  let big = $state(
+    savedBig !== null ? savedBig === "1" : Number(localStorage.getItem("dp_font")) >= 13,
+  );
+  const fontPx = $derived(big ? 14 : 10);
+  $effect(() => localStorage.setItem("dp_big", big ? "1" : "0"));
 
-  // Two ways to read a session, kept side by side deliberately so the choice
-  // can be reversed. `text` scrapes capture-pane and re-flows it — cheap, and
-  // prose reads well. `term` attaches a real PTY at this screen's size, so the
-  // program lays out for the phone instead of being re-flowed after the fact.
-  // Defaults to the terminal: it renders what the program actually drew, at
-  // this screen's size. The text view stays as a fallback.
-  let mode = $state(localStorage.getItem("dp_mode") || "term");
-  $effect(() => localStorage.setItem("dp_mode", mode));
   let creating = $state(false);
 
   const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
@@ -66,75 +53,29 @@
   // Gated on visibility so a backgrounded tab is not animating for nobody.
   const alive = $derived(!!session && active && vis.visible);
 
-  async function load() {
-    if (!session) return;
-    try {
-      const r = await api(
-        `/capture?session=${encodeURIComponent(session.session)}&lines=200`,
-      );
-      const wasPinned = pinned;
-      // Comparing captures is the only agent-agnostic way to know something is
-      // happening — no spinner to parse, no protocol to speak.
-      if (r.text !== output) lastChange = Date.now();
-      output = r.text.trimEnd();
-      if (sent && output.includes(sent)) sent = "";   // the real transcript has it now
-      if (wasPinned) queueMicrotask(() => pre?.scrollTo(0, pre.scrollHeight));
-    } catch (e) {
-      onstatus(e.message, true);
-    }
-  }
-
-  // Only the visible pane polls, and only while the page is actually on screen.
-  // Ten panes each refetching would be pure waste; polling a backgrounded tab
-  // is worse than waste on cellular.
-  $effect(() => {
-    if (!active || !session) return;
-    void vis.wokeAt;
-    load();                       // once regardless, same reason as App
-    if (!vis.visible) return;
-    const id = setInterval(load, 3000);
-    return () => clearInterval(id);
-  });
-
-  // Shrinking the container leaves scrollTop where it was, which is no longer
-  // the bottom — so a keyboard opening scrolls the latest output out of view.
-  $effect(() => {
-    void vis.resizedAt;
-    if (pinned) queueMicrotask(() => pre?.scrollTo(0, pre.scrollHeight));
-  });
-
-  function onScroll() {
-    if (!pre) return;
-    pinned = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
-  }
-
-  function toBottom() {
-    pinned = true;
-    pre?.scrollTo(0, pre.scrollHeight);
-  }
+  // The terminal tells us when bytes arrive, which is what "busy" means. This
+  // used to be a 3-second capture poll per visible pane, diffing the text to
+  // infer the same thing; attaching a PTY makes that redundant.
+  const activity = () => (lastChange = Date.now());
 
   async function send(ev) {
     ev.preventDefault();
     const text = input.trim();
     if (!text || !session) return;
     input = "";
-    pinned = true;
-    // Acknowledge the tap straight away. Waiting for the next poll to notice a
-    // change leaves a gap where nothing confirms the prompt landed.
+    // Acknowledge the tap straight away, rather than waiting for the echo to
+    // come back down the socket.
     lastChange = Date.now();
-    sent = text;
     try {
       await post("/send", { session: session.session, text });
       onstatus(`→ ${session.session}`);
-      setTimeout(load, 600);
-    } catch (e) { onstatus(e.message, true); input = text; sent = ""; }
+    } catch (e) { onstatus(e.message, true); input = text; }
   }
 
   async function key(k) {
     if (!session) return;
     try {
       await post("/send", { session: session.session, keys: [k] });
-      setTimeout(load, 400);
     } catch (e) { onstatus(e.message, true); }
   }
 
@@ -180,15 +121,8 @@
       <span class="badge">ws{ws}</span>
       <span class="name">{session.session}</span>
       {#if working}<span class="pulse" title="output changing"></span>{/if}
-      <button class="sm ghost" title="text size" onclick={cycleFont}>{fontPx}px</button>
-      <button class="sm ghost" class:on={mode === "term"} title="reading mode"
-              onclick={() => (mode = mode === "term" ? "text" : "term")}>
-        {mode === "term" ? "term" : "text"}
-      </button>
-      {#if mode === "text"}
-        <button class="sm ghost" class:on={!wrap} title={wrap ? "wrapping" : "not wrapping"}
-                onclick={() => (wrap = !wrap)}>{wrap ? "wrap" : "wide"}</button>
-      {/if}
+      <button class="sm ghost" class:on={big} title="text size"
+              onclick={() => (big = !big)}>{big ? "large" : "normal"}</button>
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {otherCount} other
       </button>
@@ -204,16 +138,14 @@
       </div>
     {/if}
 
-    {#if mode === "term"}
-      <Term session={session.session} {fontPx} {onstatus} />
+    <!-- Only the pane you are on holds a terminal. Each one costs a PTY and a
+         tmux client, so mounting all ten would open ten of each to render nine
+         screens nobody is looking at. Swiping back re-attaches and tmux
+         repaints immediately. -->
+    {#if active}
+      <Term session={session.session} {fontPx} {alive} busy={working} onactivity={activity} />
     {:else}
-      <pre class:sweeping={alive} class:busy={working} class:nowrap={!wrap}
-           style="font-size:{fontPx}px" bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
-  <span class="pending">› {sent}</span>{/if}</pre>
-    {/if}
-
-    {#if !pinned}
-      <button class="sm jump" onclick={toBottom}>↓ latest</button>
+      <div class="idle"></div>
     {/if}
 
     <div class="composer">
@@ -341,39 +273,13 @@
     padding: .4rem; background: var(--panel);
   }
 
-  pre {
-    flex: 1; min-height: 0; margin: 0; overflow: auto;
-    white-space: pre-wrap; word-break: break-word;
-    line-height: 1.5; padding: .6rem;
+  /* Holds the terminal's place on panes that are off screen, so a swipe does
+     not reveal a collapsed layout mid-flight. */
+  .idle {
+    flex: 1; min-height: 0;
     border: 1px solid var(--card-line); border-radius: var(--radius);
     background: var(--card);
   }
-
-  /* Keep the columns and scroll sideways instead of reflowing. Prose reads
-     better wrapped; code, diffs and ls output only make sense aligned. */
-  pre.nowrap {
-    white-space: pre;
-    word-break: normal;
-    overflow-x: auto;
-  }
-  /* Cyan-to-magenta always. Only the speed changes with state — an earlier
-     version dropped magenta when idle, and losing the colour reads as the
-     animation having stopped even though it is still turning. */
-  pre.sweeping {
-    border-color: transparent;
-    background:
-      linear-gradient(var(--card), var(--card)) padding-box,
-      conic-gradient(from var(--angle), var(--ok), var(--magenta), var(--ok)) border-box;
-    animation: sweep 6s linear infinite;
-  }
-  pre.sweeping.busy { animation-duration: 2.2s; }
-
-  @media (prefers-reduced-motion: reduce) {
-    pre.sweeping, pre.sweeping.busy { animation: none; --angle: 45deg; }
-  }
-
-  .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }
-  .pending { color: var(--dim); font-style: italic; }
 
   .composer { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
   form { display: flex; gap: .4rem; min-width: 0; }
@@ -401,15 +307,5 @@
     font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
     border-left: 2px solid var(--line); padding-left: .5rem;
     overflow-wrap: anywhere;
-  }
-  .win {
-    display: flex; gap: .35rem; align-items: center; min-width: 0;
-    background: var(--card);
-    border: 1px solid var(--card-line); border-radius: var(--radius);
-    padding: .4rem .5rem;
-  }
-  .t {
-    flex: 1; min-width: 0; font-size: 12px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 </style>

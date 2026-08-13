@@ -63,6 +63,10 @@ Every one of these was a real bug here, and every one failed **silently**:
 - **`child.kill()` on a `script` wrapper neither forwards the signal to the process in
   its pty nor reaps anything.** Await `child.status` (escalating to SIGKILL) or every
   connection leaves a `script` and a `tmux: client` behind.
+- **A WebSocket peer that vanishes without a close frame never fires `onclose`**, so its
+  PTY and tmux client stay open forever. `Deno.upgradeWebSocket` needs `idleTimeout`.
+- **Every mounted terminal costs a PTY and a tmux client.** The rail renders all ten
+  panes; only the active one may hold a `Term`.
 - **Headless Chromium will not go below ~500px wide**, whatever `--window-size` says,
   and Hyprland tiles the window anyway. The same-origin iframe below is the only
   measurement that reflects a phone.

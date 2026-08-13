@@ -395,7 +395,12 @@ async function handle(req: Request): Promise<Response> {
 
     let socket: WebSocket, response: Response;
     try {
-      ({ socket, response } = Deno.upgradeWebSocket(req));
+      // Every connection holds a PTY and a tmux client, so a peer that goes
+      // away without closing — a tab discarded, a phone that lost signal —
+      // must not pin them open forever. Deno pings and closes if no pong comes
+      // back, which lands in onclose below and reaps the child. A browser
+      // answers pings by itself, so an idle-but-live terminal is unaffected.
+      ({ socket, response } = Deno.upgradeWebSocket(req, { idleTimeout: 60 }));
     } catch {
       return fail("expected a websocket", 400);
     }
