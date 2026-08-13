@@ -2,6 +2,7 @@
   import { api, post, waitFor } from "./api.js";
   import WindowRow from "./WindowRow.svelte";
   import NewSession from "./NewSession.svelte";
+  import Term from "./Term.svelte";
   import { vis } from "./visible.svelte.js";
 
   let { ws, session, windows, orphans, allNames, workspaces, active, onstatus, onchanged } = $props();
@@ -28,6 +29,13 @@
   $effect(() => localStorage.setItem("dp_wrap", wrap ? "1" : "0"));
   $effect(() => localStorage.setItem("dp_font", String(fontPx)));
   const cycleFont = () => (fontPx = fontPx >= 14 ? 10 : fontPx + 1);
+
+  // Two ways to read a session, kept side by side deliberately so the choice
+  // can be reversed. `text` scrapes capture-pane and re-flows it — cheap, and
+  // prose reads well. `term` attaches a real PTY at this screen's size, so the
+  // program lays out for the phone instead of being re-flowed after the fact.
+  let mode = $state(localStorage.getItem("dp_mode") || "text");
+  $effect(() => localStorage.setItem("dp_mode", mode));
   let creating = $state(false);
 
   const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
@@ -171,8 +179,14 @@
       <span class="name">{session.session}</span>
       {#if working}<span class="pulse" title="output changing"></span>{/if}
       <button class="sm ghost" title="text size" onclick={cycleFont}>{fontPx}px</button>
-      <button class="sm ghost" class:on={!wrap} title={wrap ? "wrapping" : "not wrapping"}
-              onclick={() => (wrap = !wrap)}>{wrap ? "wrap" : "wide"}</button>
+      <button class="sm ghost" class:on={mode === "term"} title="reading mode"
+              onclick={() => (mode = mode === "term" ? "text" : "term")}>
+        {mode === "term" ? "term" : "text"}
+      </button>
+      {#if mode === "text"}
+        <button class="sm ghost" class:on={!wrap} title={wrap ? "wrapping" : "not wrapping"}
+                onclick={() => (wrap = !wrap)}>{wrap ? "wrap" : "wide"}</button>
+      {/if}
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {otherCount} other
       </button>
@@ -188,9 +202,13 @@
       </div>
     {/if}
 
-    <pre class:sweeping={alive} class:busy={working} class:nowrap={!wrap}
-         style="font-size:{fontPx}px" bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
-<span class="pending">› {sent}</span>{/if}</pre>
+    {#if mode === "term"}
+      <Term session={session.session} {fontPx} {onstatus} />
+    {:else}
+      <pre class:sweeping={alive} class:busy={working} class:nowrap={!wrap}
+           style="font-size:{fontPx}px" bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
+  <span class="pending">› {sent}</span>{/if}</pre>
+    {/if}
 
     {#if !pinned}
       <button class="sm jump" onclick={toBottom}>↓ latest</button>

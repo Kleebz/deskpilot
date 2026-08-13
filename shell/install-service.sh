@@ -62,13 +62,15 @@ WorkingDirectory=$REPO
 Environment=DESKPILOT_HOST=${DESKPILOT_HOST:-127.0.0.1}
 Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
 
-# --allow-run is scoped to two scripts plus tmux. This is why the server is
-# Deno rather than Bun: an injection bug still cannot reach rm, ssh or curl.
+# --allow-run is scoped to two scripts, tmux, and script(1) — the last only
+# because Deno has no PTY and \`script\` provides one for the terminal endpoint.
+# This is why the server is Deno rather than Bun: adding a subprocess is a
+# deliberate act, and an injection bug still cannot reach rm, ssh or curl.
 ExecStart=$(command -v deno) run \\
   --allow-net \\
   --allow-read \\
   --allow-env \\
-  --allow-run=$REPO/scripts/desk.sh,$REPO/scripts/sessions.sh,tmux \\
+  --allow-run=$REPO/scripts/desk.sh,$REPO/scripts/sessions.sh,tmux,script \\
   $REPO/server/server.ts
 
 # CRITICAL: tmux new-session starts the tmux *server* as a child of this
@@ -99,7 +101,10 @@ else
 fi
 
 systemctl --user daemon-reload
-systemctl --user enable --now deskpilot
+systemctl --user enable deskpilot
+# restart, not just start: `--now` leaves an already-running instance alone, so
+# a regenerated unit silently keeps the old permissions and paths.
+systemctl --user restart deskpilot
 sleep 2
 
 if ! systemctl --user is-active --quiet deskpilot; then

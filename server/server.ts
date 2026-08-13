@@ -376,6 +376,73 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ ok: true, locked: false }));
   }
 
+  // A real terminal, rather than scraping capture-pane and re-flowing it.
+  //
+  // The whole class of wrapping and alignment problems comes from rendering a
+  // 130-column pane on a 50-column screen. Attaching tmux through a PTY sized
+  // to the phone makes the program lay out for the phone instead — it wraps its
+  // own prose, draws its own boxes to fit, and emits ANSI the browser renders.
+  //
+  // Deno has no PTY, so `script` provides one; `stty` sets its size before tmux
+  // attaches. tmux's window-size is `latest`, so the phone attaching resizes the
+  // shared window — which is fine, because if you are on the phone you are not
+  // looking at the monitor, and it snaps back when the desk client resizes.
+  if (req.method === "GET" && path === "/api/term") {
+    const name = url.searchParams.get("session") ?? "";
+    if (!SAFE_NAME.test(name)) return fail("bad session name");
+    const cols = Math.min(400, Math.max(20, Number(url.searchParams.get("cols")) || 80));
+    const rows = Math.min(200, Math.max(10, Number(url.searchParams.get("rows")) || 24));
+
+    let socket: WebSocket, response: Response;
+    try {
+      ({ socket, response } = Deno.upgradeWebSocket(req));
+    } catch {
+      return fail("expected a websocket", 400);
+    }
+
+    // -f flushes so output arrives as it is produced rather than in blocks.
+    const child = new Deno.Command("script", {
+      args: ["-qfc", `stty cols ${cols} rows ${rows}; exec tmux attach -t ${name}`, "/dev/null"],
+      // A systemd service inherits no TERM, and tmux refuses to attach without
+      // one ("terminal does not support clear"). xterm-256color matches what
+      // xterm.js actually implements.
+      env: { TERM: "xterm-256color" },
+      stdin: "piped", stdout: "piped", stderr: "null",
+    }).spawn();
+
+    const writer = child.stdin.getWriter();
+    let closed = false;
+    const shutdown = () => {
+      if (closed) return;
+      closed = true;
+      try { writer.close(); } catch { /* already gone */ }
+      try { child.kill("SIGTERM"); } catch { /* already gone */ }
+      try { socket.close(); } catch { /* already closed */ }
+    };
+
+    (async () => {
+      try {
+        for await (const chunk of child.stdout) {
+          if (socket.readyState !== WebSocket.OPEN) break;
+          socket.send(chunk);
+        }
+      } catch { /* pipe torn down */ }
+      shutdown();
+    })();
+
+    socket.binaryType = "arraybuffer";
+    socket.onmessage = (e) => {
+      const data = typeof e.data === "string"
+        ? new TextEncoder().encode(e.data)
+        : new Uint8Array(e.data as ArrayBuffer);
+      writer.write(data).catch(shutdown);
+    };
+    socket.onclose = shutdown;
+    socket.onerror = shutdown;
+
+    return response;
+  }
+
   // ---- desktop ----
   if (req.method === "GET" && path === "/api/desk/state") {
     const ws = url.searchParams.get("ws") ?? "";

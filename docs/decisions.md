@@ -584,3 +584,33 @@ converges in one step, and it is measured each time rather than hardcoded, so it
 depend on this display.
 
 Verified landing within a pixel at 200,200 / 960,540 / 1500,800.
+
+## A real terminal, not a scrape
+
+Every wrapping and alignment problem came from one decision: scraping a 130-column pane
+and re-flowing it to 51. Mobile SSH clients do not have these problems because they never
+create them — they allocate a PTY at the phone's size and the program lays out for it.
+
+`/api/term` upgrades to a WebSocket and attaches tmux through a PTY sized to the client.
+Deno has no PTY, so `script(1)` provides one and `stty` sets its size before tmux
+attaches. The browser side is xterm.js, themed to match. Measured: the pane became 47x40,
+Claude Code drew its banner, input box and status line to fit, and ANSI colour arrived
+intact.
+
+**The sizing conflict is not real in practice.** tmux cannot give two clients independent
+sizes — grouped sessions share the window object, confirmed by both reporting 130x40. But
+`window-size` is `latest`, so the phone attaching shrinks the shared window and the desk
+client resizes it back on return. If you are using the phone you are not looking at the
+monitor.
+
+Kept behind a per-pane toggle rather than replacing the text view, because the trade is
+genuine: a real terminal is better for anything structured, and re-flowed text is
+arguably nicer for plain prose, which does not care about columns and gets to use the
+full screen width.
+
+Cost: the bundle went from 68 KB to 406 KB (112 KB gzipped).
+
+Two things this surfaced. The scoped `--allow-run` blocked spawning `script`, which is
+the allowlist working as intended — adding a subprocess has to be deliberate. And a
+systemd service inherits no `TERM`, so tmux refused to attach with "terminal does not
+support clear" until it was set explicitly.
