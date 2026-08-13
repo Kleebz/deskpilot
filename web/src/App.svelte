@@ -120,8 +120,9 @@
 {#if offline && !needToken}
   <div class="offline">
     <b>Can't reach the desktop.</b>
-    Check Tailscale is switched on — the app being signed in is not the same as the
-    tunnel running. The page is not broken; nothing answered.
+    Almost always Tailscale — being signed in is not the same as the tunnel running,
+    and Android stops it in the background unless it is set to always-on with
+    unrestricted battery use.
     {#if lastSeen}<br /><span class="dim">Last contact {lastSeen.toLocaleTimeString()}.</span>{/if}
     <button onclick={refresh}>retry</button>
   </div>

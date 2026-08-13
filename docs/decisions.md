@@ -535,3 +535,23 @@ media query slims the chrome in landscape, where every row costs a visible line.
 
 The earlier conclusion that this needed a "reader mode" parser was wrong. The problem was
 never the prose, which was always fine — it was the separators, and one regex fixed it.
+
+## The one thing worth caching
+
+The service worker exists because Chrome will not offer to install without one, and it
+deliberately caches none of the app — a cached shell would list sessions that no longer
+exist and a lock state from an hour ago.
+
+It caches exactly one thing: a static error page. When the tailnet is down the app cannot
+load at all, so the browser shows its own "site can't be reached", which says nothing
+about the cause. The in-app offline banner cannot help here either — it only exists once
+the app has loaded, which is precisely what has failed.
+
+`offline.html` names the likely culprit instead, in order of probability, and retries by
+itself when connectivity returns so it does not become something to sit and stare at. It
+contains no live data, so it cannot go stale — which is what makes it the exception to
+the no-caching rule rather than a hole in it.
+
+Prompted by a real incident: the phone dropped off the tailnet after Android stopped
+Tailscale in the background, and the failure was indistinguishable from the app being
+broken.

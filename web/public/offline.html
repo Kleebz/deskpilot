@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>deskpilot — offline</title>
+<style>
+  :root { color-scheme: dark; --bg:#0a0a0f; --fg:#e0f7ff; --dim:#7d8ba1;
+          --ok:#00ffff; --line:#23283a; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    display: flex; flex-direction: column; justify-content: center;
+    gap: 1rem; padding: 1.5rem;
+  }
+  h1 {
+    margin: 0; font-size: 1.1rem; color: var(--ok); letter-spacing: .04em;
+    text-shadow: 0 0 18px color-mix(in srgb, var(--ok) 35%, transparent);
+  }
+  p { margin: 0; color: var(--dim); }
+  ol { margin: .2rem 0 0; padding-left: 1.2rem; color: var(--dim); }
+  li { margin-bottom: .4rem; }
+  b { color: var(--fg); font-weight: 600; }
+  button {
+    font: inherit; min-height: 44px; padding: .5rem 1rem; margin-top: .4rem;
+    background: color-mix(in srgb, var(--ok) 8%, transparent);
+    color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
+    border-radius: 10px;
+  }
+</style>
+
+<h1>Can't reach your desktop</h1>
+
+<p>
+  This page loaded from the app itself — nothing answered on the network, so the
+  desktop is unreachable rather than broken.
+</p>
+
+<p><b>Almost always Tailscale.</b> Check, in order:</p>
+<ol>
+  <li>Open <b>Tailscale</b> and confirm it is connected</li>
+  <li>Android may have stopped it in the background — set it to <b>always-on VPN</b>
+      and mark battery use <b>unrestricted</b></li>
+  <li>Another VPN may hold the slot; Android allows only one</li>
+  <li>Confirm the desktop is awake</li>
+</ol>
+
+<button onclick="location.reload()">try again</button>
+
+<script>
+  // Retry on its own the moment connectivity returns, so this page does not
+  // become something to sit and stare at.
+  addEventListener("online", () => location.reload());
+  setInterval(() => {
+    fetch("/manifest.webmanifest", { method: "HEAD", cache: "no-store" })
+      .then((r) => r.ok && location.reload())
+      .catch(() => {});
+  }, 5000);
+</script>

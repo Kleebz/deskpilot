@@ -1,23 +1,36 @@
-// Network-only service worker.
+// Network-only, with one exception.
 //
-// This exists for exactly one reason: Chrome will not fire beforeinstallprompt
-// without a service worker that has a fetch handler. It deliberately caches
-// NOTHING.
+// Chrome will not fire beforeinstallprompt without a service worker that has a
+// fetch handler, which is why this exists at all. It deliberately caches none
+// of the app: this is a live view of a machine, and a cached shell would show
+// sessions that no longer exist and a lock state from an hour ago.
 //
-// Caching would be actively harmful here. This app is a live view of a
-// machine — sessions, window geometry, whether the screen is locked. A cached
-// shell would show sessions that no longer exist and a lock state from an hour
-// ago, which is worse than an honest failure to load.
-//
-// So: satisfy the requirement, stay out of the way.
+// The exception is a single static error page. When the tailnet is down the app
+// cannot load at all, so the browser shows its own "site can't be reached" —
+// which says nothing about the actual cause. Serving our own page instead lets
+// it name the likely culprit. It contains no live data, so it cannot go stale.
 
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+const SHELL = "deskpilot-offline-v1";
+const OFFLINE = "/offline.html";
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(SHELL).then((c) => c.add(OFFLINE)).then(() => self.skipWaiting()),
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== SHELL).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
+});
 
 self.addEventListener("fetch", (event) => {
-  // Only navigations are handled, and only by going straight to the network.
-  // Everything else falls through to the browser's own handling, which avoids
-  // interfering with range requests and image streaming.
+  // Only navigations, and only to fall back — never to serve app data.
   if (event.request.mode !== "navigate") return;
-  event.respondWith(fetch(event.request));
+  event.respondWith(
+    fetch(event.request).catch(() => caches.match(OFFLINE)),
+  );
 });
