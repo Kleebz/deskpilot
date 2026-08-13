@@ -175,10 +175,8 @@
       </div>
     {/if}
 
-    <div class="frame" class:alive class:busy={working}>
-      <pre bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
+    <pre class:sweeping={alive} class:busy={working} bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
 <span class="pending">› {sent}</span>{/if}</pre>
-    </div>
 
     {#if !pinned}
       <button class="sm jump" onclick={toBottom}>↓ latest</button>
@@ -309,48 +307,26 @@
   }
 
   pre {
-    position: relative; z-index: 1;
-    height: 100%; margin: 0; overflow: auto;
+    flex: 1; min-height: 0; margin: 0; overflow: auto;
     white-space: pre-wrap; word-break: break-word;
     font-size: 12px; line-height: 1.5; padding: .6rem;
-    /* No border: the frame's 1px padding IS the ring; a border here would
-       sit inside it as a second, static line. */
-    border-radius: calc(var(--radius) - 1px);
+    border: 1px solid var(--card-line); border-radius: var(--radius);
     background: var(--card);
   }
-  /* The sweeping border rotates a real element rather than animating a custom
-     property. An @property angle driving a conic-gradient runs on the main
-     thread — a style recalc and repaint every frame — which browsers throttle
-     to save battery, so it kept appearing to stop. A transform is composited
-     on the GPU and is not subject to that.
+  /* Cyan-to-magenta always. Only the speed changes with state — an earlier
+     version dropped magenta when idle, and losing the colour reads as the
+     animation having stopped even though it is still turning. */
+  pre.sweeping {
+    border-color: transparent;
+    background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      conic-gradient(from var(--angle), var(--ok), var(--magenta), var(--ok)) border-box;
+    animation: sweep 6s linear infinite;
+  }
+  pre.sweeping.busy { animation-duration: 2.2s; }
 
-     The gradient lives on a square larger than the box so its corners still
-     cover the rectangle as it turns; the frame clips it back to the rounded
-     rect, and the transcript sits on top inset by 1px, leaving a 1px ring. */
-  .frame {
-    position: relative; flex: 1; min-height: 0;
-    padding: 1px; border-radius: var(--radius); overflow: hidden;
-    background: var(--card-line);
-  }
-  .frame::before {
-    content: ""; position: absolute; z-index: 0;
-    top: 50%; left: 50%; width: 160%; aspect-ratio: 1;
-    translate: -50% -50%;
-    background: conic-gradient(
-      var(--ok),
-      color-mix(in srgb, var(--ok) 55%, var(--card-line)),
-      var(--ok));
-    opacity: 0;
-    animation: spin 5s linear infinite;
-  }
-  .frame.alive::before { opacity: 1; }
-  .frame.alive.busy::before {
-    background: conic-gradient(var(--ok), var(--magenta), var(--ok));
-    animation-duration: 2.4s;
-  }
-  @keyframes spin { to { rotate: 360deg; } }
   @media (prefers-reduced-motion: reduce) {
-    .frame::before { animation: none; }
+    pre.sweeping, pre.sweeping.busy { animation: none; --angle: 45deg; }
   }
 
   .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }

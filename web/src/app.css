@@ -76,3 +76,12 @@ input:focus, select:focus {
 .dim { color: var(--dim); }
 .err { color: var(--err); }
 
+
+/* Registered so a conic-gradient's rotation can be interpolated; without this
+   the border would jump between frames rather than sweep. */
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes sweep { to { --angle: 360deg; } }
