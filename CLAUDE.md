@@ -51,6 +51,21 @@ Every one of these was a real bug here, and every one failed **silently**:
 - **API responses must be `no-store`** or the browser caches a stale session list.
 - **Anything gated on page visibility is untestable in a headless browser**, which
   reports `document.hidden: true`. Initial loads must never be gated on it.
+- **Assigning `term.options.fontSize` resizes the glyphs but not the cell grid.** The
+  CSS font-size changes and the column count does not, so characters are drawn wider
+  than the cells that hold them and the right edge is clipped — worse the larger the
+  font. Rebuild the `Terminal` instead.
+- **FitAddon always subtracts a scrollbar**, even one that is never shown, and divides
+  by a cached cell width. Both are wrong here. Derive the cell width from the rendered
+  `.xterm-screen` and compute columns from it.
+- **Measuring the terminal's own element proves nothing** — its root is `width: 100%`
+  and therefore always equals its host, fit or not. `.xterm-screen` is the real grid.
+- **`child.kill()` on a `script` wrapper neither forwards the signal to the process in
+  its pty nor reaps anything.** Await `child.status` (escalating to SIGKILL) or every
+  connection leaves a `script` and a `tmux: client` behind.
+- **Headless Chromium will not go below ~500px wide**, whatever `--window-size` says,
+  and Hyprland tiles the window anyway. The same-origin iframe below is the only
+  measurement that reflects a phone.
 
 ## Verifying UI changes
 

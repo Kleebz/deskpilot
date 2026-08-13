@@ -23,6 +23,27 @@
     brightCyan: "#33dddd", brightWhite: "#ffffff",
   };
 
+  // Fit, then correct the column count against what was actually laid out.
+  //
+  // FitAddon is not trustworthy on its own here. It divides by a cached cell
+  // width, so it can come out a column optimistic — and it always subtracts a
+  // scrollbar this app never shows, costing two or three columns, which is a
+  // lot when there are only forty. Measuring the rendered grid gives the true
+  // cell width, and the column count follows from it exactly.
+  //
+  // .xterm-screen is the only honest thing to measure: the terminal's own root
+  // element is width:100% and so always equals the host, fit or not.
+  function refit() {
+    if (!fit || !term || !host) return;
+    try { fit.fit(); } catch { return; }
+    const screen = host.querySelector(".xterm-screen");
+    if (!screen || !term.cols) return;
+    const cell = parseFloat(getComputedStyle(screen).width) / term.cols;
+    if (!(cell > 0)) return;
+    const cols = Math.max(20, Math.floor(host.clientWidth / cell));
+    if (cols !== term.cols) term.resize(cols, term.rows);
+  }
+
   function connect() {
     if (!term) return;
     state = "connecting";
@@ -44,49 +65,72 @@
     ws.onerror = () => (state = "closed");
   }
 
-  onMount(() => {
+  function teardown() {
+    try { ws?.close(); } catch { /* already gone */ }
+    ws = undefined;
+    try { term?.dispose(); } catch { /* already gone */ }
+    term = undefined;
+    fit = undefined;
+  }
+
+  // Build the terminal at a given font size.
+  //
+  // This recreates rather than assigning term.options.fontSize, because that
+  // assignment changes the CSS font-size without remeasuring the character
+  // cell: the glyphs grow, the grid does not, and the text spills past the
+  // right edge — worse the larger the font. Rebuilding is no more expensive
+  // than the alternative, since any size change already forces a reconnect.
+  function boot(px) {
+    teardown();
     term = new Terminal({
-      theme, fontSize: fontPx, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      theme, fontSize: px,
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       cursorBlink: true, scrollback: 2000, allowProposedApi: true,
-      // A phone has no scrollbar to grab and tmux owns its own scrollback,
-      // so let touch scrolling reach the browser rather than the terminal.
       macOptionIsMeta: true,
     });
     fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    fit.fit();
+    refit();
     term.onData((d) => ws?.readyState === WebSocket.OPEN && ws.send(d));
     connect();
+  }
 
+  // Reading fontPx first is deliberate: an early return above it would leave
+  // the effect with no dependency on it, and font changes would never apply.
+  //
+  // Debounced because the size control cycles 10→14 one click at a time, and
+  // each rebuild costs a PTY and a tmux client on the far end. Settle first.
+  let bootTimer;
+  $effect(() => {
+    const px = fontPx;
+    if (!host) return;
+    clearTimeout(bootTimer);
+    bootTimer = setTimeout(() => boot(px), 250);
+    return () => clearTimeout(bootTimer);
+  });
+
+  onMount(() => {
     // Resizing has to reconnect: the PTY size is fixed when `script` spawns it,
     // so there is nothing to signal. Orientation changes are rare enough that a
     // reconnect is cheaper than plumbing a resize protocol.
-    let last = `${term.cols}x${term.rows}`;
+    let last = "";
     const ro = new ResizeObserver(() => {
-      fit.fit();
+      if (!term) return;
+      refit();
       const now = `${term.cols}x${term.rows}`;
-      if (now !== last) {
-        last = now;
+      if (last && now !== last) {
         try { ws?.close(); } catch { /* already gone */ }
         connect();
       }
+      last = now;
     });
     ro.observe(host);
 
     return () => {
       ro.disconnect();
-      try { ws?.close(); } catch { /* already gone */ }
-      term.dispose();
+      teardown();
     };
-  });
-
-  // Font size is a control in the pane bar; applying it needs a refit and,
-  // because the geometry changed, a reconnect.
-  $effect(() => {
-    if (!term) return;
-    term.options.fontSize = fontPx;
-    fit?.fit();
   });
 </script>
 
@@ -106,9 +150,14 @@
   .wrap {
     position: relative; flex: 1; min-height: 0;
     border: 1px solid var(--card-line); border-radius: var(--radius);
-    background: #12141e; padding: .4rem; overflow: hidden;
+    background: #12141e; padding: .35rem .3rem; overflow: hidden;
   }
   .host { width: 100%; height: 100%; }
+  /* The columns above are computed against the full host width, so nothing may
+     overlay the right edge. tmux owns scrollback anyway — a TUI on the
+     alternate screen has none of its own to scroll. */
+  .host :global(.xterm-viewport) { scrollbar-width: none; }
+  .host :global(.xterm-viewport::-webkit-scrollbar) { width: 0; height: 0; }
   .state {
     position: absolute; inset: auto .5rem .5rem auto;
     display: flex; align-items: center; gap: .4rem;

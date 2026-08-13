@@ -416,8 +416,19 @@ async function handle(req: Request): Promise<Response> {
       if (closed) return;
       closed = true;
       try { writer.close(); } catch { /* already gone */ }
-      try { child.kill("SIGTERM"); } catch { /* already gone */ }
       try { socket.close(); } catch { /* already closed */ }
+      // SIGTERM alone is not enough. `script` does not forward it to the tmux
+      // client in its pty, and nothing reaps the child unless its status is
+      // awaited — so every connection used to leave a `script` and a
+      // `tmux: client` behind. Escalate, then reap.
+      (async () => {
+        try { child.kill("SIGTERM"); } catch { /* already gone */ }
+        const timer = setTimeout(() => {
+          try { child.kill("SIGKILL"); } catch { /* already gone */ }
+        }, 2000);
+        try { await child.status; } catch { /* already gone */ }
+        clearTimeout(timer);
+      })();
     };
 
     (async () => {

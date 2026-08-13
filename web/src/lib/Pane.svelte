@@ -34,7 +34,9 @@
   // can be reversed. `text` scrapes capture-pane and re-flows it — cheap, and
   // prose reads well. `term` attaches a real PTY at this screen's size, so the
   // program lays out for the phone instead of being re-flowed after the fact.
-  let mode = $state(localStorage.getItem("dp_mode") || "text");
+  // Defaults to the terminal: it renders what the program actually drew, at
+  // this screen's size. The text view stays as a fallback.
+  let mode = $state(localStorage.getItem("dp_mode") || "term");
   $effect(() => localStorage.setItem("dp_mode", mode));
   let creating = $state(false);
 

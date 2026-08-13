@@ -614,3 +614,60 @@ Two things this surfaced. The scoped `--allow-run` blocked spawning `script`, wh
 the allowlist working as intended — adding a subprocess has to be deliberate. And a
 systemd service inherits no `TERM`, so tmux refused to attach with "terminal does not
 support clear" until it was set explicitly.
+
+## The terminal's right edge, and why the font control made it worse
+
+Reported from the phone: at 10px the whole Claude Code session fits except the trailing
+`s` of "for agents"; larger font sizes clip slightly more.
+
+Measured, at a true 390px viewport with a phone pixel ratio, the cause was not a stray
+pixel of padding. `.xterm-screen` was **338–344px wide with 47 columns at every font
+size from 10px to 14px** — a cell width frozen at ~7.28px. The CSS font-size was
+changing; the grid it was drawn into was not. So at 14px the glyphs were wider than the
+cells holding them and ran past the right edge, and at 10px they under-filled. "Larger
+cuts off more" was the symptom of exactly that.
+
+Assigning `term.options.fontSize` did not make xterm remeasure the character cell. The
+fix is to rebuild the `Terminal` when the size changes, which costs nothing extra: any
+geometry change already forces a reconnect, because the PTY's size is fixed when
+`script` spawns it and there is nothing to signal afterwards. The rebuild is debounced
+250ms, because the control cycles 10→14 one click at a time and each rebuild costs a PTY
+and a tmux client on the far end.
+
+The measurement also has to be honest about *what* to measure. The terminal's own root
+element is `width: 100%`, so it always equals its host whether or not the grid inside it
+fits — a check against it can never fail. Only `.xterm-screen` is the real grid.
+
+Having a true cell width made a second problem visible and cheap to fix. FitAddon
+divides by a cached cell width *and* always subtracts a scrollbar, including one that is
+never shown, which was costing 15–21px — two to three columns out of forty. Columns are
+now derived from the measured grid: `floor(hostWidth / cellWidth)`. Overflow across
+320/360/390/430 went from −15…−21px to 0…−6px, never positive, gaining two columns at
+every size. The xterm scrollbar is hidden in CSS to match, which is safe because tmux
+owns scrollback and a TUI on the alternate screen has none of its own.
+
+The terminal is now the default view. The text view stays as a fallback: it is the only
+one that survives a locked screen, needs no PTY, and is ~100× smaller on a bad
+connection.
+
+### Two process bugs this surfaced
+
+`child.kill("SIGTERM")` on the `script` wrapper neither reached the tmux client in its
+pty nor reaped anything, because `child.status` was never awaited. Every terminal
+connection leaked a `script` and a `tmux: client`. Shutdown now escalates to SIGKILL
+after 2s and awaits the status. Verified: cycling five font sizes leaves exactly one
+process — the live one.
+
+Separately, a service restart with eight of those leftovers in the cgroup coincided with
+the tmux server dying and taking its sessions with it, despite `KillMode=process`. The
+mechanism was not conclusively identified from the journal. Until it is, treat
+`systemctl --user restart deskpilot` as unsafe while sessions are live, and do UI
+experiments against an isolated socket (`tmux -L dptest`).
+
+### Measuring phone layout, concretely
+
+Headless Chromium refuses to go below ~500px wide whatever `--window-size` says, and
+Hyprland tiles the window regardless. Driving it over CDP and measuring inside a
+same-origin iframe sized to the target is what gives a true viewport —
+`Emulation.setDeviceMetricsOverride` supplies the pixel ratio. That is the only setup in
+which any of the numbers above were reproducible.
