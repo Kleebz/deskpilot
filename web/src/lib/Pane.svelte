@@ -175,8 +175,10 @@
       </div>
     {/if}
 
-    <pre class:spin-border={alive} class:busy={working} bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
+    <div class="frame" class:alive class:busy={working}>
+      <pre bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
 <span class="pending">› {sent}</span>{/if}</pre>
+    </div>
 
     {#if !pinned}
       <button class="sm jump" onclick={toBottom}>↓ latest</button>
@@ -307,55 +309,48 @@
   }
 
   pre {
-    flex: 1; min-height: 0; margin: 0; overflow: auto;
+    position: relative; z-index: 1;
+    height: 100%; margin: 0; overflow: auto;
     white-space: pre-wrap; word-break: break-word;
     font-size: 12px; line-height: 1.5; padding: .6rem;
-    border: 1px solid var(--card-line); border-radius: var(--radius);
+    /* No border: the frame's 1px padding IS the ring; a border here would
+       sit inside it as a second, static line. */
+    border-radius: calc(var(--radius) - 1px);
     background: var(--card);
-    /* No mask here. A mask plus a border-box background gradient is fragile
-       once touch promotes the element to a composited layer — the sweeping
-       border intermittently stops painting after a tap. The top fade it
-       provided is worth much less than the border being reliable. */
   }
-  /* A border that sweeps cyan to magenta, shown ONLY while output is changing —
-     motion that means "working" rather than decoration, and idle most of the
-     time so it costs nothing on a phone.
+  /* The sweeping border rotates a real element rather than animating a custom
+     property. An @property angle driving a conic-gradient runs on the main
+     thread — a style recalc and repaint every frame — which browsers throttle
+     to save battery, so it kept appearing to stop. A transform is composited
+     on the GPU and is not subject to that.
 
-     Two backgrounds: the fill clipped to the padding box, the gradient clipped
-     to the border box, so the gradient shows only in the border itself. The
-     angle is animatable because it is registered with @property in app.css;
-     without that registration a conic gradient cannot be interpolated. */
-  /* Present: a visible cyan sweep. The first attempt at this was 9s with an
-     18%-cyan trough — so slow and so dim that it read as having stopped, which
-     is the same complaint the on/off version produced. Subtle is not the same
-     as absent: 5s and a 55% trough stays clearly in motion while still not
-     competing with the text. */
-  pre.spin-border {
-    border-color: transparent;
-    /* Keeps the compositor on a stable layer rather than re-deciding
-       mid-interaction, which is what made the border drop out on tap. */
-    will-change: background;
-    background:
-      linear-gradient(var(--card), var(--card)) padding-box,
-      conic-gradient(from var(--angle),
-        var(--ok),
-        color-mix(in srgb, var(--ok) 55%, var(--card-line)),
-        var(--ok)) border-box;
-    animation: sweep 5s linear infinite;
+     The gradient lives on a square larger than the box so its corners still
+     cover the rectangle as it turns; the frame clips it back to the rounded
+     rect, and the transcript sits on top inset by 1px, leaving a 1px ring. */
+  .frame {
+    position: relative; flex: 1; min-height: 0;
+    padding: 1px; border-radius: var(--radius); overflow: hidden;
+    background: var(--card-line);
   }
-
-  /* Working: faster, and magenta enters the sweep. Same motion, more urgency —
-     readable as a state change rather than a different effect. */
-  pre.spin-border.busy {
-    background:
-      linear-gradient(var(--card), var(--card)) padding-box,
-      conic-gradient(from var(--angle),
-        var(--ok), var(--magenta), var(--ok)) border-box;
+  .frame::before {
+    content: ""; position: absolute; z-index: 0;
+    top: 50%; left: 50%; width: 160%; aspect-ratio: 1;
+    translate: -50% -50%;
+    background: conic-gradient(
+      var(--ok),
+      color-mix(in srgb, var(--ok) 55%, var(--card-line)),
+      var(--ok));
+    opacity: 0;
+    animation: spin 5s linear infinite;
+  }
+  .frame.alive::before { opacity: 1; }
+  .frame.alive.busy::before {
+    background: conic-gradient(var(--ok), var(--magenta), var(--ok));
     animation-duration: 2.4s;
   }
-
+  @keyframes spin { to { rotate: 360deg; } }
   @media (prefers-reduced-motion: reduce) {
-    pre.spin-border, pre.spin-border.busy { animation: none; --angle: 45deg; }
+    .frame::before { animation: none; }
   }
 
   .jump { position: absolute; align-self: center; margin-top: -2.4rem; opacity: .9; }

@@ -76,12 +76,3 @@ input:focus, select:focus {
 .dim { color: var(--dim); }
 .err { color: var(--err); }
 
-/* An animatable angle. Without @property the browser cannot interpolate a
-   conic-gradient's rotation, so the border would jump rather than sweep. */
-@property --angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-
-@keyframes sweep { to { --angle: 360deg; } }
