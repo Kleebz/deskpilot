@@ -555,3 +555,32 @@ the no-caching rule rather than a hole in it.
 Prompted by a real incident: the phone dropped off the tailnet after Android stopped
 Tailscale in the background, and the failure was indistinguishable from the app being
 broken.
+
+## Wrapping is a choice, not a setting
+
+Prose reflows fine at any width. Aligned output does not — code, diffs, `ls`, tables all
+carry meaning in their columns, and re-wrapping at 51 columns destroys it. There is no
+single correct answer, so both are one tap apart: **wrap** reflows, **wide** keeps the
+columns and scrolls sideways. Text size cycles 10–14px alongside it. Both persist, since
+they are preferences about reading rather than per-session state.
+
+The rotation hack is gone. It turned the whole app 90° so it read upright when the phone
+was held sideways, bypassing both Android auto-rotate and the manifest orientation baked
+into an installed PWA. It worked and was unusable: the soft keyboard still came from the
+physical bottom — the side of the rotated content — and scroll gestures no longer matched
+the direction things moved. Enabling auto-rotate is one system toggle and gives real
+landscape with correct keyboard and gestures.
+
+## ydotool absolute coordinates are not screen coordinates
+
+Asking for 200,200 put the cursor at 400,400, and anything past half-screen clamped to
+the edge — a 2x scale from how the virtual device advertises its axes. Agent-driven
+clicking would have silently missed every target.
+
+`desk.sh click` now moves, reads the real position back from `hyprctl cursorpos`, and
+corrects. The correction must be **multiplicative**: subtracting the difference
+oscillates (ask 200, land 400, ask 0, land 0, ask 200…). Scaling by wanted/landed
+converges in one step, and it is measured each time rather than hardcoded, so it does not
+depend on this display.
+
+Verified landing within a pixel at 200,200 / 960,540 / 1500,800.

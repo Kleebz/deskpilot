@@ -18,6 +18,16 @@
   let sent = $state("");         // echoed locally until the capture catches up
   let showWindows = $state(false);
   let showKeys = $state(false);
+
+  // Prose reflows fine at any width. Aligned output — code, diffs, ls, tables —
+  // does not: re-wrapping at 51 columns destroys the columns that carry the
+  // meaning. So wrapping is a choice, not a setting to get right once.
+  // Persisted, because it is a preference about how you read, not per-session.
+  let wrap = $state(localStorage.getItem("dp_wrap") !== "0");
+  let fontPx = $state(Number(localStorage.getItem("dp_font")) || 12);
+  $effect(() => localStorage.setItem("dp_wrap", wrap ? "1" : "0"));
+  $effect(() => localStorage.setItem("dp_font", String(fontPx)));
+  const cycleFont = () => (fontPx = fontPx >= 14 ? 10 : fontPx + 1);
   let creating = $state(false);
 
   const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
@@ -160,6 +170,9 @@
       <span class="badge">ws{ws}</span>
       <span class="name">{session.session}</span>
       {#if working}<span class="pulse" title="output changing"></span>{/if}
+      <button class="sm ghost" title="text size" onclick={cycleFont}>{fontPx}px</button>
+      <button class="sm ghost" class:on={!wrap} title={wrap ? "wrapping" : "not wrapping"}
+              onclick={() => (wrap = !wrap)}>{wrap ? "wrap" : "wide"}</button>
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {otherCount} other
       </button>
@@ -175,7 +188,8 @@
       </div>
     {/if}
 
-    <pre class:sweeping={alive} class:busy={working} bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
+    <pre class:sweeping={alive} class:busy={working} class:nowrap={!wrap}
+         style="font-size:{fontPx}px" bind:this={pre} onscroll={onScroll}>{output || "…"}{#if sent}
 <span class="pending">› {sent}</span>{/if}</pre>
 
     {#if !pinned}
@@ -288,6 +302,7 @@
     box-shadow: 0 0 12px -2px color-mix(in srgb, var(--ok) 55%, transparent);
   }
   .ghost { border-color: transparent; color: var(--dim); }
+  .ghost.on { color: var(--ok); }
   .keytoggle { min-width: 44px; font-size: 16px; }
   .keytoggle.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
   .pulse {
@@ -309,9 +324,17 @@
   pre {
     flex: 1; min-height: 0; margin: 0; overflow: auto;
     white-space: pre-wrap; word-break: break-word;
-    font-size: 12px; line-height: 1.5; padding: .6rem;
+    line-height: 1.5; padding: .6rem;
     border: 1px solid var(--card-line); border-radius: var(--radius);
     background: var(--card);
+  }
+
+  /* Keep the columns and scroll sideways instead of reflowing. Prose reads
+     better wrapped; code, diffs and ls output only make sense aligned. */
+  pre.nowrap {
+    white-space: pre;
+    word-break: normal;
+    overflow-x: auto;
   }
   /* Cyan-to-magenta always. Only the speed changes with state — an earlier
      version dropped magenta when idle, and losing the colour reads as the

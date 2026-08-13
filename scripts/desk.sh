@@ -199,12 +199,34 @@ case "$cmd" in
     ydotool key $codes
     ;;
 
+  # ydotool's absolute coordinates do not necessarily land where you ask:
+  # measured here, asking for 200,200 put the cursor at 400,400 — a 2x scale,
+  # with anything past half-screen clamping to the edge. The factor depends on
+  # how the virtual device advertises its axes, so rather than hardcode it,
+  # move, read the real position back from the compositor, and correct.
   click)
     need_ydotool
     x=${1:?x required}; y=${2:?y required}
-    ydotool mousemove --absolute -x "$x" -y "$y"
-    sleep 0.05
-    ydotool click 0xC0          # left press + release
+    # The error is multiplicative, not additive — correcting by the difference
+    # oscillates (ask 200, land 400, ask 0, land 0, ask 200...). Scale instead.
+    aim_x=$x; aim_y=$y
+    for _ in 1 2 3 4; do
+      ydotool mousemove --absolute -x "$aim_x" -y "$aim_y" >/dev/null 2>&1
+      sleep 0.12
+      pos=$(hyprctl cursorpos 2>/dev/null | tr -d ' ')
+      cx=${pos%%,*}; cy=${pos##*,}
+      [ -z "${cx:-}" ] && break
+      dx=$((x - cx)); dy=$((y - cy))
+      [ "${dx#-}" -le 2 ] && [ "${dy#-}" -le 2 ] && break
+      # aim <- aim * wanted / landed, guarding against a zero landing
+      [ "$cx" -gt 0 ] && aim_x=$(( aim_x * x / cx )) || aim_x=$(( aim_x + dx ))
+      [ "$cy" -gt 0 ] && aim_y=$(( aim_y * y / cy )) || aim_y=$(( aim_y + dy ))
+      [ "$aim_x" -lt 0 ] && aim_x=0
+      [ "$aim_y" -lt 0 ] && aim_y=0
+    done
+    final=$(hyprctl cursorpos 2>/dev/null | tr -d ' ')
+    echo "cursor at $final (wanted $x,$y)"
+    ydotool click 0xC0 >/dev/null 2>&1   # left press + release
     ;;
 
   # Types a password into hyprlock and presses enter. This goes THROUGH
