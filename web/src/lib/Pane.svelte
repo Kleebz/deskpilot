@@ -106,8 +106,14 @@
     return () => clearInterval(id);
   });
 
+  // PageUp/PageDown are the only way to see earlier output on a phone. A TUI
+  // holds the alternate screen, which has no scrollback for the browser to
+  // scroll and none that tmux records either — scrolling is the application's
+  // job, and it only ever hears about it as a keypress. tmux `mouse on` covers
+  // a wheel at the desk, but touch produces no wheel event.
   const KEYS = [
     ["↑", "Up"], ["↓", "Down"], ["←", "Left"], ["→", "Right"],
+    ["⇞", "PageUp"], ["⇟", "PageDown"],
     ["⏎", "Enter"], ["esc", "Escape"], ["tab", "Tab"], ["⇧tab", "BTab"],
     ["^C", "C-c"],
   ];
