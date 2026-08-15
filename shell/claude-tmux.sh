@@ -15,8 +15,8 @@
 #
 # Known costs:
 #   - shadows the wrapped binary, so `which claude` no longer tells the whole story
-#   - two sessions in the same directory collide; -A attaches to the existing one
-#     rather than starting a second
+#   - a second agent in the same directory gets a -2 suffix, so the session name
+#     is not always the directory name
 
 _deskpilot_session_name() {
   local n
@@ -24,7 +24,25 @@ _deskpilot_session_name() {
   printf '%s' "${n:-agent}"
 }
 
-# _deskpilot_wrap <binary> [args...]
+# First unused name in the <base>, <base>-2, <base>-3 series.
+#
+# `new-session -A` attaches when the name is taken, which meant a second
+# `claude` in a directory silently resumed the first one's conversation instead
+# of starting a new one — the wrapper quietly overriding what plain `claude`
+# means. Resuming is what `--continue` is for. The phone UI already picks a free
+# suffix this way, so the two agree.
+#
+# `=` forces an exact match; without it tmux resolves prefixes and `jacob` would
+# match `jacob-2`.
+_deskpilot_free_name() {
+  local base=$1 n=$1 i=2
+  while tmux has-session -t "=$n" 2>/dev/null; do
+    n="$base-$i"
+    i=$((i + 1))
+  done
+  printf '%s' "$n"
+}
+
 # Commands that do a job and exit. These must never be wrapped: `new-session -A`
 # attaches to an existing session when one matches, silently discarding the
 # arguments, so `claude update` in a directory with a live session just drops
@@ -47,6 +65,7 @@ _deskpilot_oneshot() {
   return 1
 }
 
+# _deskpilot_wrap <binary> [args...]
 _deskpilot_wrap() {
   local bin=$1; shift
 
@@ -56,7 +75,10 @@ _deskpilot_wrap() {
     return
   fi
 
-  tmux new-session -A -s "$(_deskpilot_session_name)" -- "$bin" "$@"
+  # -A is kept only to close the race between picking a free name and claiming
+  # it; the name is already free, so this creates rather than attaches.
+  tmux new-session -A -s "$(_deskpilot_free_name "$(_deskpilot_session_name)")" \
+    -- "$bin" "$@"
 }
 
 # Full path, not a bare name: mise activation prepends its own
