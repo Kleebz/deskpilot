@@ -25,11 +25,33 @@ _deskpilot_session_name() {
 }
 
 # _deskpilot_wrap <binary> [args...]
+# Commands that do a job and exit. These must never be wrapped: `new-session -A`
+# attaches to an existing session when one matches, silently discarding the
+# arguments, so `claude update` in a directory with a live session just drops
+# you into that session having done nothing. Interactive launches (no args, -c,
+# --resume, a bare prompt) still get wrapped — those are what remote prompting
+# needs a named handle on.
+#
+# The list leans on names that are conventional across agents (update, doctor,
+# --version), so wrapping another binary inherits sensible behaviour.
+_deskpilot_oneshot() {
+  local a
+  case "${1:-}" in
+    update | doctor | mcp | config | install | migrate-installer | \
+      -v | --version | -h | --help) return 0 ;;
+  esac
+  # -p/--print anywhere means non-interactive output the caller wants to read
+  for a in "$@"; do
+    case "$a" in -p | --print) return 0 ;; esac
+  done
+  return 1
+}
+
 _deskpilot_wrap() {
   local bin=$1; shift
 
-  # already inside tmux — run directly, no nesting
-  if [ -n "${TMUX:-}" ]; then
+  # already inside tmux, or a command that exits on its own — run directly
+  if [ -n "${TMUX:-}" ] || _deskpilot_oneshot "$@"; then
     command "$bin" "$@"
     return
   fi
@@ -37,7 +59,11 @@ _deskpilot_wrap() {
   tmux new-session -A -s "$(_deskpilot_session_name)" -- "$bin" "$@"
 }
 
-claude() { _deskpilot_wrap claude "$@"; }
+# Full path, not a bare name: mise activation prepends its own
+# installs/claude/latest to PATH, which shadows ~/.local/bin/claude — the
+# Omarchy wrapper that runs `mise use -g claude` and actually pulls updates.
+# Resolving through PATH would run the already-installed binary forever.
+claude() { _deskpilot_wrap "$HOME/.local/bin/claude" "$@"; }
 
 # Add other agents the same way — the rest of deskpilot needs no changes:
 #   aider()   { _deskpilot_wrap aider "$@"; }
