@@ -111,9 +111,12 @@
   // scroll and none that tmux records either — scrolling is the application's
   // job, and it only ever hears about it as a keypress. tmux `mouse on` covers
   // a wheel at the desk, but touch produces no wheel event.
+  // Scroll keys lead: the row scrolls horizontally, so anything past the first
+  // few is off-screen on a narrow phone, and these are the ones reached by
+  // reflex while reading.
   const KEYS = [
-    ["↑", "Up"], ["↓", "Down"], ["←", "Left"], ["→", "Right"],
     ["⇞", "PageUp"], ["⇟", "PageDown"],
+    ["↑", "Up"], ["↓", "Down"], ["←", "Left"], ["→", "Right"],
     ["⏎", "Enter"], ["esc", "Escape"], ["tab", "Tab"], ["⇧tab", "BTab"],
     ["^C", "C-c"],
   ];
