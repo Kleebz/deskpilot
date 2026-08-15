@@ -21,7 +21,9 @@
 # deliberately NOT exposed by the server except `unlock`: an agent you are
 # talking to may drive the desktop, an HTTP endpoint may not.
 #
-# Verified on Hyprland 0.56.0, single 1920x1080 output DP-2.
+# Verified on Hyprland 0.56.2, single 1920x1080 output DP-2. 0.56.2 moved
+# `hyprctl dispatch` to a Lua API — see lua_str below. Nothing here works on
+# the pre-Lua syntax, and nothing there works here.
 
 set -uo pipefail
 
@@ -36,6 +38,17 @@ have_env || {
 have_env || die "no Hyprland instance found"
 
 is_locked() { pidof hyprlock >/dev/null; }
+
+# Hyprland 0.56.2 parses `hyprctl dispatch` as Lua: the old
+# `dispatch exec "[workspace 7 silent] foo"` form is now a syntax error, and
+# every dispatcher is reached through `hl.dsp.*` taking a table of named args.
+# Anything interpolated into one of those has to be a real Lua string literal,
+# so escape it rather than pasting it in raw.
+lua_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+
+# Switching the visible workspace. Wrapped because three commands below need it
+# and the dispatcher name is no longer guessable from the old one.
+go_workspace() { hyprctl dispatch "hl.dsp.focus({ workspace = $(lua_str "$1") })" >/dev/null; }
 
 need_ydotool() {
   command -v ydotool >/dev/null || die "ydotool not installed — see shell/install-input.sh"
@@ -91,7 +104,7 @@ case "$cmd" in
     out=${1:-/tmp/desk.jpg}; ws=${2:-}
     is_locked && die "screen is locked — capture would return the lock screen"
     if [ -n "$ws" ]; then
-      hyprctl dispatch workspace "$ws" >/dev/null
+      go_workspace "$ws"
       sleep 0.3
     fi
     grim -t jpeg -q 60 -s 0.5 "$out" || die "grim failed"
@@ -132,7 +145,7 @@ case "$cmd" in
     active_ws=$(hyprctl monitors -j | jq -r 'first(.[] | .activeWorkspace.id)')
     switched=0
     if [ -n "$target_ws" ] && [ "$target_ws" != "$active_ws" ]; then
-      hyprctl dispatch workspace "$target_ws" >/dev/null
+      go_workspace "$target_ws"
       sleep 0.35
       switched=1
     fi
@@ -146,34 +159,41 @@ case "$cmd" in
 
     # Restore the view even if grim failed, so a bad capture never strands the
     # desktop on a workspace the user did not choose.
-    [ "$switched" = 1 ] && hyprctl dispatch workspace "$active_ws" >/dev/null
+    [ "$switched" = 1 ] && go_workspace "$active_ws"
     [ "$rc" -eq 0 ] || die "grim failed"
     echo "$out"
     ;;
 
   move)
     addr=${1:?address required}; ws=${2:?workspace required}
-    hyprctl dispatch movetoworkspacesilent "$ws,address:$addr"
+    # `follow = false` is what movetoworkspace*silent* used to mean: move the
+    # window without dragging the view along with it.
+    hyprctl dispatch "hl.dsp.window.move({ window = $(lua_str "address:$addr"), workspace = $(lua_str "$ws"), follow = false })"
     ;;
 
   # Floating and fullscreen are independent states and both block the tiler.
-  # `dispatch fullscreen` is a toggle, so read before acting.
+  # 0.56.2 replaced the toggles with setters that take a window selector, so
+  # this no longer has to read the state first, focus the window, or reason
+  # about which way a toggle will flip. Both calls are idempotent.
+  #
+  # Note that `window.fullscreen` is still a toggle and has no "off" mode —
+  # `fullscreen_state` with 0/0 is the only way to clear fullscreen outright.
   tile)
     addr=${1:?address required}
-    info=$(hyprctl clients -j | jq -r --arg a "$addr" \
-      'first(.[] | select(.address == $a) | "\(.floating) \(.fullscreen)") // empty')
-    [ -n "$info" ] || die "no window with address $addr"
-    read -r floating fullscreen <<<"$info"
-    batch="dispatch focuswindow address:$addr"
-    [ "$fullscreen" != "0" ] && batch="$batch ; dispatch fullscreen 0"
-    [ "$floating" = "true" ] && batch="$batch ; dispatch togglefloating address:$addr"
-    hyprctl --batch "$batch" >/dev/null
+    hyprctl clients -j | jq -e --arg a "$addr" 'any(.[]; .address == $a)' >/dev/null \
+      || die "no window with address $addr"
+    sel=$(lua_str "address:$addr")
+    hyprctl dispatch "hl.dsp.window.fullscreen_state({ window = $sel, internal = 0, client = 0 })" >/dev/null
+    hyprctl dispatch "hl.dsp.window.float({ window = $sel, action = \"disable\" })" >/dev/null
     ;;
 
   place)
     ws=${1:?workspace required}; shift
     [ $# -gt 0 ] || die "command required"
-    hyprctl dispatch exec "[workspace $ws silent] $*"
+    # Window rules that used to ride along in `[brackets]` are now a table
+    # passed beside the command. The command stays one string — Hyprland splits
+    # it — so it must be escaped as a Lua literal, not concatenated in.
+    hyprctl dispatch "hl.dsp.exec_cmd($(lua_str "$*"), { workspace = $(lua_str "$ws silent") })"
     ;;
 
   # ---- input (ydotool). Everything below needs ydotoold running. ----
