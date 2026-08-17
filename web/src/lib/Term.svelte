@@ -131,40 +131,110 @@
   // first attempt at 90, which needed most of the screen to move one page.
   const PER_PAGE = 55;
 
-  // At most one page per touchmove, with the remainder carried in the
-  // accumulator and spent on later events. Firing the whole backlog at once is
-  // what made a quick flick feel like a teleport rather than a scroll.
+  // How much unspent drag may pile up. Without a cap, a long fast swipe banks
+  // pages that keep firing well after the finger stops, which reads as the
+  // scroll running away on its own.
   const MAX_BACKLOG = PER_PAGE * 4;
   // Slack before a touch counts as a drag rather than a tap, so tapping to
   // focus the keyboard still works.
   const SLOP = 12;
 
+  // Pages are emitted from an animation frame rather than straight out of the
+  // touch handler. Touch events arrive in bursts, so emitting inline made one
+  // steady drag produce a clump of pages and then a gap; draining a buffer on
+  // a fixed cadence spreads the same number of pages evenly instead, which is
+  // most of what "smoother" means when the step size itself cannot shrink.
+  const MIN_GAP = 100;      // ms between pages
+  const FRICTION = 0.9;     // per frame decay of a throw
+  const THROW = 9;          // px of coast per px/ms of release speed
+
   let dragAt = 0, dragAcc = 0, dragging = false;
+  let vel = 0, glide = 0, lastMoveAt = 0;
+  let raf = 0, lastFrame = 0, sinceEmit = 0;
 
   const sendKey = (k) => ws?.readyState === WebSocket.OPEN && ws.send(k);
+
+  function pump(ts) {
+    const dt = lastFrame ? Math.min(ts - lastFrame, 50) : 16;
+    lastFrame = ts;
+
+    // A throw keeps feeding the accumulator after the finger has gone, decaying
+    // as it does, so letting go mid-scroll coasts to a stop rather than
+    // stopping dead under your fingertip.
+    if (glide) {
+      dragAcc += glide * (dt / 16);
+      glide *= FRICTION;
+      if (Math.abs(glide) < 0.4) glide = 0;
+    }
+
+    dragAcc = Math.max(-MAX_BACKLOG, Math.min(MAX_BACKLOG, dragAcc));
+    sinceEmit += dt;
+    if (sinceEmit >= MIN_GAP) {
+      // Dragging down reveals what came before, which is PageUp — the
+      // direction a touch surface has trained everyone to expect.
+      if (dragAcc >= PER_PAGE) { sendKey(PAGEUP); dragAcc -= PER_PAGE; sinceEmit = 0; }
+      else if (dragAcc <= -PER_PAGE) { sendKey(PAGEDOWN); dragAcc += PER_PAGE; sinceEmit = 0; }
+    }
+
+    // Finger gone, throw spent, nothing banked worth a page: stop burning
+    // frames rather than idling a callback for the life of the session.
+    if (!dragging && !glide && Math.abs(dragAcc) < PER_PAGE) {
+      raf = 0;
+      dragAcc = 0;
+      return;
+    }
+    raf = requestAnimationFrame(pump);
+  }
+
+  function startPump() {
+    if (raf) return;
+    lastFrame = 0;
+    sinceEmit = MIN_GAP;      // first page goes without waiting out the gap
+    raf = requestAnimationFrame(pump);
+  }
 
   function touchStart(e) {
     if (e.touches.length !== 1) return;
     dragAt = e.touches[0].clientY;
+    lastMoveAt = e.timeStamp;
     dragAcc = 0;
+    vel = 0;
+    glide = 0;
     dragging = false;
   }
 
   function touchMove(e) {
     if (e.touches.length !== 1) return;
     const y = e.touches[0].clientY;
-    dragAcc += y - dragAt;
+    const dy = y - dragAt;
+    const dt = Math.max(e.timeStamp - lastMoveAt, 1);
     dragAt = y;
+    lastMoveAt = e.timeStamp;
+    dragAcc += dy;
+    // Smoothed, so one erratic sample cannot set the throw for the whole
+    // gesture.
+    vel = vel * 0.7 + (dy / dt) * 0.3;
     if (!dragging && Math.abs(dragAcc) < SLOP) return;
     dragging = true;
     // Once this is a scroll it owns the gesture: without preventDefault the
     // rail underneath treats the same drag as a swipe between workspaces.
     e.preventDefault();
-    // Dragging down reveals what came before, which is PageUp — the direction
-    // a touch surface has trained everyone to expect.
-    dragAcc = Math.max(-MAX_BACKLOG, Math.min(MAX_BACKLOG, dragAcc));
-    if (dragAcc >= PER_PAGE) { sendKey(PAGEUP); dragAcc -= PER_PAGE; }
-    else if (dragAcc <= -PER_PAGE) { sendKey(PAGEDOWN); dragAcc += PER_PAGE; }
+    startPump();
+  }
+
+  function touchEnd(e) {
+    if (!dragging) return;
+    dragging = false;
+    // A lift after a pause is a stop, not a throw — only carry speed that was
+    // still there at the moment of release.
+    if (e.timeStamp - lastMoveAt < 100) glide = vel * THROW;
+    startPump();
+  }
+
+  function touchCancel() {
+    dragging = false;
+    glide = 0;
+    dragAcc = 0;
   }
 
   // Reading fontPx first is deliberate: an early return above it would leave
@@ -204,10 +274,17 @@
     // rail to the next workspace.
     host.addEventListener("touchstart", touchStart, { passive: true });
     host.addEventListener("touchmove", touchMove, { passive: false });
+    host.addEventListener("touchend", touchEnd, { passive: true });
+    // A cancel is the system taking the gesture away — no throw, just stop.
+    host.addEventListener("touchcancel", touchCancel, { passive: true });
 
     return () => {
       host.removeEventListener("touchstart", touchStart);
       host.removeEventListener("touchmove", touchMove);
+      host.removeEventListener("touchend", touchEnd);
+      host.removeEventListener("touchcancel", touchCancel);
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
       ro.disconnect();
       teardown();
     };
