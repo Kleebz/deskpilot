@@ -18,11 +18,14 @@ is in [docs/decisions.md](docs/decisions.md).
 ## Start here
 
 ```bash
-shell/check.sh                       # verifies every assumption, tells you what is missing
-cd web && npm install && npm run build && cd ..   # the server 503s without this
-shell/install-service.sh             # token, unit, enable, print the URL
-shell/pair.sh                        # QR to pair a phone
+shell/setup.sh
 ```
+
+Does everything that can be automated — builds the UI, links the skill, merges the
+Claude Code settings, sources the wrapper, installs the service, then runs the checks.
+Idempotent, so re-run it after pulling or moving the repo. It finishes by printing the
+three things no script can do for you: authenticating Tailscale, pairing the phone, and
+granting notification permission on the device.
 
 That gets you a working app on `localhost`. To reach it from outside the house, add
 Tailscale and run `shell/use-https.sh` — see [docs/setup.md](docs/setup.md) step 4.
@@ -37,6 +40,7 @@ in `.bashrc`.
 
 | Script | When |
 |---|---|
+| `setup.sh` | any time — runs everything below that can be automated |
 | `check.sh` | any time — diagnostic, changes nothing |
 | `install-service.sh` | once, and again only if you move the repo |
 | `install-permissions.sh` | once, and again if the rule set changes |

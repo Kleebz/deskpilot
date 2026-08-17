@@ -17,6 +17,18 @@ REPO=~/Projects/deskpilot        # or wherever you cloned it
 
 ---
 
+## In a hurry
+
+```bash
+$REPO/shell/setup.sh
+```
+
+Runs every step below that can be automated, in order, and prints what is left. The
+rest of this document is why each step exists, how to verify it, and how to undo it —
+worth reading once, and worth returning to when something behaves oddly.
+
+---
+
 ## Step 0 — Preflight
 
 ```bash
