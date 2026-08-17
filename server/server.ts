@@ -1,6 +1,7 @@
 // deskpilot server — a thin HTTP wrapper over scripts/ and tmux.
 //
 //   deno run --allow-net --allow-read --allow-env \
+//     --allow-write=$HOME/.local/state/deskpilot \
 //     --allow-run=$PWD/scripts/desk.sh,$PWD/scripts/sessions.sh,tmux \
 //     server/server.ts
 //
@@ -50,6 +51,38 @@ async function run(cmd: string, args: string[]) {
     out: new TextDecoder().decode(stdout),
     err: new TextDecoder().decode(stderr),
   };
+}
+
+// A capture is padded to the pane height, so most of it is blank: measured
+// 38 blank lines out of 58 on a real reply. Trim trailing spaces and collapse
+// blank runs to one — 3665 bytes becomes 1244 with nothing lost.
+// Deliberately NOT stripping box-drawing: the conversation itself is plain
+// prose, and the only boxed thing is the banner, which scrolls away.
+// A TUI draws separators the full width of the terminal — 130 columns here.
+// A phone fits about 48, so each rule wraps to three lines of solid box
+// characters, and two of them swamp an eight-line reply. They carry no
+// information a short rule does not, so they are collapsed.
+//
+// Only lines that are ENTIRELY rule characters are touched. Anything with text
+// in it is left exactly as sent, including box edges around content —
+// stripping those would risk mangling real output.
+const RULE = /^[\s\u2500-\u257f]+$/;      // box-drawing block
+const HAS_RULE_CHAR = /[\u2500-\u257f]/;
+
+function normalizeCapture(raw: string): string {
+  return raw
+    .split("\n")
+    .map((l) => l.replace(/\s+$/, ""))
+    .map((l) => (l.length > 12 && RULE.test(l) && HAS_RULE_CHAR.test(l)
+      ? l.trim()[0].repeat(12)
+      : l))
+    .reduce<string[]>((acc, l) => {
+      if (l === "" && acc[acc.length - 1] === "") return acc;
+      acc.push(l);
+      return acc;
+    }, [])
+    .join("\n")
+    .trim();
 }
 
 // Every API response is no-store. Without it a browser may heuristically cache
@@ -206,37 +239,19 @@ async function handle(req: Request): Promise<Response> {
       ["capture-pane", "-p", "-J", "-t", s, "-S", `-${Number(lines) || 200}`]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
 
-    // A capture is padded to the pane height, so most of it is blank: measured
-    // 38 blank lines out of 58 on a real reply. Trim trailing spaces and
-    // collapse blank runs to one — 3665 bytes becomes 1244 with nothing lost.
-    // Deliberately NOT stripping box-drawing: the conversation itself is plain
-    // prose, and the only boxed thing is the banner, which scrolls away.
-    // A TUI draws separators the full width of the terminal — 130 columns here.
-    // A phone fits about 48, so each rule wraps to three lines of solid box
-    // characters, and two of them swamp an eight-line reply. They carry no
-    // information a short rule does not, so they are collapsed.
-    //
-    // Only lines that are ENTIRELY rule characters are touched. Anything with
-    // text in it is left exactly as sent, including box edges around content —
-    // stripping those would risk mangling real output.
-    const RULE = /^[\s\u2500-\u257f]+$/;      // box-drawing block
-    const HAS_RULE_CHAR = /[\u2500-\u257f]/;
+    return withCookie(json({ session: s, text: normalizeCapture(r.out) }));
+  }
 
-    const text = r.out
-      .split("\n")
-      .map((l) => l.replace(/\s+$/, ""))
-      .map((l) => (l.length > 12 && RULE.test(l) && HAS_RULE_CHAR.test(l)
-        ? l.trim()[0].repeat(12)
-        : l))
-      .reduce<string[]>((acc, l) => {
-        if (l === "" && acc[acc.length - 1] === "") return acc;
-        acc.push(l);
-        return acc;
-      }, [])
-      .join("\n")
-      .trim();
-
-    return withCookie(json({ session: s, text }));
+  // The recorded transcript, which is not the same thing as a capture: a
+  // capture is the screen as it is now, this is everything the recorder has
+  // seen since it started watching. A TUI on the alternate screen leaves no
+  // scrollback for either the browser or tmux to page through, so without
+  // this the only history that exists is whatever the application redraws.
+  if (req.method === "GET" && path === "/api/transcript") {
+    const s = url.searchParams.get("session") ?? "";
+    if (!SAFE_NAME.test(s)) return fail("bad session name");
+    const want = Math.min(Number(url.searchParams.get("bytes")) || 60_000, LOG_MAX);
+    return withCookie(json({ session: s, text: await readTranscript(s, want) }));
   }
 
   // Two modes, deliberately separate:
@@ -507,6 +522,164 @@ async function handle(req: Request): Promise<Response> {
 
   return withCookie(fail("not found", 404));
 }
+
+// ---- transcript recorder ----
+//
+// A TUI on the alternate screen has no scrollback. The browser sees only the
+// current screen and tmux records nothing above it, so the only history that
+// exists is whatever the application chooses to redraw. That makes "what did
+// it do while I was away" unanswerable from the client alone.
+//
+// So the server watches. Nothing here parses the output — it only notices that
+// it moved, which is what keeps the recorder agent-agnostic.
+//
+// What it records is specifically the lines that have LEFT the screen. Whatever
+// is still visible needs no recording: /api/capture already returns it, live
+// and complete. Recording only the departed half is what keeps the log free of
+// the duplication that recording whole screens produces, and it means the full
+// view is simply the log followed by the current capture.
+
+const STATE_DIR = `${Deno.env.get("HOME")}/.local/state/deskpilot`;
+const LOG_DIR = `${STATE_DIR}/transcripts`;
+const LOG_MAX = 4_000_000;        // per session, before the oldest half is cut
+const POLL_MS = Number(Deno.env.get("DESKPILOT_POLL_MS") ?? "3000");
+
+// How many lines must line up before a shift is believed. A working agent
+// repaints a spinner, an elapsed time and a token count on the bottom row of
+// every frame, so demanding that the whole screen match would find a "scroll"
+// on every tick and record the screen over and over. Twenty lines of exact
+// agreement is far past what noise produces.
+const ANCHOR = 20;
+
+// Not every TUI scrolls. Claude Code re-wraps and repaints its whole viewport
+// when new output arrives — measured: two captures six seconds apart shared no
+// common shift at all, and the pane height changed from 47 to 57 between them.
+// For anything that redraws rather than scrolls there is no "line that left the
+// screen" to record, so the shift test correctly finds nothing and the log
+// would stay empty forever.
+//
+// So when the screen changed and no shift explains it, record a timestamped
+// snapshot instead. Throttled, because a snapshot is the whole screen and an
+// agent mid-reply changes it constantly; the point is a periodic record of what
+// was there while nobody was looking, not a frame-by-frame film.
+const SNAP_MS = 45_000;
+
+type Watched = {
+  prev: string[];    // the previous capture, to diff the next one against
+  changed: number;   // when the screen last differed at all — the idle signal
+  snapped: number;   // when a fallback snapshot was last written
+  snapText: string;  // that snapshot, so an unchanged screen is not re-written
+};
+
+const watched = new Map<string, Watched>();
+
+const logPath = (s: string) => `${LOG_DIR}/${s}.log`;
+
+// The lines that scrolled off between two captures: the smallest shift n for
+// which the old screen, minus its first n lines, still matches the top of the
+// new one. Those first n lines are gone from the screen and exist nowhere else.
+// null means the screen was redrawn rather than scrolled, and nothing can be
+// honestly attributed to scrollback.
+function scrolledOff(prev: string[], curr: string[]): string[] | null {
+  for (let n = 0; n < prev.length; n++) {
+    const span = Math.min(ANCHOR, prev.length - n, curr.length);
+    if (span <= 0) break;
+    let same = true;
+    for (let i = 0; i < span; i++) {
+      if (prev[n + i] !== curr[i]) { same = false; break; }
+    }
+    if (same) return prev.slice(0, n);
+  }
+  return null;
+}
+
+async function appendLog(s: string, lines: string[]) {
+  await Deno.mkdir(LOG_DIR, { recursive: true });
+  await Deno.writeTextFile(logPath(s), lines.join("\n") + "\n", { append: true });
+
+  // Drop the oldest half rather than rotating into numbered files: this is a
+  // convenience log, and one bounded file per session is easier to reason
+  // about than a set of them.
+  const info = await Deno.stat(logPath(s)).catch(() => null);
+  if (info && info.size > LOG_MAX) {
+    const all = await Deno.readTextFile(logPath(s));
+    const cut = all.slice(all.length - Math.floor(LOG_MAX / 2));
+    await Deno.writeTextFile(logPath(s), cut.slice(cut.indexOf("\n") + 1));
+  }
+}
+
+async function readTranscript(s: string, bytes: number): Promise<string> {
+  try {
+    const all = await Deno.readTextFile(logPath(s));
+    if (all.length <= bytes) return all;
+    const cut = all.slice(all.length - bytes);
+    return cut.slice(cut.indexOf("\n") + 1);   // never begin mid-line
+  } catch {
+    return "";                                  // nothing has scrolled off yet
+  }
+}
+
+async function tick() {
+  const ls = await run("tmux", ["list-sessions", "-F", "#{session_name}"]);
+  if (ls.code !== 0) return;                    // no tmux server yet
+  const live = ls.out.split("\n").map((l) => l.trim()).filter((n) => SAFE_NAME.test(n));
+
+  for (const s of live) {
+    // The VISIBLE pane only — deliberately no -S. On the alternate screen tmux
+    // records nothing above the screen, so a scrollback request returns
+    // whatever was in the normal buffer before the TUI started: a block of
+    // stale shell history that never changes. Including it made the top of
+    // every capture identical, so the shift test below always found zero and
+    // the recorder wrote nothing at all. Measured on a live session:
+    // history_size 146, frozen, while the 57 live lines underneath moved.
+    const cap = await run("tmux", ["capture-pane", "-p", "-J", "-t", s]);
+    if (cap.code !== 0) continue;
+    const curr = normalizeCapture(cap.out).split("\n");
+
+    const w = watched.get(s);
+    if (!w) {
+      watched.set(s, { prev: curr, changed: Date.now(), snapped: 0, snapText: "" });
+      continue;
+    }
+
+    if (w.prev.length !== curr.length || w.prev.some((l, i) => l !== curr[i])) {
+      w.changed = Date.now();
+    }
+
+    const gone = scrolledOff(w.prev, curr);
+    const moved = w.prev.length !== curr.length || w.prev.some((l, i) => l !== curr[i]);
+    w.prev = curr;
+
+    // A real scroll: these lines left the screen and exist nowhere else.
+    // Note the length test rather than a null test — scrolledOff returns an
+    // empty array when the screen held still, and an empty array is truthy.
+    // Treating that as "handled" is what kept the fallback below unreachable:
+    // a viewport whose top is stable while its lower half repaints scrolls by
+    // zero, which is not the same as having nothing to record.
+    if (gone && gone.length) {
+      await appendLog(s, gone);
+      continue;
+    }
+    if (!moved) continue;
+
+    // Redrawn. Nothing can be attributed to scrollback, so fall back to a
+    // periodic snapshot — marked, so a reader can tell a recovered screen from
+    // genuine scrollback.
+    const now = Date.now();
+    const text = curr.join("\n");
+    if (now - w.snapped < SNAP_MS || text === w.snapText) continue;
+    w.snapped = now;
+    w.snapText = text;
+    const stamp = new Date(now).toTimeString().slice(0, 8);
+    await appendLog(s, [``, `\u2500\u2500 screen at ${stamp} \u2500\u2500`, ...curr]);
+  }
+
+  for (const k of [...watched.keys()]) if (!live.includes(k)) watched.delete(k);
+}
+
+setInterval(() => {
+  tick().catch((e) => console.error("recorder:", e?.message ?? e));
+}, POLL_MS);
 
 console.log(`deskpilot listening on http://${HOST}:${PORT}`);
 if (HOST !== "127.0.0.1") {

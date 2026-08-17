@@ -66,10 +66,16 @@ Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
 # because Deno has no PTY and \`script\` provides one for the terminal endpoint.
 # This is why the server is Deno rather than Bun: adding a subprocess is a
 # deliberate act, and an injection bug still cannot reach rm, ssh or curl.
+#
+# --allow-write is scoped to one directory, and that directory holds nothing
+# but recorded transcripts. The server had no write permission at all before
+# the recorder existed; keeping the grant this narrow means it still cannot
+# touch the repo, the token, or anything else in \$HOME.
 ExecStart=$(command -v deno) run \\
   --allow-net \\
   --allow-read \\
   --allow-env \\
+  --allow-write=$HOME/.local/state/deskpilot \\
   --allow-run=$REPO/scripts/desk.sh,$REPO/scripts/sessions.sh,tmux,script \\
   $REPO/server/server.ts
 
