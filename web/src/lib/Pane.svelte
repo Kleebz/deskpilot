@@ -1,5 +1,5 @@
 <script>
-  import { api, post } from "./api.js";
+  import { post } from "./api.js";
   import WindowRow from "./WindowRow.svelte";
   import NewSession from "./NewSession.svelte";
   import Term from "./Term.svelte";
@@ -14,28 +14,6 @@
   let lastChange = $state(0);    // when output last moved
   let showWindows = $state(false);
   let showKeys = $state(false);
-
-  // Recorded history, which the terminal cannot show: the alternate screen has
-  // no scrollback, so anything that has left the viewport exists only in what
-  // the server wrote down. Fetched on open rather than polled — it is what
-  // happened, not what is happening, and the terminal above is already live.
-  let showHistory = $state(false);
-  let history = $state("");
-  let historyBusy = $state(false);
-
-  async function openHistory() {
-    showHistory = !showHistory;
-    if (!showHistory || !session) return;
-    historyBusy = true;
-    try {
-      history = (await api(`/transcript?session=${encodeURIComponent(session.session)}`)).text;
-    } catch (e) {
-      onstatus(e.message, true);
-      showHistory = false;
-    } finally {
-      historyBusy = false;
-    }
-  }
 
   // Two sizes, not a range. The useful choice on a phone is "as much of the
   // session as fits" against "readable without squinting"; the steps between
@@ -128,11 +106,13 @@
     return () => clearInterval(id);
   });
 
-  // PageUp/PageDown are the only way to see earlier output on a phone. A TUI
-  // holds the alternate screen, which has no scrollback for the browser to
-  // scroll and none that tmux records either — scrolling is the application's
-  // job, and it only ever hears about it as a keypress. tmux `mouse on` covers
-  // a wheel at the desk, but touch produces no wheel event.
+  // PageUp/PageDown reach earlier output. A TUI holds the alternate screen,
+  // which has no scrollback for the browser to scroll and none that tmux
+  // records either, so scrolling is the application's own and it only ever
+  // hears about it as a keypress. A mouse wheel does not work at the desk
+  // either — the agent does not enable mouse reporting, so the wheel goes to
+  // tmux rather than to it. Dragging the terminal sends these same two keys.
+  //
   // Grouped scroll | history | edit | cursor | control, because the row scrolls
   // horizontally and anything past the first few keys is off-screen on a narrow
   // phone. The edit keys sit next to Up deliberately: recalling a prompt with Up
@@ -158,26 +138,10 @@
       {#if working}<span class="pulse" title="output changing"></span>{/if}
       <button class="sm ghost" class:on={big} title="text size"
               onclick={() => (big = !big)}>{big ? "large" : "normal"}</button>
-      <button class="sm ghost" class:on={showHistory} onclick={openHistory}>
-        {historyBusy ? "…" : "history"}
-      </button>
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {otherCount} other
       </button>
     </div>
-
-    {#if showHistory}
-      <div class="history">
-        {#if history}
-          <pre>{history}</pre>
-        {:else}
-          <div class="why">
-            Nothing recorded yet. History is written as output leaves the
-            screen, so a session this young has not produced any.
-          </div>
-        {/if}
-      </div>
-    {/if}
 
     {#if showWindows}
       <div class="drawer">
@@ -316,19 +280,6 @@
   }
   @keyframes breathe { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
   @media (prefers-reduced-motion: reduce) { .pulse { animation: none; opacity: .8 } }
-
-  /* Taller than the drawer because this is something you read rather than
-     glance at, and it starts scrolled to the newest line. Wide output scrolls
-     inside the pre so the pane itself never scrolls sideways. */
-  .history {
-    max-height: 55vh; overflow-y: auto; min-width: 0;
-    border: 1px solid var(--card-line); border-radius: var(--radius);
-    padding: .4rem; background: var(--panel);
-  }
-  .history pre {
-    margin: 0; font-size: 11px; line-height: 1.45;
-    white-space: pre; overflow-x: auto;
-  }
 
   .drawer {
     display: flex; flex-direction: column; gap: .4rem; min-width: 0;

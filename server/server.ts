@@ -244,18 +244,6 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ session: s, text: normalizeCapture(r.out) }));
   }
 
-  // The recorded transcript, which is not the same thing as a capture: a
-  // capture is the screen as it is now, this is everything the recorder has
-  // seen since it started watching. A TUI on the alternate screen leaves no
-  // scrollback for either the browser or tmux to page through, so without
-  // this the only history that exists is whatever the application redraws.
-  if (req.method === "GET" && path === "/api/transcript") {
-    const s = url.searchParams.get("session") ?? "";
-    if (!SAFE_NAME.test(s)) return fail("bad session name");
-    const want = Math.min(Number(url.searchParams.get("bytes")) || 60_000, LOG_MAX);
-    return withCookie(json({ session: s, text: await readTranscript(s, want) }));
-  }
-
   // ---- push ----
   // The public key is what the browser needs to build a subscription, and it
   // is public by definition, but it still sits behind auth like everything
@@ -562,24 +550,17 @@ async function handle(req: Request): Promise<Response> {
   return withCookie(fail("not found", 404));
 }
 
-// ---- transcript recorder ----
+// ---- session watcher ----
 //
-// A TUI on the alternate screen has no scrollback. The browser sees only the
-// current screen and tmux records nothing above it, so the only history that
-// exists is whatever the application chooses to redraw. That makes "what did
-// it do while I was away" unanswerable from the client alone.
+// One poll over every session, existing solely to notice when a session stops
+// producing output. That transition is the whole basis of the notification: the
+// phone cannot poll while it is asleep in a pocket, so the desktop has to be
+// the one that speaks first.
 //
-// So the server watches. Nothing here parses the output — it only notices that
-// it moved, which is what keeps the recorder agent-agnostic.
-//
-// What it records is specifically the lines that have LEFT the screen. Whatever
-// is still visible needs no recording: /api/capture already returns it, live
-// and complete. Recording only the departed half is what keeps the log free of
-// the duplication that recording whole screens produces, and it means the full
-// view is simply the log followed by the current capture.
+// Nothing here parses the output. It only notices that the screen moved, which
+// is what keeps this agent-agnostic.
 
 const STATE_DIR = `${Deno.env.get("HOME")}/.local/state/deskpilot`;
-const LOG_DIR = `${STATE_DIR}/transcripts`;
 const VAPID_FILE = `${STATE_DIR}/vapid.json`;
 const SUBS_FILE = `${STATE_DIR}/subscriptions.json`;
 
@@ -589,8 +570,8 @@ const VAPID_SUBJECT = Deno.env.get("DESKPILOT_VAPID_SUBJECT") ??
   "mailto:deskpilot@localhost";
 
 // The keypair is written on first use, so the directory has to exist before
-// anything asks for it — a subscription can be the first thing that ever
-// touches this directory, before a single line has been recorded.
+// anything asks for it — subscribing can be the first thing that ever
+// touches this directory.
 await Deno.mkdir(STATE_DIR, { recursive: true }).catch(() => {});
 
 async function loadSubs(): Promise<Subscription[]> {
@@ -628,16 +609,8 @@ async function notify(payload: Record<string, unknown>) {
   }
   if (keep.length !== subs.length) await saveSubs(keep);
 }
-const LOG_MAX = 4_000_000;        // per session, before the oldest half is cut
+
 const POLL_MS = Number(Deno.env.get("DESKPILOT_POLL_MS") ?? "3000");
-
-// How many lines must line up before a shift is believed. A working agent
-// repaints a spinner, an elapsed time and a token count on the bottom row of
-// every frame, so demanding that the whole screen match would find a "scroll"
-// on every tick and record the screen over and over. Twenty lines of exact
-// agreement is far past what noise produces.
-const ANCHOR = 20;
-
 
 type Watched = {
   prev: string[];    // the previous capture, to diff the next one against
@@ -670,52 +643,6 @@ function lastMeaningful(lines: string[]): string {
 
 const watched = new Map<string, Watched>();
 
-const logPath = (s: string) => `${LOG_DIR}/${s}.log`;
-
-// The lines that scrolled off between two captures: the smallest shift n for
-// which the old screen, minus its first n lines, still matches the top of the
-// new one. Those first n lines are gone from the screen and exist nowhere else.
-// null means the screen was redrawn rather than scrolled, and nothing can be
-// honestly attributed to scrollback.
-function scrolledOff(prev: string[], curr: string[]): string[] | null {
-  for (let n = 0; n < prev.length; n++) {
-    const span = Math.min(ANCHOR, prev.length - n, curr.length);
-    if (span <= 0) break;
-    let same = true;
-    for (let i = 0; i < span; i++) {
-      if (prev[n + i] !== curr[i]) { same = false; break; }
-    }
-    if (same) return prev.slice(0, n);
-  }
-  return null;
-}
-
-async function appendLog(s: string, lines: string[]) {
-  await Deno.mkdir(LOG_DIR, { recursive: true });
-  await Deno.writeTextFile(logPath(s), lines.join("\n") + "\n", { append: true });
-
-  // Drop the oldest half rather than rotating into numbered files: this is a
-  // convenience log, and one bounded file per session is easier to reason
-  // about than a set of them.
-  const info = await Deno.stat(logPath(s)).catch(() => null);
-  if (info && info.size > LOG_MAX) {
-    const all = await Deno.readTextFile(logPath(s));
-    const cut = all.slice(all.length - Math.floor(LOG_MAX / 2));
-    await Deno.writeTextFile(logPath(s), cut.slice(cut.indexOf("\n") + 1));
-  }
-}
-
-async function readTranscript(s: string, bytes: number): Promise<string> {
-  try {
-    const all = await Deno.readTextFile(logPath(s));
-    if (all.length <= bytes) return all;
-    const cut = all.slice(all.length - bytes);
-    return cut.slice(cut.indexOf("\n") + 1);   // never begin mid-line
-  } catch {
-    return "";                                  // nothing has scrolled off yet
-  }
-}
-
 async function tick() {
   const ls = await run("tmux", ["list-sessions", "-F", "#{session_name}"]);
   if (ls.code !== 0) return;                    // no tmux server yet
@@ -723,12 +650,11 @@ async function tick() {
 
   for (const s of live) {
     // The VISIBLE pane only — deliberately no -S. On the alternate screen tmux
-    // records nothing above the screen, so a scrollback request returns
-    // whatever was in the normal buffer before the TUI started: a block of
-    // stale shell history that never changes. Including it made the top of
-    // every capture identical, so the shift test below always found zero and
-    // the recorder wrote nothing at all. Measured on a live session:
-    // history_size 146, frozen, while the 57 live lines underneath moved.
+    // records nothing above the screen, so a scrollback request also returns
+    // whatever sat in the normal buffer before the TUI started: a block of
+    // stale shell history that never changes again. Measured on a live
+    // session, 146 such lines, frozen, above 57 that actually move. Including
+    // them would bury the change this is looking for in constant sameness.
     const cap = await run("tmux", ["capture-pane", "-p", "-J", "-t", s]);
     if (cap.code !== 0) continue;
     const curr = normalizeCapture(cap.out).split("\n");
@@ -742,18 +668,13 @@ async function tick() {
       continue;
     }
 
-    if (w.prev.length !== curr.length || w.prev.some((l, i) => l !== curr[i])) {
-      w.changed = Date.now();
-    }
-
-    const gone = scrolledOff(w.prev, curr);
     const moved = w.prev.length !== curr.length || w.prev.some((l, i) => l !== curr[i]);
     w.prev = curr;
 
     // Announce the transition from producing output to holding still, once per
-    // stop. This is the whole point of the feature: the phone cannot poll while
-    // it is asleep in a pocket, so the desktop has to be the one to speak.
+    // stop.
     if (moved) {
+      w.changed = Date.now();
       w.busy = true;
       w.notified = false;
     } else if (w.busy && !w.notified && Date.now() - w.changed > IDLE_MS) {
@@ -762,11 +683,6 @@ async function tick() {
       notify({ title: `${s} is waiting`, body: lastMeaningful(curr), session: s })
         .catch((e) => console.error("notify:", e?.message ?? e));
     }
-
-    // A real scroll: these lines left the screen and exist nowhere else. This
-    // tests length rather than null because an empty array means the screen
-    // held still, which is not the same as there being nothing to record.
-    if (gone && gone.length) await appendLog(s, gone);
   }
 
   for (const k of [...watched.keys()]) if (!live.includes(k)) watched.delete(k);
