@@ -14,6 +14,56 @@
   const placed = $derived(sessions.filter((s) => s.workspace !== null));
   const detached = $derived(sessions.filter((s) => s.workspace === null));
 
+  // tmux's own last-activity stamp, so it survives a deskpilot restart and
+  // measures real use — verified not to creep on its own: two untouched
+  // sessions held the same value across 40 seconds while a TUI repainted.
+  let nowTs = $state(Date.now());
+  $effect(() => {
+    const id = setInterval(() => (nowTs = Date.now()), 60_000);
+    return () => clearInterval(id);
+  });
+
+  function idleFor(s) {
+    if (!s.activity) return "";
+    const sec = Math.max(0, nowTs / 1000 - s.activity);
+    if (sec < 90) return "just now";
+    const m = Math.round(sec / 60);
+    if (m < 60) return `idle ${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `idle ${h}h`;
+    return `idle ${Math.floor(h / 24)}d ${h % 24}h`;
+  }
+
+  // A shell holds state nothing else has: cwd, environment, running jobs,
+  // scrollback. An agent's conversation is written to disk as it goes, so a
+  // detached one that has sat untouched is the safe thing to clear in bulk —
+  // and a shell never is, whatever its age.
+  const IS_SHELL = /^(bash|zsh|fish|sh|dash|nu)$/;
+  const STALE_S = 60 * 60;
+
+  const clearable = $derived(
+    detached.filter((s) =>
+      !IS_SHELL.test(s.command ?? "") &&
+      s.activity && nowTs / 1000 - s.activity > STALE_S),
+  );
+
+  let clearing = $state(false);
+
+  async function clearIdle() {
+    const names = clearable.map((s) => s.session);
+    if (!names.length) return;
+    if (!confirm(`Kill ${names.length} idle agent session${names.length === 1 ? "" : "s"}?\n\n${names.join(", ")}\n\nTheir conversations stay on disk — resume with claude --resume.`)) return;
+    clearing = true;
+    let done = 0;
+    for (const name of names) {
+      try { await post("/sessions/kill", { session: name }); done++; }
+      catch (e) { onstatus(`${name}: ${e.message}`, true); }
+    }
+    clearing = false;
+    onstatus(`killed ${done} of ${names.length}`);
+    onchanged();
+  }
+
   let target = $state({});
   let creating = $state(false);
   let newWs = $state(1);
@@ -116,6 +166,7 @@
           <span class="badge">ws{s.workspace}</span>
           <span class="nm">{s.session}</span>
           <span class="path dim">{tilde(s.path)}</span>
+          <span class="age dim">{idleFor(s)}</span>
         </button>
         <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
       </div>
@@ -129,11 +180,17 @@
   {#if detached.length}
     <h2>detached · {detached.length}</h2>
     <div class="why">Running with no window — closing a terminal detaches, it does not kill.</div>
+    {#if clearable.length}
+      <button class="sm danger clearall" disabled={clearing} onclick={clearIdle}>
+        {clearing ? "killing…" : `kill ${clearable.length} idle agent${clearable.length === 1 ? "" : "s"}`}
+      </button>
+    {/if}
     {#each detached as s (s.session)}
       <div class="card">
         <div class="cardhead">
           <span class="nm">{s.session}</span>
           <span class="path dim">{tilde(s.path)}</span>
+          <span class="age dim">{idleFor(s)}</span>
         </div>
         <div class="acts">
           <select bind:value={target[s.session]}>
@@ -212,6 +269,11 @@
   /* extra separation before a destructive control */
   .acts .danger, .row .danger { margin-left: .5rem; }
   .acts select { flex: 1; min-width: 0; }
+  /* Pushed to the right of its row and allowed to shrink away first: it is
+     the least important thing on the line until you are deciding what to kill. */
+  .age { flex: 0 0 auto; margin-left: auto; font-size: 11px; white-space: nowrap; }
+  .clearall { align-self: flex-start; margin: .1rem 0 .35rem; }
+
   .why {
     font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
     border-left: 2px solid var(--line); padding-left: .5rem;
