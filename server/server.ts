@@ -511,6 +511,7 @@ async function handle(req: Request): Promise<Response> {
       env: { TERM: "xterm-256color" },
       stdin: "piped", stdout: "piped", stderr: "null",
     }).spawn();
+    liveChildren.add(child);
 
     const writer = child.stdin.getWriter();
     let closed = false;
@@ -530,6 +531,7 @@ async function handle(req: Request): Promise<Response> {
         }, 2000);
         try { await child.status; } catch { /* already gone */ }
         clearTimeout(timer);
+        liveChildren.delete(child);
       })();
     };
 
@@ -600,6 +602,32 @@ async function handle(req: Request): Promise<Response> {
   }
 
   return withCookie(fail("not found", 404));
+}
+
+// ---- orderly shutdown ----
+//
+// KillMode=process is not optional: the tmux server is a child of this unit, so
+// killing the control group would take every session with it. The cost is that
+// every OTHER child also survives this process's death — including a `script`
+// holding a tmux client, which then stays attached to a session forever and
+// shows up as a second view of a window nobody opened. Observed after a service
+// restart: one client still attached 9.5 hours later, at the phone's 54x48,
+// which also quietly constrains the shared window size for the desk.
+//
+// The per-connection cleanup cannot help, because a signalled process never
+// reaches it. So the children are tracked and killed here instead. SIGKILL
+// rather than SIGTERM: `script` does not forward signals to the client in its
+// pty, but closing the pty master does end it — verified by killing a leaked
+// one and watching the client disappear.
+const liveChildren = new Set<Deno.ChildProcess>();
+
+for (const sig of ["SIGTERM", "SIGINT"] as const) {
+  Deno.addSignalListener(sig, () => {
+    for (const child of liveChildren) {
+      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    }
+    Deno.exit(0);
+  });
 }
 
 // ---- session watcher ----
