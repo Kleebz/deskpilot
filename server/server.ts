@@ -11,6 +11,8 @@
 // Binds to 127.0.0.1 by default. Set DESKPILOT_HOST=0.0.0.0 only once you are
 // behind Tailscale — this endpoint can run commands on the machine.
 
+import { loadVapid, sendPush, type Subscription } from "./push.ts";
+
 const ROOT = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
 const SCRIPTS = `${ROOT}/scripts`;
 const WEB = `${ROOT}/web`;
@@ -252,6 +254,43 @@ async function handle(req: Request): Promise<Response> {
     if (!SAFE_NAME.test(s)) return fail("bad session name");
     const want = Math.min(Number(url.searchParams.get("bytes")) || 60_000, LOG_MAX);
     return withCookie(json({ session: s, text: await readTranscript(s, want) }));
+  }
+
+  // ---- push ----
+  // The public key is what the browser needs to build a subscription, and it
+  // is public by definition, but it still sits behind auth like everything
+  // else under /api so the surface stays uniform.
+  if (req.method === "GET" && path === "/api/push/key") {
+    return withCookie(json({ key: (await loadVapid(VAPID_FILE)).publicKey }));
+  }
+
+  if (req.method === "POST" && path === "/api/push/subscribe") {
+    const b = await req.json().catch(() => null);
+    if (!b?.endpoint || !b?.keys?.p256dh || !b?.keys?.auth) {
+      return fail("bad subscription");
+    }
+    const subs = await loadSubs();
+    // Re-subscribing is normal: browsers rotate the endpoint on their own
+    // schedule, and the app re-registers on every load.
+    const next = subs.filter((s) => s.endpoint !== b.endpoint);
+    next.push({ endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth } });
+    await saveSubs(next);
+    return withCookie(json({ ok: true, devices: next.length }));
+  }
+
+  if (req.method === "POST" && path === "/api/push/unsubscribe") {
+    const b = await req.json().catch(() => null);
+    const subs = await loadSubs();
+    const next = subs.filter((s) => s.endpoint !== b?.endpoint);
+    await saveSubs(next);
+    return withCookie(json({ ok: true, devices: next.length }));
+  }
+
+  if (req.method === "POST" && path === "/api/push/test") {
+    const subs = await loadSubs();
+    if (!subs.length) return fail("no devices subscribed");
+    await notify({ title: "deskpilot", body: "Notifications are working.", session: "" });
+    return withCookie(json({ ok: true, devices: subs.length }));
   }
 
   // Two modes, deliberately separate:
@@ -541,6 +580,54 @@ async function handle(req: Request): Promise<Response> {
 
 const STATE_DIR = `${Deno.env.get("HOME")}/.local/state/deskpilot`;
 const LOG_DIR = `${STATE_DIR}/transcripts`;
+const VAPID_FILE = `${STATE_DIR}/vapid.json`;
+const SUBS_FILE = `${STATE_DIR}/subscriptions.json`;
+
+// Push services want a way to contact whoever is sending. Nothing reads it
+// here, but a malformed one is rejected by some services, so it stays a URI.
+const VAPID_SUBJECT = Deno.env.get("DESKPILOT_VAPID_SUBJECT") ??
+  "mailto:deskpilot@localhost";
+
+// The keypair is written on first use, so the directory has to exist before
+// anything asks for it — a subscription can be the first thing that ever
+// touches this directory, before a single line has been recorded.
+await Deno.mkdir(STATE_DIR, { recursive: true }).catch(() => {});
+
+async function loadSubs(): Promise<Subscription[]> {
+  try {
+    return JSON.parse(await Deno.readTextFile(SUBS_FILE)) as Subscription[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveSubs(list: Subscription[]) {
+  await Deno.writeTextFile(SUBS_FILE, JSON.stringify(list, null, 2));
+}
+
+// Fan a notification out to every registered device, forgetting the ones the
+// push service reports as dead. A phone that reinstalls the app or revokes
+// permission leaves a subscription behind that will 410 forever otherwise.
+async function notify(payload: Record<string, unknown>) {
+  const subs = await loadSubs();
+  if (!subs.length) return;
+  const v = await loadVapid(VAPID_FILE);
+  const keep: Subscription[] = [];
+  for (const sub of subs) {
+    try {
+      const r = await sendPush(v, sub, payload, VAPID_SUBJECT);
+      if (r.gone) console.log("push: subscription gone, dropping");
+      else {
+        keep.push(sub);
+        if (!r.ok) console.error(`push: ${r.status} from ${new URL(sub.endpoint).host}`);
+      }
+    } catch (e) {
+      keep.push(sub);   // a transport error is not evidence the device is gone
+      console.error("push:", (e as Error)?.message ?? e);
+    }
+  }
+  if (keep.length !== subs.length) await saveSubs(keep);
+}
 const LOG_MAX = 4_000_000;        // per session, before the oldest half is cut
 const POLL_MS = Number(Deno.env.get("DESKPILOT_POLL_MS") ?? "3000");
 
@@ -569,7 +656,26 @@ type Watched = {
   changed: number;   // when the screen last differed at all — the idle signal
   snapped: number;   // when a fallback snapshot was last written
   snapText: string;  // that snapshot, so an unchanged screen is not re-written
+  busy: boolean;     // has produced output that has not yet been settled for
+  notified: boolean; // already announced this particular stop
 };
+
+// How long a session has to hold still before it counts as waiting rather than
+// thinking. An agent pauses for a few seconds constantly — between tool calls,
+// while a model streams — so this has to be well clear of that, or the phone
+// buzzes through the whole run instead of at the end of it.
+const IDLE_MS = 25_000;
+
+// The most recent line with something on it, which is nearly always the thing
+// being waited on: a prompt, a question, a permission dialog. Chrome rules are
+// skipped so the notification does not read as a row of box characters.
+function lastMeaningful(lines: string[]): string {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i].trim();
+    if (l && !RULE.test(l)) return l.slice(0, 120);
+  }
+  return "waiting";
+}
 
 const watched = new Map<string, Watched>();
 
@@ -638,7 +744,10 @@ async function tick() {
 
     const w = watched.get(s);
     if (!w) {
-      watched.set(s, { prev: curr, changed: Date.now(), snapped: 0, snapText: "" });
+      watched.set(s, {
+        prev: curr, changed: Date.now(), snapped: 0, snapText: "",
+        busy: false, notified: true,   // nothing to announce about a session we just met
+      });
       continue;
     }
 
@@ -649,6 +758,19 @@ async function tick() {
     const gone = scrolledOff(w.prev, curr);
     const moved = w.prev.length !== curr.length || w.prev.some((l, i) => l !== curr[i]);
     w.prev = curr;
+
+    // Announce the transition from producing output to holding still, once per
+    // stop. This is the whole point of the feature: the phone cannot poll while
+    // it is asleep in a pocket, so the desktop has to be the one to speak.
+    if (moved) {
+      w.busy = true;
+      w.notified = false;
+    } else if (w.busy && !w.notified && Date.now() - w.changed > IDLE_MS) {
+      w.notified = true;
+      w.busy = false;
+      notify({ title: `${s} is waiting`, body: lastMeaningful(curr), session: s })
+        .catch((e) => console.error("notify:", e?.message ?? e));
+    }
 
     // A real scroll: these lines left the screen and exist nowhere else.
     // Note the length test rather than a null test — scrolledOff returns an

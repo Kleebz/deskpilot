@@ -2,6 +2,7 @@
   import { api, post, waitFor, tilde } from "./api.js";
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
+  import Notify from "./Notify.svelte";
 
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
@@ -146,6 +147,7 @@
   {/if}
 
   <div class="foot"></div>
+  <Notify {onstatus} />
   <Install />
   <div class="hint dim">Swipe right for screens 1–10.</div>
 

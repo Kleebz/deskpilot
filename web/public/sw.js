@@ -34,3 +34,57 @@ self.addEventListener("fetch", (event) => {
     fetch(event.request).catch(() => caches.match(OFFLINE)),
   );
 });
+
+// ---- notifications ----
+//
+// The payload arrives already decrypted: the push service relayed ciphertext it
+// could not read, and the browser unsealed it with the subscription's own key.
+//
+// The actions matter more than the text. A session usually stops because it is
+// waiting on a yes or a no, and answering from the notification means never
+// opening the app at all — which is the difference between being told the run
+// stalled and being able to unstall it.
+
+self.addEventListener("push", (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { /* keep the default */ }
+  const session = d.session || "";
+
+  event.waitUntil(self.registration.showNotification(d.title || "deskpilot", {
+    body: d.body || "",
+    tag: session || "deskpilot",     // one live notification per session
+    renotify: true,
+    data: { session },
+    actions: session
+      ? [{ action: "yes", title: "Approve" }, { action: "open", title: "Open" }]
+      : [],
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  const session = event.notification.data?.session || "";
+  event.notification.close();
+
+  // Approving is a keystroke, and the cookie the app already holds is
+  // SameSite=Strict and HttpOnly, so this same-origin request carries it
+  // without the worker ever seeing the token.
+  if (event.action === "yes" && session) {
+    event.waitUntil(fetch("/api/send", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session, keys: ["Enter"] }),
+    }).catch(() => {}));
+    return;
+  }
+
+  // Otherwise surface the app, reusing a window if one is already open rather
+  // than stacking up new ones every time a notification is tapped.
+  event.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const c of all) {
+      if ("focus" in c) return c.focus();
+    }
+    return self.clients.openWindow("/");
+  })());
+});
