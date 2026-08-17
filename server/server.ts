@@ -244,6 +244,29 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ session: s, text: normalizeCapture(r.out) }));
   }
 
+  // An agent announcing its own state, which is the only way to know it
+  // reliably. Stillness cannot tell "blocked on a dialog" from "mid tool call"
+  // — both hold the screen — and matching the text of a dialog only works
+  // until the next agent words it differently. So the agent says so itself,
+  // through whatever hook it provides, and nothing here knows which agent that
+  // was: this endpoint receives "something happened", not "Claude did X".
+  if (req.method === "POST" && path === "/api/event") {
+    const b = await req.json().catch(() => null);
+    const s = String(b?.session ?? "");
+    if (!SAFE_NAME.test(s)) return fail("bad session name");
+    const title = String(b?.title ?? s).slice(0, 120);
+    const body = String(b?.body ?? "").slice(0, 300);
+
+    // Announced, so the stillness fallback does not follow up a minute later
+    // with a second notification about the same stop.
+    const w = watched.get(s);
+    if (w) { w.notified = true; w.busy = false; }
+
+    console.log(`event: ${s} ${String(b?.kind ?? "event")}`);
+    await notify({ title, body, session: s });
+    return withCookie(json({ ok: true }));
+  }
+
   // ---- push ----
   // The public key is what the browser needs to build a subscription, and it
   // is public by definition, but it still sits behind auth like everything
@@ -617,7 +640,6 @@ type Watched = {
   changed: number;   // when the screen last differed at all — the idle signal
   busy: boolean;     // has produced output that has not yet been settled for
   notified: boolean; // already announced this particular stop
-  asking: boolean;   // already announced the dialog currently on screen
 };
 
 // How long a session has to hold still before it counts as waiting rather than
@@ -631,21 +653,9 @@ type Watched = {
 // work: a session running builds sits still far longer than one writing prose.
 const IDLE_MS = Number(Deno.env.get("DESKPILOT_IDLE_MS") ?? "60000");
 
-// A session blocked on an approve/deny dialog is the case where being told
-// matters most, and stillness cannot find it: the agent is mid-turn, so its
-// elapsed counter keeps ticking and the screen never holds still long enough
-// to look idle. Measured: a session at its ordinary prompt is stable, the same
-// session mid-turn is not.
-//
-// Content is the only signal that separates "blocked, waiting for you" from
-// "busy, leave it alone". So this is the one place the server looks at what a
-// screen says rather than that it changed — kept to a pattern supplied from
-// outside, so the rule lives in configuration rather than in the code, and
-// wrapping a different agent means changing a setting rather than this file.
-// Set it empty to switch the behaviour off.
-const PROMPT_SRC = Deno.env.get("DESKPILOT_PROMPT_PATTERN") ??
-  "Do you want to (proceed|make this edit)|No, and tell .* what to do differently";
-const PROMPT_RE = PROMPT_SRC ? new RegExp(PROMPT_SRC, "i") : null;
+// How many changed lines count as work rather than noise.
+const SUBSTANTIVE = 2;
+
 
 // The most recent line with something on it, which is nearly always the thing
 // being waited on: a prompt, a question, a permission dialog. Chrome rules are
@@ -661,11 +671,18 @@ function lastMeaningful(lines: string[]): string {
 const watched = new Map<string, Watched>();
 
 async function tick() {
-  const ls = await run("tmux", ["list-sessions", "-F", "#{session_name}"]);
+  const ls = await run("tmux",
+    ["list-sessions", "-F", "#{session_name} #{session_attached}"]);
   if (ls.code !== 0) return;                    // no tmux server yet
-  const live = ls.out.split("\n").map((l) => l.trim()).filter((n) => SAFE_NAME.test(n));
+  const rows = ls.out.split("\n").map((l) => l.trim().split(/\s+/))
+    .filter(([n]) => SAFE_NAME.test(n));
+  const live = rows.map(([n]) => n);
 
-  for (const s of live) {
+  for (const [s, attachedCount] of rows) {
+    // A session with a client attached is on a screen in front of you, so a
+    // push tells you nothing you cannot already see. This is what stopped the
+    // desk-side sessions from announcing themselves all evening.
+    const attached = Number(attachedCount) > 0;
     // The VISIBLE pane only — deliberately no -S. On the alternate screen tmux
     // records nothing above the screen, so a scrollback request also returns
     // whatever sat in the normal buffer before the TUI started: a block of
@@ -681,28 +698,19 @@ async function tick() {
       watched.set(s, {
         prev: curr, changed: Date.now(),
         busy: false, notified: true,   // nothing to announce about a session we just met
-        asking: PROMPT_RE ? PROMPT_RE.test(curr.join("\n")) : false,
       });
       continue;
     }
 
-    const moved = w.prev.length !== curr.length || w.prev.some((l, i) => l !== curr[i]);
-    w.prev = curr;
-
-    // A dialog is announced the moment it appears, not after a wait: it is
-    // already blocked, and every second of delay is a second the run is
-    // stopped for no reason. Latched, so a dialog that sits there for minutes
-    // is announced once rather than every tick.
-    if (PROMPT_RE) {
-      const asking = PROMPT_RE.test(curr.join("\n"));
-      if (asking && !w.asking) {
-        console.log(`notify: ${s} is asking`);
-        notify({ title: `${s} needs an answer`, body: lastMeaningful(curr), session: s })
-          .catch((e) => console.error("notify:", e?.message ?? e));
-        w.notified = true;   // the stop that follows is this same event
-      }
-      w.asking = asking;
+    // Counted rather than any-difference. A single line moving is a banner
+    // repainting or a counter ticking, not work — and treating that as work
+    // armed idle sessions that then announced a "stop" a minute later.
+    let diff = Math.abs(w.prev.length - curr.length);
+    for (let i = 0; i < Math.min(w.prev.length, curr.length); i++) {
+      if (w.prev[i] !== curr[i]) diff++;
     }
+    const moved = diff > SUBSTANTIVE;
+    w.prev = curr;
 
     // Announce the transition from producing output to holding still, once per
     // stop.
@@ -710,7 +718,7 @@ async function tick() {
       w.changed = Date.now();
       w.busy = true;
       w.notified = false;
-    } else if (w.busy && !w.notified && Date.now() - w.changed > IDLE_MS) {
+    } else if (!attached && w.busy && !w.notified && Date.now() - w.changed > IDLE_MS) {
       w.notified = true;
       w.busy = false;
       // Logged on success as well as failure. "Did it not fire, or did it fire
