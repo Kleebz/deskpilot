@@ -647,10 +647,15 @@ type Watched = {
 };
 
 // How long a session has to hold still before it counts as waiting rather than
-// thinking. An agent pauses for a few seconds constantly — between tool calls,
-// while a model streams — so this has to be well clear of that, or the phone
-// buzzes through the whole run instead of at the end of it.
-const IDLE_MS = 25_000;
+// thinking. An agent pauses constantly — between tool calls, while a model
+// streams — so this has to be well clear of that, or the phone announces a run
+// that has not finished.
+//
+// 25s was not clear of it. A long tool call can hold the screen still for most
+// of a minute while the work continues, which read as "waiting" and notified
+// early. Raised, and made configurable, because the right value depends on the
+// work: a session running builds sits still far longer than one writing prose.
+const IDLE_MS = Number(Deno.env.get("DESKPILOT_IDLE_MS") ?? "60000");
 
 // The most recent line with something on it, which is nearly always the thing
 // being waited on: a prompt, a question, a permission dialog. Chrome rules are

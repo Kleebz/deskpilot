@@ -125,10 +125,16 @@
   const PAGEUP = "\x1b[5~";
   const PAGEDOWN = "\x1b[6~";
 
-  // Pixels of drag per page. A page is a big jump for a small movement, so this
-  // is deliberately long — short enough to feel connected to the finger, long
-  // enough that a careless swipe does not fly through the whole conversation.
-  const PER_PAGE = 90;
+  // Pixels of drag per page. A page is roughly 25 lines — measured, by diffing
+  // the pane before and after a single PageUp — and there is nothing finer to
+  // send, so this cannot be made continuous, only well paced. Shorter than the
+  // first attempt at 90, which needed most of the screen to move one page.
+  const PER_PAGE = 55;
+
+  // At most one page per touchmove, with the remainder carried in the
+  // accumulator and spent on later events. Firing the whole backlog at once is
+  // what made a quick flick feel like a teleport rather than a scroll.
+  const MAX_BACKLOG = PER_PAGE * 4;
   // Slack before a touch counts as a drag rather than a tap, so tapping to
   // focus the keyboard still works.
   const SLOP = 12;
@@ -156,8 +162,9 @@
     e.preventDefault();
     // Dragging down reveals what came before, which is PageUp — the direction
     // a touch surface has trained everyone to expect.
-    while (dragAcc >= PER_PAGE) { sendKey(PAGEUP); dragAcc -= PER_PAGE; }
-    while (dragAcc <= -PER_PAGE) { sendKey(PAGEDOWN); dragAcc += PER_PAGE; }
+    dragAcc = Math.max(-MAX_BACKLOG, Math.min(MAX_BACKLOG, dragAcc));
+    if (dragAcc >= PER_PAGE) { sendKey(PAGEUP); dragAcc -= PER_PAGE; }
+    else if (dragAcc <= -PER_PAGE) { sendKey(PAGEDOWN); dragAcc += PER_PAGE; }
   }
 
   // Reading fontPx first is deliberate: an early return above it would leave
