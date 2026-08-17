@@ -2,8 +2,11 @@
 
 Steps are ordered by dependency. Each one is useful on its own and each has a rollback.
 
-Verified on Omarchy / Arch, Hyprland 0.56.0. Every step ends with a check that either
+Verified on Omarchy / Arch, Hyprland 0.56.2. Every step ends with a check that either
 prints something or tells you it failed.
+
+`scripts/desk.sh` targets 0.56.2's Lua dispatch API and will not work on the pre-Lua
+syntax — see the note at the top of that file if you are on an older Hyprland.
 
 `$REPO` below means wherever you cloned this. Nothing assumes a particular directory —
 the scripts resolve their own location — so substitute your path or set it once:
@@ -180,12 +183,21 @@ offer it, with no explanation given.
 
 **What you get:** swipe between screens 1–10, each showing the session on that
 workspace as a **real terminal** — a PTY sized to your phone, so programs lay out for
-the screen instead of being re-flowed afterwards. Plus a sessions index, window
-move/tile, screenshots, and remote unlock.
+the screen instead of being re-flowed afterwards. Drag a terminal vertically to page
+through its scrollback. Plus a sessions index with idle ages, window move/tile,
+screenshots, remote unlock, and — if `omarchy-agent-usage-update` is writing records to
+`~/.local/state/omarchy/agents/usage/` — a ring showing how much of your subscription
+allowance is left and when it resets. That panel simply does not appear when there are
+no records, so nothing needs configuring either way.
 
 The `--allow-run` allowlist is scoped to the two scripts, `tmux`, and `script(1)` — the
 last only because Deno has no PTY and the terminal view needs one. This is why the
 server is Deno rather than Bun. Do not widen it to bare `--allow-run`.
+
+`--allow-write` is scoped to `~/.local/state/deskpilot`, which holds nothing but the
+push keypair and the list of subscribed devices. The server had no write access at all
+before notifications existed; keep the grant this narrow and it still cannot touch the
+repo, the token, or anything else in `$HOME`.
 
 **Rollback** — `systemctl --user disable --now deskpilot`.
 
@@ -258,7 +270,7 @@ all.
 
 ### 4d. SSH — optional escape hatch
 
-**Nothing in deskpilot uses SSH.** It is worth having anyway before Step 5, because a
+**Nothing in deskpilot uses SSH.** It is worth having anyway before Step 6, because a
 remote unlock that misbehaves can leave you with no way into the GUI.
 
 ```bash
@@ -284,7 +296,81 @@ password.
 
 ---
 
-## Step 5 — Remote unlock
+## Step 5 — Notifications
+
+**Built.** Optional. Without it the phone is pull-only: an agent that finishes, or
+stalls waiting on a permission prompt, sits silent until you happen to open the app.
+This is what turns deskpilot from something you check into something that reaches you.
+
+Nothing to install on the desktop. The keypair is generated on first use into
+`~/.local/state/deskpilot/vapid.json`, and subscriptions land beside it.
+
+### 5a. Turn them on — on the phone
+
+Open the app, go to the sessions index at the far left, and use **notifications →
+turn on**, then **test**. This step cannot be scripted: granting notification
+permission is a browser prompt that only the device can answer.
+
+**Requires HTTPS** (Step 4b). Web Push needs a secure context, so the plain-HTTP
+fallback in 4c cannot deliver notifications at all.
+
+Payloads are encrypted with a key only your browser holds, so Google's or Mozilla's
+push service relays ciphertext it cannot read. That matters here: it is the one part
+of this system that leaves your tailnet.
+
+**Verify** — **tap test with the app closed.** With it open you have proven nothing;
+the whole point is delivery while the phone is asleep in a pocket.
+
+### 5b. Let the agent say when it needs you
+
+```bash
+$REPO/shell/install-hooks.sh
+```
+
+Wires two Claude Code hooks: `PermissionRequest` announces a prompt as it is raised,
+carrying the name of the tool asking; `Stop` announces a finished turn. Both `async`,
+so a notification can never make the agent wait.
+
+**Claude Code cannot run this for you** — same reason as the permission rules in
+Step 1. It writes to `~/.claude/settings.json`, and an agent editing its own settings
+is what the classifier exists to prevent.
+
+Safe to re-run: it replaces its own entries rather than appending, so running it after
+moving the repo fixes the paths. Anything else on those events is untouched, and it
+backs up first.
+
+**Hooks load when a session starts.** Open `/hooks` once or start a new session before
+expecting them to fire.
+
+**Another agent** needs its own two lines in its own config pointing at
+`shell/agent-hook.sh`, and no change to deskpilot: the server receives "something
+happened" and never learns who sent it.
+
+### 5c. The fallback, for agents that cannot signal
+
+Anything with no hook support still gets announced, by watching for a session that was
+producing output and then held still. It is deliberately conservative, because
+guessing from a screen is what it is:
+
+* only sessions with **no attached client** — if it is on a screen in front of you, a
+  push tells you nothing
+* only a change of **more than two lines** — one line moving is a banner repainting or
+  a counter ticking, not work
+* only after **60s** of stillness — `DESKPILOT_IDLE_MS` if that is wrong for your work;
+  a session running builds sits still far longer than one writing prose
+
+An earlier version matched the *text* of a permission dialog instead. It was removed:
+any session that merely displayed that text set it off, which took under an hour to
+happen for real, and matching a dialog's shape would have been the same mistake one
+level down.
+
+**Rollback** — turn them off in the app, which unsubscribes the device. To unwire the
+hooks, delete the two `agent-hook.sh` entries from `~/.claude/settings.json`, or
+restore the backup the script left.
+
+---
+
+## Step 6 — Remote unlock
 
 **Built.** Optional, and only needed because the screen locks after idle and `grim`
 then returns a picture of the lock screen instead of your desktop. Window state as text
@@ -337,7 +423,8 @@ error rather than doing nothing silently.
 2. **tmux wrapper** — everything remote sits on `send-keys`
 3. **Server + web UI** — the daily driver; Step 4 restarts and re-pairs against it
 4. **Reachability** — what makes it work outside the house
-5. **Unlock** — last, and only if the lock actually gets in your way
+5. **Notifications** — needs the HTTPS route from Step 4b to deliver at all
+6. **Unlock** — last, and only if the lock actually gets in your way
 
 Remote Control was evaluated and rejected — see decisions.md. It is not part of this
 setup and you never need the Claude mobile app.

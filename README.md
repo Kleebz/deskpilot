@@ -26,6 +26,8 @@ shell/pair.sh                        # QR to pair a phone
 
 That gets you a working app on `localhost`. To reach it from outside the house, add
 Tailscale and run `shell/use-https.sh` — see [docs/setup.md](docs/setup.md) step 4.
+For the phone to tell you when a session needs you rather than waiting to be checked,
+run `shell/install-hooks.sh` and turn notifications on in the app — step 5.
 
 ## Which scripts you run, and how often
 
@@ -38,6 +40,7 @@ in `.bashrc`.
 | `check.sh` | any time — diagnostic, changes nothing |
 | `install-service.sh` | once, and again only if you move the repo |
 | `install-permissions.sh` | once, and again if the rule set changes |
+| `install-hooks.sh` | once — lets an agent announce when it needs you; re-run if you move the repo |
 | `install-input.sh` | once — needed for remote unlock |
 | `use-https.sh` | once — real certificate, loopback-only binding, PWA installable |
 | `use-tailscale.sh` | only as a fallback if you cannot enable certificates |
