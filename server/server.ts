@@ -77,7 +77,7 @@ const ALLOWED_KEYS = new Set([
   "Up", "Down", "Left", "Right",
   "Enter", "Escape", "Tab", "BTab", "Space", "BSpace",
   "Home", "End", "PageUp", "PageDown",
-  "C-c", "C-d", "C-u", "C-l", "C-r",
+  "C-c", "C-d", "C-u", "C-l", "C-r", "C-w",
 ]);
 
 const DIST = `${WEB}/dist`;
