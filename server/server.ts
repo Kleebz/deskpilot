@@ -638,24 +638,10 @@ const POLL_MS = Number(Deno.env.get("DESKPILOT_POLL_MS") ?? "3000");
 // agreement is far past what noise produces.
 const ANCHOR = 20;
 
-// Not every TUI scrolls. Claude Code re-wraps and repaints its whole viewport
-// when new output arrives — measured: two captures six seconds apart shared no
-// common shift at all, and the pane height changed from 47 to 57 between them.
-// For anything that redraws rather than scrolls there is no "line that left the
-// screen" to record, so the shift test correctly finds nothing and the log
-// would stay empty forever.
-//
-// So when the screen changed and no shift explains it, record a timestamped
-// snapshot instead. Throttled, because a snapshot is the whole screen and an
-// agent mid-reply changes it constantly; the point is a periodic record of what
-// was there while nobody was looking, not a frame-by-frame film.
-const SNAP_MS = 45_000;
 
 type Watched = {
   prev: string[];    // the previous capture, to diff the next one against
   changed: number;   // when the screen last differed at all — the idle signal
-  snapped: number;   // when a fallback snapshot was last written
-  snapText: string;  // that snapshot, so an unchanged screen is not re-written
   busy: boolean;     // has produced output that has not yet been settled for
   notified: boolean; // already announced this particular stop
 };
@@ -745,7 +731,7 @@ async function tick() {
     const w = watched.get(s);
     if (!w) {
       watched.set(s, {
-        prev: curr, changed: Date.now(), snapped: 0, snapText: "",
+        prev: curr, changed: Date.now(),
         busy: false, notified: true,   // nothing to announce about a session we just met
       });
       continue;
@@ -772,28 +758,10 @@ async function tick() {
         .catch((e) => console.error("notify:", e?.message ?? e));
     }
 
-    // A real scroll: these lines left the screen and exist nowhere else.
-    // Note the length test rather than a null test — scrolledOff returns an
-    // empty array when the screen held still, and an empty array is truthy.
-    // Treating that as "handled" is what kept the fallback below unreachable:
-    // a viewport whose top is stable while its lower half repaints scrolls by
-    // zero, which is not the same as having nothing to record.
-    if (gone && gone.length) {
-      await appendLog(s, gone);
-      continue;
-    }
-    if (!moved) continue;
-
-    // Redrawn. Nothing can be attributed to scrollback, so fall back to a
-    // periodic snapshot — marked, so a reader can tell a recovered screen from
-    // genuine scrollback.
-    const now = Date.now();
-    const text = curr.join("\n");
-    if (now - w.snapped < SNAP_MS || text === w.snapText) continue;
-    w.snapped = now;
-    w.snapText = text;
-    const stamp = new Date(now).toTimeString().slice(0, 8);
-    await appendLog(s, [``, `\u2500\u2500 screen at ${stamp} \u2500\u2500`, ...curr]);
+    // A real scroll: these lines left the screen and exist nowhere else. This
+    // tests length rather than null because an empty array means the screen
+    // held still, which is not the same as there being nothing to record.
+    if (gone && gone.length) await appendLog(s, gone);
   }
 
   for (const k of [...watched.keys()]) if (!live.includes(k)) watched.delete(k);

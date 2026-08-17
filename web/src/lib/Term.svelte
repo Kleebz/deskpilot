@@ -112,6 +112,54 @@
     connect();
   }
 
+  // ---- drag to scroll ----
+  //
+  // A TUI holds the alternate screen, which has no scrollback, so there is
+  // nothing for xterm's viewport to scroll and a drag does nothing at all.
+  // Scrolling is the application's own, and it only learns about it as a key.
+  //
+  // It has to be PageUp/PageDown specifically. Mouse reporting is not enabled
+  // by the agent — verified by sending both SGR (`ESC [ < 64 ; x ; y M`) and
+  // legacy X10 wheel events to a live session, neither of which moved it by a
+  // pixel. Arrow keys are worse than useless: Up recalls the previous prompt.
+  const PAGEUP = "\x1b[5~";
+  const PAGEDOWN = "\x1b[6~";
+
+  // Pixels of drag per page. A page is a big jump for a small movement, so this
+  // is deliberately long — short enough to feel connected to the finger, long
+  // enough that a careless swipe does not fly through the whole conversation.
+  const PER_PAGE = 90;
+  // Slack before a touch counts as a drag rather than a tap, so tapping to
+  // focus the keyboard still works.
+  const SLOP = 12;
+
+  let dragAt = 0, dragAcc = 0, dragging = false;
+
+  const sendKey = (k) => ws?.readyState === WebSocket.OPEN && ws.send(k);
+
+  function touchStart(e) {
+    if (e.touches.length !== 1) return;
+    dragAt = e.touches[0].clientY;
+    dragAcc = 0;
+    dragging = false;
+  }
+
+  function touchMove(e) {
+    if (e.touches.length !== 1) return;
+    const y = e.touches[0].clientY;
+    dragAcc += y - dragAt;
+    dragAt = y;
+    if (!dragging && Math.abs(dragAcc) < SLOP) return;
+    dragging = true;
+    // Once this is a scroll it owns the gesture: without preventDefault the
+    // rail underneath treats the same drag as a swipe between workspaces.
+    e.preventDefault();
+    // Dragging down reveals what came before, which is PageUp — the direction
+    // a touch surface has trained everyone to expect.
+    while (dragAcc >= PER_PAGE) { sendKey(PAGEUP); dragAcc -= PER_PAGE; }
+    while (dragAcc <= -PER_PAGE) { sendKey(PAGEDOWN); dragAcc += PER_PAGE; }
+  }
+
   // Reading fontPx first is deliberate: an early return above it would leave
   // the effect with no dependency on it, and font changes would never apply.
   //
@@ -143,7 +191,16 @@
     });
     ro.observe(host);
 
+    // Attached by hand rather than with ontouchmove={...}: Svelte delegates
+    // touch events to the root, and a delegated touchmove is passive there, so
+    // preventDefault would be ignored and every scroll would also swipe the
+    // rail to the next workspace.
+    host.addEventListener("touchstart", touchStart, { passive: true });
+    host.addEventListener("touchmove", touchMove, { passive: false });
+
     return () => {
+      host.removeEventListener("touchstart", touchStart);
+      host.removeEventListener("touchmove", touchMove);
       ro.disconnect();
       teardown();
     };
@@ -189,7 +246,10 @@
   @media (prefers-reduced-motion: reduce) {
     .wrap.sweeping, .wrap.sweeping.busy { animation: none; --angle: 45deg; }
   }
-  .host { width: 100%; height: 100%; }
+  /* Vertical drags belong to us — they page the agent's own scrollback. The
+     browser keeps horizontal, or swiping between workspaces would stop working
+     over a terminal, and keeps pinch so the text can still be zoomed. */
+  .host { width: 100%; height: 100%; touch-action: pan-x pinch-zoom; }
   /* The columns above are computed against the full host width, so nothing may
      overlay the right edge. tmux owns scrollback anyway — a TUI on the
      alternate screen has none of its own to scroll. */
