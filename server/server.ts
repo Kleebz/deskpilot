@@ -617,6 +617,7 @@ type Watched = {
   changed: number;   // when the screen last differed at all — the idle signal
   busy: boolean;     // has produced output that has not yet been settled for
   notified: boolean; // already announced this particular stop
+  asking: boolean;   // already announced the dialog currently on screen
 };
 
 // How long a session has to hold still before it counts as waiting rather than
@@ -629,6 +630,22 @@ type Watched = {
 // early. Raised, and made configurable, because the right value depends on the
 // work: a session running builds sits still far longer than one writing prose.
 const IDLE_MS = Number(Deno.env.get("DESKPILOT_IDLE_MS") ?? "60000");
+
+// A session blocked on an approve/deny dialog is the case where being told
+// matters most, and stillness cannot find it: the agent is mid-turn, so its
+// elapsed counter keeps ticking and the screen never holds still long enough
+// to look idle. Measured: a session at its ordinary prompt is stable, the same
+// session mid-turn is not.
+//
+// Content is the only signal that separates "blocked, waiting for you" from
+// "busy, leave it alone". So this is the one place the server looks at what a
+// screen says rather than that it changed — kept to a pattern supplied from
+// outside, so the rule lives in configuration rather than in the code, and
+// wrapping a different agent means changing a setting rather than this file.
+// Set it empty to switch the behaviour off.
+const PROMPT_SRC = Deno.env.get("DESKPILOT_PROMPT_PATTERN") ??
+  "Do you want to (proceed|make this edit)|No, and tell .* what to do differently";
+const PROMPT_RE = PROMPT_SRC ? new RegExp(PROMPT_SRC, "i") : null;
 
 // The most recent line with something on it, which is nearly always the thing
 // being waited on: a prompt, a question, a permission dialog. Chrome rules are
@@ -664,12 +681,28 @@ async function tick() {
       watched.set(s, {
         prev: curr, changed: Date.now(),
         busy: false, notified: true,   // nothing to announce about a session we just met
+        asking: PROMPT_RE ? PROMPT_RE.test(curr.join("\n")) : false,
       });
       continue;
     }
 
     const moved = w.prev.length !== curr.length || w.prev.some((l, i) => l !== curr[i]);
     w.prev = curr;
+
+    // A dialog is announced the moment it appears, not after a wait: it is
+    // already blocked, and every second of delay is a second the run is
+    // stopped for no reason. Latched, so a dialog that sits there for minutes
+    // is announced once rather than every tick.
+    if (PROMPT_RE) {
+      const asking = PROMPT_RE.test(curr.join("\n"));
+      if (asking && !w.asking) {
+        console.log(`notify: ${s} is asking`);
+        notify({ title: `${s} needs an answer`, body: lastMeaningful(curr), session: s })
+          .catch((e) => console.error("notify:", e?.message ?? e));
+        w.notified = true;   // the stop that follows is this same event
+      }
+      w.asking = asking;
+    }
 
     // Announce the transition from producing output to holding still, once per
     // stop.
@@ -680,6 +713,10 @@ async function tick() {
     } else if (w.busy && !w.notified && Date.now() - w.changed > IDLE_MS) {
       w.notified = true;
       w.busy = false;
+      // Logged on success as well as failure. "Did it not fire, or did it fire
+      // and not arrive?" is otherwise unanswerable from this side, and those
+      // two have completely different causes.
+      console.log(`notify: ${s} idle for ${Math.round((Date.now() - w.changed) / 1000)}s`);
       notify({ title: `${s} is waiting`, body: lastMeaningful(curr), session: s })
         .catch((e) => console.error("notify:", e?.message ?? e));
     }
