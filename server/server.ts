@@ -244,6 +244,35 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ session: s, text: normalizeCapture(r.out) }));
   }
 
+  // Subscription limits, read straight off disk. omarchy-agent-usage-update
+  // already maintains these records on its own timer, so there is no collector
+  // to run and no API to authenticate against here — this endpoint only
+  // forwards what is already there, and stays ignorant of which agents exist
+  // by returning whatever records it finds.
+  if (req.method === "GET" && path === "/api/usage") {
+    const dir = `${Deno.env.get("HOME")}/.local/state/omarchy/agents/usage`;
+    const out: unknown[] = [];
+    try {
+      for await (const e of Deno.readDir(dir)) {
+        if (!e.isFile || !e.name.endsWith(".json")) continue;
+        try {
+          const r = JSON.parse(await Deno.readTextFile(`${dir}/${e.name}`));
+          // Only the fields the meter draws. The records also carry per-model
+          // token counts and week-long histories, which would be a lot of JSON
+          // to send a phone for a number it is not going to show.
+          out.push({
+            id: r.id,
+            name: r.name,
+            tierLabel: r.tierLabel ?? "",
+            updatedAt: r.updatedAt ?? null,
+            limits: Array.isArray(r.limits) ? r.limits : [],
+          });
+        } catch { /* a half-written record is skipped, not fatal */ }
+      }
+    } catch { /* no records yet: an empty list is the honest answer */ }
+    return withCookie(json(out));
+  }
+
   // An agent announcing its own state, which is the only way to know it
   // reliably. Stillness cannot tell "blocked on a dialog" from "mid tool call"
   // — both hold the screen — and matching the text of a dialog only works

@@ -3,6 +3,7 @@
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
   import Notify from "./Notify.svelte";
+  import Usage from "./Usage.svelte";
 
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
@@ -147,6 +148,7 @@
   {/if}
 
   <div class="foot"></div>
+  <Usage {onstatus} />
   <Notify {onstatus} />
   <Install />
   <div class="hint dim">Swipe right for screens 1–10.</div>
