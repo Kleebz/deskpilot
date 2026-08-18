@@ -75,10 +75,27 @@ _deskpilot_wrap() {
     return
   fi
 
-  # -A is kept only to close the race between picking a free name and claiming
-  # it; the name is already free, so this creates rather than attaches.
-  tmux new-session -A -s "$(_deskpilot_free_name "$(_deskpilot_session_name)")" \
-    -- "$bin" "$@"
+  local name
+  name=$(_deskpilot_free_name "$(_deskpilot_session_name)")
+
+  # The agent is the session's only process, so quitting it destroys the
+  # session. tmux defaults `detach-on-destroy` to `on` (the client detaches and
+  # the terminal closes, which is what you want), but a user who has set it
+  # `off` gets their orphaned client handed to another live session instead —
+  # quitting one agent yanks an unrelated session, already attached in another
+  # window, into this one.
+  #
+  # Set it on the session rather than globally: it is a session we created, it
+  # dies with that session, and a user who chose `off` keeps it everywhere else.
+  # server.ts does the same thing on the kill path.
+  #
+  # Hence -d then attach-session, as separate steps: the option has to land
+  # before a client is ever attached. -A is kept only to close the race between
+  # picking a free name and claiming it; the name is already free, so this
+  # creates rather than attaches.
+  tmux new-session -d -A -s "$name" -- "$bin" "$@" \; \
+    set-option -t "$name" detach-on-destroy on \; \
+    attach-session -t "$name"
 }
 
 # Full path, not a bare name: mise activation prepends its own
