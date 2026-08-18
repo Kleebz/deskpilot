@@ -53,11 +53,33 @@ token=$(cat "$TOKEN_FILE") || exit 0
 # run" is worth waking up for in a way that "a session needs you" is not.
 tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null || true)
 
+# ...but the name alone is not enough to answer on. "Bash" covers both `ls` and
+# `rm -rf ~`, and a notification you cannot judge is one you approve out of
+# habit. Pull the one field that says what is actually being asked. The list is
+# per-tool because there is no general answer; the final fallback is the first
+# string in the input, which is usually the interesting one.
+detail=$(printf '%s' "$payload" | jq -r '
+  (.tool_input // {}) as $i
+  | $i.command // $i.file_path // $i.url // $i.pattern // $i.path
+    // ([$i | to_entries[] | select(.value | type == "string") | .value][0])
+    // empty' 2>/dev/null || true)
+detail=$(printf '%s' "$detail" | tr '\n\t' '  ' | cut -c1-160)
+
+# Identifies this specific request, so approving from the phone can be checked
+# against what is actually pending rather than firing a blind keystroke at
+# whatever the screen happens to be showing by then. Random, not a hash of the
+# request: two identical asks are still two different decisions.
+reqid=$(head -c 12 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n' || true)
+
 case "$KIND" in
   blocked)
     title="$session needs an answer"
-    body=${tool:+"$tool is asking for permission"}
-    body=${body:-"waiting for your answer"}
+    if [ -n "$tool" ] && [ -n "$detail" ]; then
+      body="$tool: $detail"
+    else
+      body=${tool:+"$tool is asking for permission"}
+      body=${body:-"waiting for your answer"}
+    fi
     ;;
   done)
     title="$session finished"
@@ -70,7 +92,8 @@ case "$KIND" in
 esac
 
 jq -n --arg s "$session" --arg k "$KIND" --arg t "$title" --arg b "$body" \
-  '{session:$s, kind:$k, title:$t, body:$b}' 2>/dev/null |
+  --arg tool "$tool" --arg id "$reqid" \
+  '{session:$s, kind:$k, title:$t, body:$b, tool:$tool, reqid:$id}' 2>/dev/null |
   curl -s -m 5 -o /dev/null \
     -X POST "http://127.0.0.1:${PORT}/api/event" \
     -H "authorization: Bearer $token" \

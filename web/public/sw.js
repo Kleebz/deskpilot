@@ -44,47 +44,71 @@ self.addEventListener("fetch", (event) => {
 // waiting on a yes or a no, and answering from the notification means never
 // opening the app at all — which is the difference between being told the run
 // stalled and being able to unstall it.
+//
+// But Approve is only offered when the server says this particular request is
+// one that can be answered without reading it properly, and it carries that
+// request's id. Everything else gets Open, because the honest answer to "should
+// I allow this" is often "not from the lock screen". The server decides; this
+// worker only renders what it was told.
 
 self.addEventListener("push", (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { /* keep the default */ }
   const session = d.session || "";
+  const reqid = d.reqid || "";
+  const approvable = d.kind === "blocked" && d.canApprove === true && !!reqid;
+
+  const actions = [];
+  if (approvable) actions.push({ action: "yes", title: "Approve" });
+  if (session) actions.push({ action: "open", title: "Open" });
 
   event.waitUntil(self.registration.showNotification(d.title || "deskpilot", {
     body: d.body || "",
     tag: session || "deskpilot",     // one live notification per session
     renotify: true,
-    data: { session },
-    actions: session
-      ? [{ action: "yes", title: "Approve" }, { action: "open", title: "Open" }]
-      : [],
+    data: { session, reqid },
+    actions,
   }));
 });
 
+async function surface() {
+  const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const c of all) {
+    if ("focus" in c) return c.focus();
+  }
+  return self.clients.openWindow("/");
+}
+
 self.addEventListener("notificationclick", (event) => {
   const session = event.notification.data?.session || "";
+  const reqid = event.notification.data?.reqid || "";
   event.notification.close();
 
-  // Approving is a keystroke, and the cookie the app already holds is
-  // SameSite=Strict and HttpOnly, so this same-origin request carries it
-  // without the worker ever seeing the token.
-  if (event.action === "yes" && session) {
-    event.waitUntil(fetch("/api/send", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ session, keys: ["Enter"] }),
-    }).catch(() => {}));
+  // Approving names the request rather than sending a bare keystroke, so a
+  // notification that has been sitting on the lock screen while the agent moved
+  // on cannot answer the dialog that replaced it — the server refuses it. The
+  // cookie the app already holds is SameSite=Strict and HttpOnly, so this
+  // same-origin request carries it without the worker ever seeing the token.
+  //
+  // A refusal opens the app instead of failing quietly: the request still needs
+  // an answer, and silence here reads as "approved" from the outside.
+  if (event.action === "yes" && session && reqid) {
+    event.waitUntil((async () => {
+      try {
+        const res = await fetch("/api/approve", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session, reqid }),
+        });
+        if (res.ok) return;
+      } catch { /* offline, or the server is gone — same answer */ }
+      return surface();
+    })());
     return;
   }
 
   // Otherwise surface the app, reusing a window if one is already open rather
   // than stacking up new ones every time a notification is tapped.
-  event.waitUntil((async () => {
-    const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const c of all) {
-      if ("focus" in c) return c.focus();
-    }
-    return self.clients.openWindow("/");
-  })());
+  event.waitUntil(surface());
 });

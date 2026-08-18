@@ -115,6 +115,26 @@ const ALLOWED_KEYS = new Set([
   "C-c", "C-d", "C-u", "C-l", "C-r", "C-w",
 ]);
 
+// Tools whose worst case is reading something. These are the only requests the
+// phone may approve with one tap: the notification shows what is being asked,
+// but a lock-screen glance is not a review, so anything that writes, executes
+// or leaves the machine has to be looked at in the app instead. Deliberately
+// short — the cost of omitting a tool is one extra tap.
+const SAFE_TO_APPROVE = new Set([
+  "Read", "Grep", "Glob", "NotebookRead", "TodoWrite",
+]);
+
+// A notification outlives the thing it describes: it sits on the lock screen
+// until dismissed, and `tag` keeps it there across new ones. Approving used to
+// mean "send Enter to that session", which pressed whatever was on screen when
+// the tap landed — a different prompt, or none. So each request gets an id and
+// an expiry, and an approval that does not match what is pending now is
+// refused rather than delivered to the wrong dialog.
+const APPROVE_TTL_MS = 120_000;
+
+type Pending = { reqid: string; at: number; canApprove: boolean };
+const pending = new Map<string, Pending>();
+
 const DIST = `${WEB}/dist`;
 
 const MIME: Record<string, string> = {
@@ -285,14 +305,28 @@ async function handle(req: Request): Promise<Response> {
     if (!SAFE_NAME.test(s)) return fail("bad session name");
     const title = String(b?.title ?? s).slice(0, 120);
     const body = String(b?.body ?? "").slice(0, 300);
+    const kind = String(b?.kind ?? "event");
+    const tool = String(b?.tool ?? "").slice(0, 64);
+    const reqid = String(b?.reqid ?? "").slice(0, 64);
 
     // Announced, so the stillness fallback does not follow up a minute later
     // with a second notification about the same stop.
     const w = watched.get(s);
     if (w) { w.notified = true; w.busy = false; }
 
-    console.log(`event: ${s} ${String(b?.kind ?? "event")}`);
-    await notify({ title, body, session: s });
+    // Any later event supersedes the last one, so a notification left over from
+    // a request that has since been answered can no longer approve anything.
+    const canApprove = kind === "blocked" && !!reqid && SAFE_TO_APPROVE.has(tool);
+    if (kind === "blocked" && reqid) {
+      pending.set(s, { reqid, at: Date.now(), canApprove });
+    } else {
+      pending.delete(s);
+    }
+
+    console.log(`event: ${s} ${kind}${tool ? ` ${tool}` : ""}${canApprove ? " (approvable)" : ""}`);
+    // The id only travels to the phone when the request is one the phone is
+    // allowed to answer; otherwise there is nothing there to tap.
+    await notify({ title, body, session: s, kind, canApprove, reqid: canApprove ? reqid : "" });
     return withCookie(json({ ok: true }));
   }
 
@@ -331,6 +365,30 @@ async function handle(req: Request): Promise<Response> {
     if (!subs.length) return fail("no devices subscribed");
     await notify({ title: "deskpilot", body: "Notifications are working.", session: "" });
     return withCookie(json({ ok: true, devices: subs.length }));
+  }
+
+  // Answering a specific permission request, as opposed to /api/send, which
+  // types at whatever is there. Every reason to refuse below is a case where
+  // Enter would have gone somewhere other than the dialog that woke you up.
+  if (req.method === "POST" && path === "/api/approve") {
+    const b = await req.json().catch(() => null);
+    const s = String(b?.session ?? "");
+    if (!SAFE_NAME.test(s)) return fail("bad session name");
+    const reqid = String(b?.reqid ?? "");
+
+    const p = pending.get(s);
+    if (!p || !reqid || p.reqid !== reqid) return fail("no longer pending", 409);
+    if (!p.canApprove) return fail("must be reviewed in the app", 409);
+    if (Date.now() - p.at > APPROVE_TTL_MS) {
+      pending.delete(s);
+      return fail("expired", 409);
+    }
+
+    // Consumed first: a retry must not be able to press Enter a second time.
+    pending.delete(s);
+    const r = await run("tmux", ["send-keys", "-t", s, "Enter"]);
+    if (r.code !== 0) return fail(r.err || "send failed", 500);
+    return withCookie(json({ ok: true, session: s }));
   }
 
   // Two modes, deliberately separate:
