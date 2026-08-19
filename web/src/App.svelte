@@ -79,7 +79,16 @@
     activeWs = Math.round(rail.scrollLeft / (rail.clientWidth || 1));
   }
 
-  function jump(ws) {
+  // Which session a screen is showing, when it holds more than one. Keyed by
+  // workspace -> session name. The spatial model addresses a *screen*, but a
+  // screen can host two sessions (a claude agent and a shell, say), and without
+  // this the pane always showed whichever sorted first — so the index could
+  // list both but only ever reach one. A tap from the index records the choice
+  // here; sessionFor honours it.
+  let selected = $state({});
+
+  function jump(ws, session) {
+    if (session) selected = { ...selected, [ws]: session };
     rail?.scrollTo({ left: ws * (rail.clientWidth || 1), behavior: "smooth" });
   }
 
@@ -90,7 +99,15 @@
     refresh();
   }
 
-  const sessionFor = (ws) => sessions.find((s) => s.workspace === ws) ?? null;
+  // Prefer the session the user picked from the index for this screen; fall
+  // back to the first one on it. The fallback covers the common single-session
+  // case (nothing was ever picked) and a picked session that has since closed —
+  // resolving by name each time means a stale selection cannot pin the pane to
+  // a session that is no longer there.
+  const sessionFor = (ws) => {
+    const here = sessions.filter((s) => s.workspace === ws);
+    return here.find((s) => s.session === selected[ws]) ?? here[0] ?? null;
+  };
   const windowsFor = (ws) => windows.filter((w) => w.workspace === ws);
   const occupied = (ws) => sessions.some((s) => s.workspace === ws) || windowsFor(ws).length > 0;
 </script>

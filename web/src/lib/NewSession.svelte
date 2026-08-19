@@ -5,15 +5,10 @@
 
   // The old flow hardcoded bash in $HOME, which meant you could not start an
   // agent on a project from your phone — the thing this exists for.
-  // Agent-agnostic by design: each preset is just a command to exec in a tmux
-  // session. Hermes launches in --cli, not the TUI — a phone reads a reflowing
-  // shell transcript far better than a full-screen TUI captured at the desktop
-  // terminal's width (see docs/decisions.md, "Terminal-first").
   const PRESETS = [
     { label: "shell", cmd: "bash" },
     { label: "claude", cmd: "claude" },
     { label: "continue", cmd: "claude --continue" },
-    { label: "hermes", cmd: "hermes chat --cli" },
   ];
 
   let dirs = $state([]);

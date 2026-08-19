@@ -728,87 +728,48 @@ in `onclose` and reaps the child. Browsers answer pings themselves, so a quiet-b
 terminal is unaffected — verified by leaving one idle for 85 seconds, well past the
 timeout, with the connection still live and the PTY still held.
 
-## A second agent: Hermes, via the same disposable seams
+## Hermes as a second agent: tried, then removed
 
-Added 2026-08-18. Hermes joins Claude Code as a supported agent **without a single
-change to `server/`, `scripts/`, or `web/`'s core** — proof that the agent-agnostic
-boundary holds. It touches only the two disposable seams the design already reserves
-for agent-specificity: a launch preset and a lifecycle adapter.
+Added then reverted 2026-08-18/19. Hermes Code was wired in the same way Claude is —
+a `hermes chat --cli` launch preset, a `hermes()` tmux wrapper for desk launches, and a
+`shell/hermes-hook.sh` notification adapter on Hermes' shell hooks. The notification path
+worked (blocked/done POSTs to `/api/event`, verified HTTP 200). **It was all removed
+because the remote *rendering* is unusable, and that turned out not to be fixable from
+deskpilot's side.** Recorded here so it is not re-attempted from scratch.
 
-**Launch preset.** `hermes chat --cli` is one line in `NewSession.svelte`'s `PRESETS`.
-CLI, not the TUI, on purpose — the "Terminal-first" section already established a phone
-is a good remote for a shell transcript and a poor window onto a TUI, and Hermes's TUI
-has the same box-drawing chrome that swamps a 48-column phone at the desktop's 130.
+**What breaks, and why it is not a geometry bug.** Hermes on a phone renders as garbled,
+wrapped, few-lines-tall mush. Everything obvious was tried and measured against the raw
+PTY bytes the phone actually receives:
 
-**Status adapter.** `shell/hermes-hook.sh` is the Hermes counterpart to `agent-hook.sh`,
-wired by `shell/install-hermes-hooks.sh`. Two differences from Claude drove a separate
-adapter rather than reuse:
+- **Width.** A `Ctrl-L` repaint nudge on attach fixed the width case — new output laid out
+  at the phone's columns.
+- **Height.** `Term.svelte` corrected *columns* off the rendered `.xterm-screen` grid but
+  trusted FitAddon for *rows*, which locked in ~3 rows on a phone. Correcting rows the same
+  way (and refitting after a paint frame, not synchronously in `boot`) fixed the row count.
+- **Neither was enough.** Even a session **born narrow with a single phone-sized client and
+  no desktop terminal attached** — the cleanest possible case — still rendered the banner
+  box, status bar and prose as run-together, mid-word-broken mush. Hermes draws with
+  cursor-addressed screen redraws (live `⏳` status, repainting status bars, boxed banner),
+  not a linear append-only transcript, and those redraws do not survive this remote pipe.
 
-- **Different hook system.** Hermes *gateway* hooks do not fire in the CLI, which is where
-  deskpilot runs the agent. The ones that do are **shell hooks** (`hooks:` in
-  `~/.hermes/config.yaml`), and they speak a different wire protocol from Claude: the event
-  arrives as JSON on **stdin** (not env vars) and the script must print JSON back on stdout
-  synchronously. So the adapter always prints `{}` and returns fast; a slow or silent hook
-  would stall the agent loop. Event mapping: `pre_approval_request` → blocked,
-  `on_session_end` → done. `TMUX_PANE` propagates into the hook subprocess (verified: the id
-  matches the session's pane), so session resolution is identical to the Claude path.
+- **Mode is not the lever.** `--cli` and the full TUI measured identically (both 266-wide off
+  a 266 desktop). Hermes' `--cli` is still a redrawing TUI, not a shell-like stream.
 
-- **No one-tap approve, deliberately.** This is the load-bearing finding. Claude's blocked
-  prompt defaults to approve-on-Enter, which is why `/api/approve` sends a bare Enter and why
-  `SAFE_TO_APPROVE` exists. **Hermes prompts are numbered multi-choice menus whose default
-  (option 1) is the cautious/decline choice** — captured live: `❯ 1. Show me first … 4. Yes,
-  delete`. A bare Enter there *declines*. So the adapter leaves `tool` empty, the server sets
-  `canApprove=false`, and the phone shows a notification with no approve button. You open the
-  app and answer in the session. Wiring Enter-to-approve for Hermes would be the exact
-  "default is the wrong choice" trap the Claude skill documents — not built.
+- **The real root cause of the desk↔phone flip.** `window-size latest` means a tmux window
+  shared by two live clients (the desk terminal *and* the phone) takes whichever was active
+  last. Scrolling on the desktop made the desk the size authority (readable there, wide on
+  the phone); scrolling on the phone flipped it back — a permanent tug-of-war. Even removing
+  the desk client (detached/phone-only sessions) only isolates the size; it does not fix the
+  redraw mush above.
 
-  A related finding: with a capable model under smart approval, the common "needs you" state
-  is not the tool gate at all but **the model ending its turn on a question in prose**, which
-  surfaces as `on_session_end`. The blocked path still fires for genuinely gated commands
-  (verified live against the running server: `dd if=/dev/zero …` → `blocked`, body "disk
-  copy", HTTP 200), but it is the rarer of the two.
+**The standing conclusion, now with evidence behind it:** *a phone is a good remote for a
+shell and a poor window onto a TUI* (see "Terminal-first"). A shell reflows; a redrawing
+agent does not. Claude survives only because it repaints the whole alternate screen on
+resize — it degrades more gracefully, it is not truly clean either. Making Hermes render
+cleanly would mean deskpilot reconstructing terminal screen state itself, which is out of
+scope. So Hermes stays a desk-only tool, reachable over SSH, not through the PWA.
 
-Both events were verified end-to-end against the live server on 8790: a real `hermes chat
---cli` session in tmux fired `blocked` then `done`, each POSTing a correct payload to
-`/api/event` and returning HTTP 200. Another agent would need its own adapter + installer and
-its own two-line preset, and still no change to anything above the tmux layer.
-
-## Desk-launched Hermes needs the same tmux wrapper Claude has
-
-Added 2026-08-18. A window running an agent can be moved, tiled and looked at
-but only *prompted* if there is a tmux session behind it — prompting is
-`tmux send-keys -t <name>`, and a bare terminal has no name to send to. This is
-the documented routing model, not a bug. But it bites unevenly: `claude` at the
-desk is transparently wrapped into a named session by `shell/claude-tmux.sh`,
-while `hermes` started the same way was not, so a Hermes agent run at the desk
-was structurally un-promptable. Found by hitting it — the session hosting this
-very work (foot → bash → hermes, no tmux) could be moved and captured from the
-phone but not typed into.
-
-Two fixes, both small:
-
-- **Wrapper parity.** Added a `hermes()` function to `claude-tmux.sh` rather
-  than a separate file — the file already holds the shared tmux machinery and
-  invites "wrap another agent by adding one line." Hermes needs the INVERTED
-  rule from Claude, though: Claude's REPL is its default invocation so the
-  wrapper lists the few subcommands that exit; almost every `hermes` subcommand
-  exits (`gateway`, `cron`, `config`, `status`, a bare `hermes`), and the one
-  interactive REPL is `hermes chat`. So the function wraps only `hermes chat`,
-  and skips it when `-q/--query` makes it print-and-exit — the mirror of how
-  `-p/--print` is skipped for Claude. Verified end-to-end: a desk-launched
-  `hermes chat --cli` creates a cwd-named session that the server both lists and
-  prompts (send-keys landed a prompt and the agent answered).
-
-- **Detection parity.** `Pane.svelte`'s `hasAgentWindow` — which drives the
-  "there is an agent here but it was started outside tmux, restart it with the
-  wrapper" hint — only matched Claude's `✳`/`✻` title glyphs, so for an
-  un-wrapped Hermes window the pane just went quiet with no explanation. Widened
-  it to also match Hermes's ` · <model> · <cwd>` middle-dot title suffix. It is
-  a title-text heuristic (the only per-window signal `/desk/state` carries); a
-  format change would need an update, and the only cost of a miss is the hint
-  not showing.
-
-This is distinct from the one-session-per-workspace collision documented
-nowhere yet but diagnosed the same day: two sessions on one screen collapse to
-the first in `sessionFor`. That one is a genuine addressing bug and is being
-designed separately.
+What was kept from the same work: the **per-screen session selector** — the index now
+routes to the specific session tapped, not just its workspace, and the pane reconnects the
+terminal to it — so two sessions sharing one screen are both reachable. That is agent-
+agnostic and unrelated to Hermes; it stays.

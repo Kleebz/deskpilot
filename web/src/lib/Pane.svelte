@@ -27,16 +27,7 @@
 
   let creating = $state(false);
 
-  // A terminal showing an agent that was started outside tmux can be moved,
-  // tiled and looked at, but not prompted — there is no session to send-keys
-  // into. Detect the agents we know by the marker each leaves in its window
-  // title, so the pane can explain the situation instead of just going quiet:
-  //   Claude Code — the ✳ / ✻ working glyphs
-  //   Hermes      — a " · <model> · <cwd>" status suffix, middle-dot separated
-  // This is a heuristic on title text, the only per-window signal /desk/state
-  // carries. If an agent changes its title format this needs updating; the only
-  // cost of a miss is that the "started outside tmux" hint does not appear.
-  const hasAgentWindow = $derived(windows.some((w) => /✳|✻| · /.test(w.title)));
+  const hasAgentWindow = $derived(windows.some((w) => /✳|✻/.test(w.title)));
 
   // The window hosting this session is not a separate thing to manage, so it
   // is tagged and excluded from the count. Otherwise one session in one
@@ -167,7 +158,14 @@
          screens nobody is looking at. Swiping back re-attaches and tmux
          repaints immediately. -->
     {#if active}
-      <Term session={session.session} {fontPx} {alive} busy={working} onactivity={activity} />
+      <!-- Keyed on the session name so switching which session this screen
+           shows (two can share one workspace) tears down the old terminal and
+           reconnects to the new one. Term's boot effect depends on fontPx, not
+           session, so without this a changed session prop would keep the old
+           PTY attached — right name in the bar, wrong terminal below it. -->
+      {#key session.session}
+        <Term session={session.session} {fontPx} {alive} busy={working} onactivity={activity} />
+      {/key}
     {:else}
       <div class="idle"></div>
     {/if}

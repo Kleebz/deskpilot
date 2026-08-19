@@ -100,7 +100,7 @@
         return list.some((s) => s.session === name && s.workspace === ws);
       });
       onchanged();
-      onjump(ws);
+      onjump(ws, name);
     } catch (e) { onstatus(e.message, true); }
   }
 
@@ -162,7 +162,7 @@
   {#if placed.length}
     {#each placed as s (s.session)}
       <div class="row">
-        <button class="go" onclick={() => onjump(s.workspace)}>
+        <button class="go" onclick={() => onjump(s.workspace, s.session)}>
           <span class="badge">ws{s.workspace}</span>
           <span class="nm">{s.session}</span>
           <span class="path dim">{tilde(s.path)}</span>
