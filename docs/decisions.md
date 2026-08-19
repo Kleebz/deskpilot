@@ -727,3 +727,48 @@ attached eight minutes after its client was gone. `Deno.upgradeWebSocket` now ta
 in `onclose` and reaps the child. Browsers answer pings themselves, so a quiet-but-live
 terminal is unaffected — verified by leaving one idle for 85 seconds, well past the
 timeout, with the connection still live and the PTY still held.
+
+## A second agent: Hermes, via the same disposable seams
+
+Added 2026-08-18. Hermes joins Claude Code as a supported agent **without a single
+change to `server/`, `scripts/`, or `web/`'s core** — proof that the agent-agnostic
+boundary holds. It touches only the two disposable seams the design already reserves
+for agent-specificity: a launch preset and a lifecycle adapter.
+
+**Launch preset.** `hermes chat --cli` is one line in `NewSession.svelte`'s `PRESETS`.
+CLI, not the TUI, on purpose — the "Terminal-first" section already established a phone
+is a good remote for a shell transcript and a poor window onto a TUI, and Hermes's TUI
+has the same box-drawing chrome that swamps a 48-column phone at the desktop's 130.
+
+**Status adapter.** `shell/hermes-hook.sh` is the Hermes counterpart to `agent-hook.sh`,
+wired by `shell/install-hermes-hooks.sh`. Two differences from Claude drove a separate
+adapter rather than reuse:
+
+- **Different hook system.** Hermes *gateway* hooks do not fire in the CLI, which is where
+  deskpilot runs the agent. The ones that do are **shell hooks** (`hooks:` in
+  `~/.hermes/config.yaml`), and they speak a different wire protocol from Claude: the event
+  arrives as JSON on **stdin** (not env vars) and the script must print JSON back on stdout
+  synchronously. So the adapter always prints `{}` and returns fast; a slow or silent hook
+  would stall the agent loop. Event mapping: `pre_approval_request` → blocked,
+  `on_session_end` → done. `TMUX_PANE` propagates into the hook subprocess (verified: the id
+  matches the session's pane), so session resolution is identical to the Claude path.
+
+- **No one-tap approve, deliberately.** This is the load-bearing finding. Claude's blocked
+  prompt defaults to approve-on-Enter, which is why `/api/approve` sends a bare Enter and why
+  `SAFE_TO_APPROVE` exists. **Hermes prompts are numbered multi-choice menus whose default
+  (option 1) is the cautious/decline choice** — captured live: `❯ 1. Show me first … 4. Yes,
+  delete`. A bare Enter there *declines*. So the adapter leaves `tool` empty, the server sets
+  `canApprove=false`, and the phone shows a notification with no approve button. You open the
+  app and answer in the session. Wiring Enter-to-approve for Hermes would be the exact
+  "default is the wrong choice" trap the Claude skill documents — not built.
+
+  A related finding: with a capable model under smart approval, the common "needs you" state
+  is not the tool gate at all but **the model ending its turn on a question in prose**, which
+  surfaces as `on_session_end`. The blocked path still fires for genuinely gated commands
+  (verified live against the running server: `dd if=/dev/zero …` → `blocked`, body "disk
+  copy", HTTP 200), but it is the rarer of the two.
+
+Both events were verified end-to-end against the live server on 8790: a real `hermes chat
+--cli` session in tmux fired `blocked` then `done`, each POSTing a correct payload to
+`/api/event` and returning HTTP 200. Another agent would need its own adapter + installer and
+its own two-line preset, and still no change to anything above the tmux layer.
