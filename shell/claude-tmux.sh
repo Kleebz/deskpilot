@@ -11,7 +11,7 @@
 # care what is running there, so nothing above the tmux layer is tied to Claude
 # Code. Wrap another agent by adding one line at the bottom of this file.
 #
-# Desk experience is unchanged — you still just type `claude`.
+# Desk experience is unchanged — you still just type `claude` (or `hermes chat`).
 #
 # Known costs:
 #   - shadows the wrapped binary, so `which claude` no longer tells the whole story
@@ -103,6 +103,25 @@ _deskpilot_wrap() {
 # Omarchy wrapper that runs `mise use -g claude` and actually pulls updates.
 # Resolving through PATH would run the already-installed binary forever.
 claude() { _deskpilot_wrap "$HOME/.local/bin/claude" "$@"; }
+
+# Hermes needs the INVERTED rule from Claude. Claude's REPL is its default
+# invocation, so `_deskpilot_oneshot` lists the few subcommands that exit. For
+# Hermes almost everything exits — `gateway`, `cron`, `config`, `status`,
+# `send`, even a bare `hermes` — and only ONE thing is the interactive REPL that
+# remote prompting needs a handle on: `hermes chat` without a one-shot query.
+# So rather than enumerate the many one-shot subcommands, wrap only that case.
+#
+# `-q/--query` turns `hermes chat` into a print-and-exit call, so it is skipped
+# too — the same reason `-p/--print` is skipped for Claude. Full path for the
+# same PATH-shadowing reason as claude() above.
+hermes() {
+  local sub=${1:-} a
+  if [ "$sub" != "chat" ]; then command "$HOME/.local/bin/hermes" "$@"; return; fi
+  for a in "$@"; do
+    case "$a" in -q | --query) command "$HOME/.local/bin/hermes" "$@"; return ;; esac
+  done
+  _deskpilot_wrap "$HOME/.local/bin/hermes" "$@"
+}
 
 # Add other agents the same way — the rest of deskpilot needs no changes:
 #   aider()   { _deskpilot_wrap aider "$@"; }

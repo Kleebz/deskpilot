@@ -772,3 +772,43 @@ Both events were verified end-to-end against the live server on 8790: a real `he
 --cli` session in tmux fired `blocked` then `done`, each POSTing a correct payload to
 `/api/event` and returning HTTP 200. Another agent would need its own adapter + installer and
 its own two-line preset, and still no change to anything above the tmux layer.
+
+## Desk-launched Hermes needs the same tmux wrapper Claude has
+
+Added 2026-08-18. A window running an agent can be moved, tiled and looked at
+but only *prompted* if there is a tmux session behind it — prompting is
+`tmux send-keys -t <name>`, and a bare terminal has no name to send to. This is
+the documented routing model, not a bug. But it bites unevenly: `claude` at the
+desk is transparently wrapped into a named session by `shell/claude-tmux.sh`,
+while `hermes` started the same way was not, so a Hermes agent run at the desk
+was structurally un-promptable. Found by hitting it — the session hosting this
+very work (foot → bash → hermes, no tmux) could be moved and captured from the
+phone but not typed into.
+
+Two fixes, both small:
+
+- **Wrapper parity.** Added a `hermes()` function to `claude-tmux.sh` rather
+  than a separate file — the file already holds the shared tmux machinery and
+  invites "wrap another agent by adding one line." Hermes needs the INVERTED
+  rule from Claude, though: Claude's REPL is its default invocation so the
+  wrapper lists the few subcommands that exit; almost every `hermes` subcommand
+  exits (`gateway`, `cron`, `config`, `status`, a bare `hermes`), and the one
+  interactive REPL is `hermes chat`. So the function wraps only `hermes chat`,
+  and skips it when `-q/--query` makes it print-and-exit — the mirror of how
+  `-p/--print` is skipped for Claude. Verified end-to-end: a desk-launched
+  `hermes chat --cli` creates a cwd-named session that the server both lists and
+  prompts (send-keys landed a prompt and the agent answered).
+
+- **Detection parity.** `Pane.svelte`'s `hasAgentWindow` — which drives the
+  "there is an agent here but it was started outside tmux, restart it with the
+  wrapper" hint — only matched Claude's `✳`/`✻` title glyphs, so for an
+  un-wrapped Hermes window the pane just went quiet with no explanation. Widened
+  it to also match Hermes's ` · <model> · <cwd>` middle-dot title suffix. It is
+  a title-text heuristic (the only per-window signal `/desk/state` carries); a
+  format change would need an update, and the only cost of a miss is the hint
+  not showing.
+
+This is distinct from the one-session-per-workspace collision documented
+nowhere yet but diagnosed the same day: two sessions on one screen collapse to
+the first in `sessionFor`. That one is a genuine addressing bug and is being
+designed separately.
