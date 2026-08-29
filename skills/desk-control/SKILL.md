@@ -66,16 +66,19 @@ screen.
 Know these so you understand what the scripts are protecting you from, and so you do not
 route around them:
 
-- **`grim` succeeds on a locked session** and returns a valid image of the hyprlock
-  password prompt. `desk.sh shot` refuses when locked; say the screen is locked and
-  answer from state instead.
+- **`grim` succeeds on a locked session** and returns a valid image of the lock screen's
+  password prompt. `desk.sh shot` refuses unless the screen is *known* unlocked; say the
+  screen is locked and answer from state instead.
 - **`grim -g` crops the composited output, not a window's buffer.** Hyprland only
   composites the *visible* workspace, so capturing a window on a hidden one silently
   returns whatever is at those screen coordinates instead — a different window, and a
   different one each time depending on what is on screen. `desk.sh shot-window` switches
   to the target workspace, captures, and switches back. Never call `grim -g` yourself.
-- **`loginctl` cannot detect the lock.** `LockedHint` reads `no` while hyprlock is
-  running. Only `pidof hyprlock` works.
+- **`loginctl` cannot detect the lock.** `LockedHint` reads `no` while the screen is
+  demonstrably locked. Ask `desk.sh locked`, which answers `locked` / `unlocked` /
+  `unknown` — never probe for a locker process yourself. `pidof hyprlock` was the check
+  until Omarchy replaced hyprlock with a compositor-integrated lock, at which point it
+  silently answered "unlocked" forever and disarmed this guard.
 - **`dispatch fullscreen` is a toggle, not a setter**, and floating/fullscreen/tiled are
   three independent states. `desk.sh tile` reads current state before acting.
 - **Workspaces are 1..10; there is no workspace 0.** If the user says "workspace 0" they

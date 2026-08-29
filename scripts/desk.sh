@@ -15,7 +15,7 @@
 #   desk.sh type [text]                type into the FOCUSED window (stdin if no arg)
 #   desk.sh key <name...>              press keys: enter escape tab up down left right
 #   desk.sh click <x> <y>              move the pointer and left-click
-#   desk.sh unlock                     read a password on stdin and unlock hyprlock
+#   desk.sh unlock                     read a password on stdin and unlock the screen
 #
 # The input commands need ydotool — see shell/install-input.sh. They are
 # deliberately NOT exposed by the server except `unlock`: an agent you are
@@ -37,7 +37,39 @@ have_env || {
 }
 have_env || die "no Hyprland instance found"
 
-is_locked() { pidof hyprlock >/dev/null; }
+# Omarchy replaced hyprlock with a compositor-integrated lock, so `pidof
+# hyprlock` — once the only reliable check — now matches nothing and reports
+# "unlocked" forever. That disarmed both callers silently: unlock refused to
+# run because it thought nothing was locked, and the capture guard stopped
+# guarding, so `grim` would hand back a photograph of the lock screen.
+#
+# Three states, not two. The compositor helper answers "undetermined" when
+# Hyprland stops at an earlier reason before it ever considers the lock, and
+# both callers have to fail closed on that — but they fail closed in *opposite*
+# directions. A capture must refuse unless the screen is known unlocked. Unlock
+# must refuse unless it is known locked, because typing a password at an
+# unlocked desktop types it into whatever window has focus.
+LOCK_PROCESS="${DESKPILOT_LOCK_PROCESS:-hyprlock}"
+
+lock_state() {
+  if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then
+    omarchy-hyprland-session-locked >/dev/null 2>&1
+    case $? in
+      0) echo locked ;;
+      1) echo unlocked ;;
+      *) echo unknown ;;
+    esac
+  elif command -v "$LOCK_PROCESS" >/dev/null 2>&1; then
+    if pidof "$LOCK_PROCESS" >/dev/null; then echo locked; else echo unlocked; fi
+  else
+    # No detector at all. Saying "unlocked" here is what caused the bug above,
+    # so say so honestly and let both callers refuse.
+    echo unknown
+  fi
+}
+
+known_unlocked() { [ "$(lock_state)" = unlocked ]; }
+known_locked()   { [ "$(lock_state)" = locked ]; }
 
 # Hyprland 0.56.2 parses `hyprctl dispatch` as Lua: the old
 # `dispatch exec "[workspace 7 silent] foo"` form is now a syntax error, and
@@ -95,14 +127,16 @@ case "$cmd" in
     ;;
 
   locked)
-    if is_locked; then echo locked; exit 0; else echo unlocked; exit 1; fi
+    st=$(lock_state)
+    echo "$st"
+    [ "$st" = locked ] && exit 0 || exit 1
     ;;
 
   # grim succeeds on a locked session and returns a picture of the password
   # prompt. Refusing is the only sane default — the caller cannot tell.
   shot)
     out=${1:-/tmp/desk.jpg}; ws=${2:-}
-    is_locked && die "screen is locked — capture would return the lock screen"
+    known_unlocked || die "screen is $(lock_state) — capture would return the lock screen"
     if [ -n "$ws" ]; then
       go_workspace "$ws"
       sleep 0.3
@@ -127,7 +161,7 @@ case "$cmd" in
     addr=${1:?address required}; out=${2:-/tmp/desk-window.jpg}
     maxw=${DESKPILOT_MAX_WIDTH:-1200}
     q=${DESKPILOT_QUALITY:-70}
-    is_locked && die "screen is locked — capture would return the lock screen"
+    known_unlocked || die "screen is $(lock_state) — capture would return the lock screen"
     info=$(hyprctl clients -j | jq -r --arg a "$addr" \
       'first(.[] | select(.address == $a)
         | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])|\(.size[0])|\(.workspace.id)") // empty')
@@ -249,12 +283,14 @@ case "$cmd" in
     ydotool click 0xC0 >/dev/null 2>&1   # left press + release
     ;;
 
-  # Types a password into hyprlock and presses enter. This goes THROUGH
-  # authentication — hyprlock validates via PAM exactly as if typed at the
-  # desk. Nothing is bypassed; a wrong password fails normally.
+  # Types a password into the lock screen and presses enter. This goes THROUGH
+  # authentication — the locker validates via PAM exactly as if typed at the
+  # desk. Nothing is bypassed; a wrong password fails normally. ydotool writes
+  # to /dev/uinput, below the Wayland layer, so it reaches a lock surface that
+  # refuses the virtual-keyboard protocol.
   unlock)
     need_ydotool
-    is_locked || die "screen is not locked"
+    known_locked || die "screen is $(lock_state) — refusing to type a password"
     ydotool type --file -       # password on stdin, never argv, never logged
     sleep 0.2
     ydotool key 28:1 28:0       # Enter
@@ -264,7 +300,7 @@ case "$cmd" in
     # regardless.
     for _ in $(seq 1 20); do
       sleep 0.5
-      is_locked || { echo unlocked; exit 0; }
+      known_unlocked && { echo unlocked; exit 0; }
     done
     die "still locked — password rejected"
     ;;

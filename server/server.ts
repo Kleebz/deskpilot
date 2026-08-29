@@ -627,8 +627,13 @@ async function handle(req: Request): Promise<Response> {
   }
 
   if (req.method === "GET" && path === "/api/desk/locked") {
+    // desk.sh answers locked / unlocked / unknown. Anything that is not a
+    // definite "unlocked" is reported as locked, so an undetermined state
+    // makes the UI hide the screenshot controls rather than offer a capture
+    // that desk.sh is going to refuse anyway.
     const r = await run(`${SCRIPTS}/desk.sh`, ["locked"]);
-    return withCookie(json({ locked: r.out.trim() === "locked" }));
+    const state = r.out.trim();
+    return withCookie(json({ locked: state !== "unlocked", state }));
   }
 
   if (req.method === "GET" && path === "/api/desk/shot") {

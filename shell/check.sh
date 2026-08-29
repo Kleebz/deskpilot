@@ -63,12 +63,19 @@ else
 fi
 
 head_ "Lock detection"
-if command -v "$LOCKPROC" >/dev/null; then
-  ok "$LOCKPROC present (screenshots refuse while locked)"
-else
-  warn "$LOCKPROC not found" \
-       "set DESKPILOT_LOCK_PROCESS in the config, or captures may return a lock screen"
-fi
+# Ask desk.sh rather than probing for a binary. This check used to look for
+# $LOCKPROC and warn if it was missing — which is exactly what happened when
+# Omarchy dropped hyprlock, and a warning was quiet enough that unlock and the
+# capture guard stayed broken for days. A detector that cannot answer is a
+# failure, not a warning: captures refuse and unlock refuses.
+lock_now=$("$REPO/scripts/desk.sh" locked 2>/dev/null)
+case "$lock_now" in
+  locked|unlocked)
+    ok "lock state readable (currently $lock_now)" ;;
+  *)
+    bad "cannot determine lock state" \
+        "no compositor lock helper and no '$LOCKPROC' process — captures and unlock both refuse" ;;
+esac
 
 head_ "Terminal"
 if command -v "$TERMINAL" >/dev/null; then ok "$TERMINAL"

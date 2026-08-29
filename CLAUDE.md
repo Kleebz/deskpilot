@@ -38,8 +38,11 @@ Every one of these was a real bug here, and every one failed **silently**:
   workspace returns whatever is at those coordinates on the visible one. Use
   `desk.sh shot-window`, never raw `grim -g`.
 - **`grim` succeeds on a locked screen** and returns the password prompt as a valid
-  image. Check `pidof hyprlock` first. `loginctl` cannot detect it — `LockedHint` stays
-  `no`.
+  image. Ask `desk.sh locked`, which answers `locked` / `unlocked` / `unknown` and which
+  both guards fail closed against. Never probe for a locker process: `pidof hyprlock` was
+  that check until Omarchy replaced hyprlock, after which it answered "unlocked" forever
+  and silently disarmed the guard. `loginctl` cannot detect it either — `LockedHint`
+  stays `no`.
 - **`hyprctl dispatch fullscreen` is a toggle, not a setter.** Read `.fullscreen` first.
   Floating, fullscreen and tiled are three independent states.
 - **tmux runs as a child of the systemd unit**, so `KillMode` must stay `process` or
