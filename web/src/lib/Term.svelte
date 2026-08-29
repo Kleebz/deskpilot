@@ -108,7 +108,11 @@
     term.loadAddon(fit);
     term.open(host);
     refit();
-    term.onData((d) => ws?.readyState === WebSocket.OPEN && ws.send(d));
+    term.onData((d) => {
+      if (ws?.readyState !== WebSocket.OPEN) return;
+      toBottom();
+      ws.send(d);
+    });
     connect();
   }
 
@@ -118,41 +122,99 @@
   // nothing for xterm's viewport to scroll and a drag does nothing at all.
   // Scrolling is the application's own, and it only learns about it as a key.
   //
-  // It has to be PageUp/PageDown specifically. Mouse reporting is not enabled
-  // by the agent — verified by sending both SGR (`ESC [ < 64 ; x ; y M`) and
-  // legacy X10 wheel events to a live session, neither of which moved it by a
-  // pixel. Arrow keys are worse than useless: Up recalls the previous prompt.
-  const PAGEUP = "\x1b[5~";
-  const PAGEDOWN = "\x1b[6~";
+  // This used to send PageUp/PageDown, and the note here used to say mouse
+  // reporting had been measured not to work. Both were true of the agent as it
+  // behaved then, and both stopped being true: the agent no longer holds the
+  // alternate screen, so PageUp now reaches a program that ignores it and the
+  // drag does nothing at all.
+  //
+  // The right layer is tmux, which owns the scrollback either way. Its default
+  // binding is
+  //
+  //   WheelUpPane  if -F "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}"
+  //                   { send-keys -M } { copy-mode -e }
+  //
+  // so a wheel event is passed through to the program while it holds the
+  // alternate screen — which is exactly why the old measurement saw nothing
+  // move — and enters copy-mode otherwise, which is the case now. Sending
+  // wheel events therefore scrolls tmux's own history, works whatever is
+  // running, and stays agent-agnostic: bytes are bytes.
+  const WHEEL_UP = 64, WHEEL_DOWN = 65;
 
-  // Pixels of drag per page. A page is roughly 25 lines — measured, by diffing
-  // the pane before and after a single PageUp — and there is nothing finer to
-  // send, so this cannot be made continuous, only well paced. Shorter than the
-  // first attempt at 90, which needed most of the screen to move one page.
-  const PER_PAGE = 55;
+  // Five lines per wheel event, measured rather than assumed: driving a real
+  // attached client through a PTY and reading `#{scroll_position}` back gave 20
+  // lines for four wheel-ups. Steps this small mean the content can track the
+  // finger 1:1 instead of jumping a page at a time, so the drag maps to pixels
+  // rather than to a tuned constant.
+  const WHEEL_LINES = 5;
+  const FALLBACK_STEP = 48;   // px, until the grid has been measured once
 
   // How much unspent drag may pile up. Without a cap, a long fast swipe banks
-  // pages that keep firing well after the finger stops, which reads as the
+  // scrolling that keeps firing well after the finger stops, which reads as the
   // scroll running away on its own.
-  const MAX_BACKLOG = PER_PAGE * 4;
+  const MAX_BACKLOG_STEPS = 12;
+  const MAX_PER_FRAME = 6;    // don't flood the socket from one long frame
+
+  // Cell geometry, off the rendered grid — the same reasoning as refit(): the
+  // terminal's own root is width:100% and measuring it proves nothing.
+  function cellSize() {
+    const screen = host?.querySelector(".xterm-screen");
+    if (!screen || !term?.cols || !term?.rows) return null;
+    const cs = getComputedStyle(screen);
+    const w = parseFloat(cs.width) / term.cols;
+    const h = parseFloat(cs.height) / term.rows;
+    return w > 0 && h > 0 ? { w, h } : null;
+  }
+
+  const stepPx = () => (cellSize()?.h ?? 16) * WHEEL_LINES || FALLBACK_STEP;
+
+  // Where the wheel event claims to be. tmux routes it to the pane under those
+  // coordinates, so a session that has been split still scrolls the pane the
+  // finger is actually on rather than always the first one.
+  let wheelCol = 1, wheelRow = 1;
+  function aimAt(clientX, clientY) {
+    const cell = cellSize();
+    const box = host?.getBoundingClientRect();
+    if (!cell || !box) return;
+    wheelCol = Math.min(term.cols, Math.max(1, Math.ceil((clientX - box.left) / cell.w)));
+    wheelRow = Math.min(term.rows, Math.max(1, Math.ceil((clientY - box.top) / cell.h)));
+  }
+
+  // Wheel-ups emitted and not yet undone. Typing has to come back to the bottom
+  // first: while tmux is in copy-mode the keystroke would drive copy-mode
+  // instead of reaching the program. Scrolling back down is what leaves it —
+  // the binding above uses `copy-mode -e`, which exits at the bottom — and a
+  // wheel-down outside copy-mode is unbound, so overshooting is inert rather
+  // than leaking a stray key into the session.
+  let netUp = 0;
   // Slack before a touch counts as a drag rather than a tap, so tapping to
   // focus the keyboard still works.
   const SLOP = 12;
 
-  // Pages are emitted from an animation frame rather than straight out of the
+  // Steps are emitted from an animation frame rather than straight out of the
   // touch handler. Touch events arrive in bursts, so emitting inline made one
-  // steady drag produce a clump of pages and then a gap; draining a buffer on
-  // a fixed cadence spreads the same number of pages evenly instead, which is
-  // most of what "smoother" means when the step size itself cannot shrink.
-  const MIN_GAP = 100;      // ms between pages
+  // steady drag produce a clump and then a gap; draining a buffer on the frame
+  // clock spreads the same number of steps evenly instead.
   const FRICTION = 0.9;     // per frame decay of a throw
   const THROW = 9;          // px of coast per px/ms of release speed
 
   let dragAt = 0, dragAcc = 0, dragging = false;
   let vel = 0, glide = 0, lastMoveAt = 0;
-  let raf = 0, lastFrame = 0, sinceEmit = 0;
+  let raf = 0, lastFrame = 0;
 
   const sendKey = (k) => ws?.readyState === WebSocket.OPEN && ws.send(k);
+
+  function wheel(up) {
+    sendKey(`\x1b[<${up ? WHEEL_UP : WHEEL_DOWN};${wheelCol};${wheelRow}M`);
+    netUp = Math.max(0, netUp + (up ? 1 : -1));
+  }
+
+  export function toBottom() {
+    if (netUp <= 0) { netUp = 0; return; }
+    // Two spare, so rounding can never leave it one short of the bottom.
+    for (let i = netUp + 2; i > 0; i--) sendKey(`\x1b[<${WHEEL_DOWN};${wheelCol};${wheelRow}M`);
+    netUp = 0;
+  }
 
   function pump(ts) {
     const dt = lastFrame ? Math.min(ts - lastFrame, 50) : 16;
@@ -167,18 +229,23 @@
       if (Math.abs(glide) < 0.4) glide = 0;
     }
 
-    dragAcc = Math.max(-MAX_BACKLOG, Math.min(MAX_BACKLOG, dragAcc));
-    sinceEmit += dt;
-    if (sinceEmit >= MIN_GAP) {
-      // Dragging down reveals what came before, which is PageUp — the
-      // direction a touch surface has trained everyone to expect.
-      if (dragAcc >= PER_PAGE) { sendKey(PAGEUP); dragAcc -= PER_PAGE; sinceEmit = 0; }
-      else if (dragAcc <= -PER_PAGE) { sendKey(PAGEDOWN); dragAcc += PER_PAGE; sinceEmit = 0; }
-    }
+    const step = stepPx();
+    const cap = step * MAX_BACKLOG_STEPS;
+    dragAcc = Math.max(-cap, Math.min(cap, dragAcc));
 
-    // Finger gone, throw spent, nothing banked worth a page: stop burning
+    // Drain whatever the drag has banked, up to a few steps a frame. There is
+    // no gap to wait out any more: a step is three lines rather than a page, so
+    // emitting them as they are earned is what makes the content follow the
+    // finger instead of arriving in clumps.
+    let n = MAX_PER_FRAME;
+    // Dragging down reveals what came before, which is a wheel-up — the
+    // direction a touch surface has trained everyone to expect.
+    while (n-- > 0 && dragAcc >= step) { wheel(true); dragAcc -= step; }
+    while (n-- > 0 && dragAcc <= -step) { wheel(false); dragAcc += step; }
+
+    // Finger gone, throw spent, nothing banked worth a step: stop burning
     // frames rather than idling a callback for the life of the session.
-    if (!dragging && !glide && Math.abs(dragAcc) < PER_PAGE) {
+    if (!dragging && !glide && Math.abs(dragAcc) < step) {
       raf = 0;
       dragAcc = 0;
       return;
@@ -189,13 +256,13 @@
   function startPump() {
     if (raf) return;
     lastFrame = 0;
-    sinceEmit = MIN_GAP;      // first page goes without waiting out the gap
     raf = requestAnimationFrame(pump);
   }
 
   function touchStart(e) {
     if (e.touches.length !== 1) return;
     dragAt = e.touches[0].clientY;
+    aimAt(e.touches[0].clientX, e.touches[0].clientY);
     lastMoveAt = e.timeStamp;
     dragAcc = 0;
     vel = 0;
