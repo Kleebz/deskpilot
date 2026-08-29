@@ -773,3 +773,117 @@ What was kept from the same work: the **per-screen session selector** — the in
 routes to the specific session tapped, not just its workspace, and the pane reconnects the
 terminal to it — so two sessions sharing one screen are both reachable. That is agent-
 agnostic and unrelated to Hermes; it stays.
+
+## herdr, and going from one machine to several
+
+Evaluated 2026-08-28, prompted by a change in goal: **one phone managing several
+machines, from one place.** The question asked was whether herdr replaces deskpilot, and
+whether a generic terminal app would do instead. Neither, but the evaluation moved the
+transport decision and reordered the roadmap, so it is recorded in full.
+
+**What herdr is.** A Rust/ratatui multiplexer — its own, not tmux — that owns agent
+terminals and infers per-agent state (working / blocked / idle / done) across ~21 agent
+CLIs by watching their output. A socket API lets agents create panes, spawn sub-agents,
+read each other's output and subscribe to state changes. `herdr-remote` adds a relay on
+`:8375`, a Cloudflare tunnel, a phone dashboard and Telegram, with one-tap approvals.
+
+**Two premises corrected by reading the code.**
+
+- *Multiple client devices already work.* `shell/pair.sh` encodes one shared token and
+  `server.ts:224` accepts it from header, query or cookie. Nothing binds it to a device.
+  A second phone is a second QR scan, not a feature.
+- *Multiple target machines is a host-list problem, not a runtime problem.* Each box
+  runs its own server; the tailnet already gives each a stable name. The missing piece
+  is a keyring of `{host, token}` in the client and a machine axis above the session
+  index — not a new session runtime.
+
+**The constraint that actually shapes the client: web push is per-origin.** A PWA
+installed from `desk-a` cannot receive push addressed to `desk-b`. That forces a choice
+between N installed PWAs (clean, no hub, N homescreen icons) and one PWA with events
+hubbed to its install origin. One PWA was chosen, so the notification path gets a hub.
+Note the split: hubbing *notifications* is fine, hubbing the *control* path is not —
+that is what keeps the unlock password on a direct link to the machine it unlocks.
+
+**Transport: Tailscale Funnel, and why it was missed the first time.** The earlier
+comparison weighed Tailscale-with-an-app against Cloudflare-with-an-intermediary against
+writing a relay. Funnel is a fourth door that was not on that list:
+
+- The phone needs **no app**. It is a public HTTPS URL, so the VPN client goes away and
+  the "no mobile app" constraint of 2026-08-10 — compromised, and admitted to be a real
+  unpaid cost — is restored. Only the desktop runs Tailscale, and that is the operator.
+- The hostname is a stable `*.ts.net`, so PWA install identity, the push subscription
+  and the token cookie all survive a restart.
+- **TLS terminates on this machine.** Funnel relays proxy without decrypting. The
+  password objection that killed Cloudflare Tunnel does not apply.
+
+Its cost is real and is *not* the one Cloudflare had: Funnel makes the endpoint publicly
+reachable, so the bearer token becomes the only thing in front of a service that runs
+arbitrary commands. "No public listener exists" was ranked above "there is an auth layer
+in front of it", and that reasoning survives. **Intended split:** Funnel the session,
+terminal and notification paths; keep unlock tailnet-only. Tailnet requests carry
+Tailscale identity headers and Funnel requests do not, so the server can refuse unlock on
+anything unauthenticated at the network layer. Unverified — verify before relying on it.
+
+**Cloudflare Tunnel, rejected again and for a new reason.** herdr's "no Tailscale
+needed" is a *quick* tunnel, which mints a new random hostname on every restart. Every
+per-origin thing here dies with it: PWA install, push subscription, token cookie. A named
+tunnel is stable but needs an account and a domain with DNS hosted there — more friction
+than Tailscale, not less. Also: the transport cannot be taken without the runtime, since
+`herdr-remote` relays herdr agents, not this server. Wanting that tunnel means wanting
+`cloudflared` standalone, which was already weighed.
+
+**A generic Android terminal app.** Termius, Blink, Termux + `ssh` — multi-machine is
+their native case and tmux gives persistence for free. It covers prompting and reading
+output, and covers nothing else: no push, no touch sizing, no desk half. Push is the one
+that scales badly. With one desk you can look at it; with four boxes the primary
+interface stops being a terminal you stare at and becomes "tell me which box needs me",
+and an SSH client has no way to grow that. SSH remains the escape hatch, as before.
+
+**What herdr genuinely wins on.** Recorded so it is not re-argued from scratch:
+
+1. **Agent-to-agent orchestration.** One agent spawning and reading others. tmux cannot
+   grow into this and neither can deskpilot. It is the only unique capability.
+2. **Zero-wiring state across arbitrary agent CLIs.** Under-credited at first. Hooks are
+   one adapter per CLI per machine, kept in sync forever; at three agents across four
+   boxes that is a real chore. Against it: `server.ts:296` argues inference cannot
+   distinguish "blocked on a dialog" from "mid tool call", and herdr's state *is*
+   inferred. Zero-config, possibly less accurate.
+
+**What it costs.** tmux is the seam the whole design rests on — `sessions.sh` resolves
+`tmux client pid → parent pids → Hyprland window → workspace`, which is what makes "the
+session on screen 4" expressible at all. herdr owns its own terminals, so that chain
+would be re-derived against a pre-1.0 runtime. And it is unknown whether herdr exposes an
+attachable PTY per pane; if it only returns captured text, adopting it walks back
+"A real terminal, not a scrape".
+
+**Decision: the substrate is the last decision in this project, not the first.** Put the
+two designs side by side and they differ in exactly one component — what runs the session
+on each box. Everything the goal actually requires is identical in both: machine axis,
+keyring, CORS, capability negotiation, event fan-in, Funnel. That is the bulk of the
+work and none of it is herdr-specific.
+
+So: **re-root, do not rewrite.** `scripts/`, `Term.svelte` and its hard-won PTY, column
+and `idleTimeout` fixes, the permissions posture, unlock, the theme, the
+measure-in-an-iframe method — all per-machine and all untouched. The one thing that
+genuinely does not survive is **workspace-number-as-phone-screen**, which is inherently
+single-machine; N×10 screens is not a swipe. That seam gets a machine axis above it.
+
+Then the herdr swap becomes cheap, reversible and decided by evidence:
+
+1. Does herdr expose an attachable PTY per pane? If not, that is probably decisive.
+2. Run it on one box for a week. Does inferred state beat the hooks, or does it call
+   "mid tool call" blocked?
+
+**Compositor support.** Raised alongside: whether to support anything but Hyprland. The
+desk tier becomes a **per-host capability** — the server reports what it can do, the UI
+hides what is absent. Implementation stays Hyprland-only. A multi-machine app needs
+capability negotiation anyway the moment one box is headless, and an abstraction written
+before a second implementation exists will be wrong: the desk half's value is entirely in
+compositor-specific detail (`grim -g` cropping the composited output, fullscreen being a
+toggle, `ydotool` working because it sits below the Wayland layer). None of that
+generalises. Second compositor only when a real user with a real box turns up.
+
+**Still open, and it gates the primary screen:** whether this stays a personal tool or is
+shared. If shared, the Funnel decision above is right but pairing is not — one shared
+token does not survive contact with other people, and `ydotool`'s udev rule is a lot to
+ask a stranger for.
