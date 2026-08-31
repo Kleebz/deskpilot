@@ -10,9 +10,14 @@
 # So you run it.
 #
 # What it wires:
+#   UserPromptSubmit  -> "working"  fires as a turn begins
 #   PermissionRequest -> "blocked"  fires as a permission prompt is raised,
 #                                   and carries the tool name asking for it
 #   Stop              -> "done"     fires when a turn finishes
+#
+# "working" records state and deliberately does not notify. Without it a
+# session running for ten minutes is indistinguishable from one idle for ten
+# minutes, which is the question the console exists to answer.
 #
 # Both are `async`, so a notification can never make the agent wait on the
 # network. shell/agent-hook.sh is the adapter that turns the hook's JSON into
@@ -52,6 +57,9 @@ jq --arg hook "$HOOK" '
     hooks: [{ type: "command", command: ($h + " " + $kind), async: true, timeout: 10 }]
   };
   .hooks //= {}
+  | .hooks.UserPromptSubmit =
+      (((.hooks.UserPromptSubmit // []) | map(select(ours($hook) | not)))
+        + [entry($hook; "working")])
   | .hooks.PermissionRequest =
       (((.hooks.PermissionRequest // []) | map(select(ours($hook) | not)))
         + [entry($hook; "blocked")])
@@ -66,7 +74,7 @@ cp "$TMP" "$SETTINGS"
 echo "updated $SETTINGS"
 echo "backup  $BACKUP"
 echo
-for ev in PermissionRequest Stop; do
+for ev in UserPromptSubmit PermissionRequest Stop; do
   printf '%-18s %s\n' "$ev" \
     "$(jq -r --arg h "$HOOK" ".hooks.$ev[]?.hooks[]? | select(.command | startswith(\$h)) | .command" "$SETTINGS")"
 done

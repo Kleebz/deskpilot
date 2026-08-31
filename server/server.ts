@@ -104,38 +104,6 @@ function normalizeCapture(raw: string): string {
 // screen" while the server was reporting it correctly.
 const NO_STORE = { "cache-control": "no-store" };
 
-// One phone talking to several machines means requests arrive cross-origin, so
-// the API has to answer them — but only for origins that are themselves
-// deskpilot hosts. The token still does the real authentication; this only
-// decides whose page a browser will let read the answer.
-//
-// Note what is NOT done here: credentials are never allowed. The dp cookie is
-// SameSite=Strict and same-origin only by design, so a cross-host client
-// authenticates with the bearer token and nothing rides along implicitly.
-const ORIGINS = (Deno.env.get("DESKPILOT_ORIGINS") ?? "")
-  .split(",").map((o) => o.trim()).filter(Boolean);
-
-function originOk(origin: string | null): boolean {
-  if (!origin) return true;                    // same-origin / non-browser
-  if (ORIGINS.includes(origin)) return true;
-  try {
-    const h = new URL(origin).hostname;
-    // Any host on the same tailnet is a peer by construction, and localhost
-    // covers a second instance during development.
-    return h.endsWith(".ts.net") || h === "localhost" || h === "127.0.0.1";
-  } catch { return false; }
-}
-
-function corsHeaders(origin: string | null): Record<string, string> {
-  if (!origin || !originOk(origin)) return {};
-  return {
-    "access-control-allow-origin": origin,
-    "vary": "origin",
-    "access-control-allow-headers": "authorization, content-type",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-  };
-}
-
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -143,6 +111,40 @@ const json = (body: unknown, status = 200) =>
   });
 
 const fail = (msg: string, status = 400) => json({ error: msg }, status);
+
+// One phone talking to several machines means requests arrive cross-origin.
+//
+// The bearer token is the authentication, and CORS is not: a page that cannot
+// produce the token gets 401 and can read nothing, whatever origin it claims.
+// So an origin is echoed once the request has authenticated, rather than being
+// matched against a list of hostnames.
+//
+// It used to allow anything ending in .ts.net, which quietly made Tailscale a
+// dependency of the auth layer. Transport should be how you reach this server,
+// not something it believes in.
+//
+// DESKPILOT_ORIGINS stays for anyone who wants a hard restriction on top.
+const ORIGINS = (Deno.env.get("DESKPILOT_ORIGINS") ?? "")
+  .split(",").map((o) => o.trim()).filter(Boolean);
+
+function originAllowed(origin: string | null): boolean {
+  if (!origin) return true;                     // same-origin or non-browser
+  if (!ORIGINS.length) return true;             // token does the real work
+  return ORIGINS.includes(origin);
+}
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  if (!origin || !originAllowed(origin)) return {};
+  return {
+    // Echoed, never "*", because "*" and a bearer token together would let any
+    // page read a response if the token ever leaked into one.
+    "access-control-allow-origin": origin,
+    "vary": "origin",
+    "access-control-allow-headers": "authorization, content-type",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-max-age": "600",
+  };
+}
 
 // tmux session names we created or will address. Anything with a shell
 // metacharacter is refused rather than escaped — this value reaches tmux.
@@ -177,6 +179,51 @@ const APPROVE_TTL_MS = 120_000;
 
 type Pending = { reqid: string; at: number; canApprove: boolean };
 const pending = new Map<string, Pending>();
+
+// What each session is doing right now, as opposed to the fact that something
+// happened. Events were fire-and-forget notifications: miss the push and there
+// was no way to ask what a session was waiting on. A console whose whole job is
+// "tell me which machine needs me" has to be able to answer that at any time.
+//
+// Persisted, because it is the state you least want to lose. The service
+// crash-looped for thirty seconds during a deploy, and in-memory state would
+// have quietly forgotten every blocked session — the ones actually waiting for
+// a human.
+type AgentState = {
+  state: "working" | "blocked" | "idle" | "done";
+  since: number;
+  tool?: string;
+  detail?: string;
+  reqid?: string;
+  canApprove?: boolean;
+};
+
+// Declared here rather than beside the other state paths because the store
+// below reads it at module load.
+const AGENT_FILE = `${Deno.env.get("HOME")}/.local/state/deskpilot/agent-state.json`;
+
+const agentState = new Map<string, AgentState>();
+
+try {
+  const raw = JSON.parse(Deno.readTextFileSync(AGENT_FILE)) as Record<string, AgentState>;
+  for (const [k, v] of Object.entries(raw)) if (SAFE_NAME.test(k)) agentState.set(k, v);
+} catch { /* first run, or unreadable */ }
+
+// Debounced: state changes in bursts as an agent works, and a console is not
+// worth an fsync per tool call.
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function saveAgentState() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    Deno.writeTextFile(AGENT_FILE, JSON.stringify(Object.fromEntries(agentState)))
+      .catch(() => {});
+  }, 500);
+}
+
+function setAgentState(session: string, next: AgentState) {
+  agentState.set(session, next);
+  saveAgentState();
+}
 
 const DIST = `${WEB}/dist`;
 
@@ -264,7 +311,7 @@ async function handle(req: Request): Promise<Response> {
   if (!path.startsWith("/api/")) return new Response("not found", { status: 404 });
 
   const origin = req.headers.get("origin");
-  if (!originOk(origin)) return fail("origin not allowed", 403);
+  if (!originAllowed(origin)) return fail("origin not allowed", 403);
   const cors = corsHeaders(origin);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
@@ -312,9 +359,15 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === "GET" && path === "/api/sessions") {
     const r = await run(`${SCRIPTS}/sessions.sh`, []);
     if (r.code !== 0) return fail(r.err || "sessions.sh failed", 500);
-    return withCookie(new Response(r.out, {
-      headers: { "content-type": "application/json", ...NO_STORE },
-    }));
+    // sessions.sh stays agent-agnostic and knows nothing about state; the merge
+    // happens here so the script keeps being a plain tmux question.
+    let list: Record<string, unknown>[];
+    try { list = JSON.parse(r.out); } catch { return fail("bad session list", 500); }
+    const merged = list.map((x) => {
+      const st = agentState.get(String(x.session));
+      return st ? { ...x, ...st } : { ...x, state: "idle", since: 0 };
+    });
+    return withCookie(json(merged));
   }
 
   if (req.method === "GET" && path === "/api/capture") {
@@ -376,11 +429,19 @@ async function handle(req: Request): Promise<Response> {
     const kind = String(b?.kind ?? "event");
     const tool = String(b?.tool ?? "").slice(0, 64);
     const reqid = String(b?.reqid ?? "").slice(0, 64);
+    // What is actually being asked, as its own field rather than folded into
+    // prose. "Bash" is not something you can answer; "Bash: rm -rf ~" is.
+    const detail = String(b?.detail ?? "").slice(0, 200);
 
-    // Announced, so the stillness fallback does not follow up a minute later
-    // with a second notification about the same stop.
+    // Keep the stillness fallback in step with what the agent just said about
+    // itself. A stop is announced, so the fallback must not follow up a minute
+    // later about the same one — but a turn *starting* is the opposite: the
+    // session is now busy and its next stop has not been announced at all.
     const w = watched.get(s);
-    if (w) { w.notified = true; w.busy = false; }
+    if (w) {
+      if (kind === "working") { w.busy = true; w.notified = false; }
+      else { w.notified = true; w.busy = false; }
+    }
 
     // Any later event supersedes the last one, so a notification left over from
     // a request that has since been answered can no longer approve anything.
@@ -391,10 +452,26 @@ async function handle(req: Request): Promise<Response> {
       pending.delete(s);
     }
 
+    // A turn starting is as much a state change as a turn ending; without it a
+    // session that has been working for ten minutes is indistinguishable from
+    // one that has been idle for ten minutes.
+    const known = kind === "working" || kind === "blocked" || kind === "done";
+    if (known) {
+      setAgentState(s, {
+        state: kind as AgentState["state"],
+        since: Date.now(),
+        ...(kind === "blocked" ? { tool, detail, reqid, canApprove } : {}),
+      });
+    }
+
     console.log(`event: ${s} ${kind}${tool ? ` ${tool}` : ""}${canApprove ? " (approvable)" : ""}`);
-    // The id only travels to the phone when the request is one the phone is
-    // allowed to answer; otherwise there is nothing there to tap.
-    await notify({ title, body, session: s, kind, canApprove, reqid: canApprove ? reqid : "" });
+    // A turn starting is state, not news. Pushing it would notify on every
+    // prompt, which trains you to ignore the notifications that matter.
+    if (kind !== "working") {
+      // The id only travels to the phone when the request is one the phone is
+      // allowed to answer; otherwise there is nothing there to tap.
+      await notify({ title, body, session: s, kind, canApprove, reqid: canApprove ? reqid : "" });
+    }
     return withCookie(json({ ok: true }));
   }
 
@@ -616,10 +693,10 @@ async function handle(req: Request): Promise<Response> {
     const cols = Math.min(400, Math.max(20, Number(url.searchParams.get("cols")) || 80));
     const rows = Math.min(200, Math.max(10, Number(url.searchParams.get("rows")) || 24));
 
-    // A WebSocket upgrade gets no CORS preflight, so the origin has to be
-    // checked here explicitly or any page could open a socket and rely on the
-    // token being in the query string of a URL it guessed.
-    if (!originOk(req.headers.get("origin"))) return fail("origin not allowed", 403);
+    // A WebSocket upgrade gets no preflight, but it does carry the token in the
+    // query string and that has already been checked above — so by this point
+    // the caller has proved it holds the secret, whatever origin it claims.
+    if (!originAllowed(req.headers.get("origin"))) return fail("origin not allowed", 403);
 
     let socket: WebSocket, response: Response;
     try {
@@ -890,6 +967,11 @@ async function tick() {
   const rows = ls.out.split("\n").map((l) => l.trim().split(/\s+/))
     .filter(([n]) => SAFE_NAME.test(n));
   const live = rows.map(([n]) => n);
+
+  // Sessions that no longer exist stop being anything.
+  for (const name of [...agentState.keys()]) {
+    if (!live.includes(name)) { agentState.delete(name); saveAgentState(); }
+  }
 
   for (const [s, attachedCount] of rows) {
     // A session with a client attached is on a screen in front of you, so a

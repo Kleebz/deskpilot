@@ -11,8 +11,14 @@
   // Detached ones — the normal result of closing a terminal — would otherwise
   // be invisible everywhere, so this pane is the one place that lists all of
   // them regardless of where they are.
-  const placed = $derived(sessions.filter((s) => s.workspace !== null));
-  const detached = $derived(sessions.filter((s) => s.workspace === null));
+  // Blocked first: the index exists to answer "which one needs me", and a
+  // session waiting on a permission prompt is the only kind that is stuck
+  // until you act. Everything else keeps its natural order.
+  const rank = (s) => (s.state === "blocked" ? 0 : s.state === "working" ? 1 : 2);
+  const byNeed = (a, b) => rank(a) - rank(b);
+
+  const placed = $derived(sessions.filter((s) => s.workspace !== null).toSorted(byNeed));
+  const detached = $derived(sessions.filter((s) => s.workspace === null).toSorted(byNeed));
 
   // tmux's own last-activity stamp, so it survives a deskpilot restart and
   // measures real use — verified not to creep on its own: two untouched
@@ -165,7 +171,12 @@
         <button class="go" onclick={() => onjump(s.workspace, s.session)}>
           <span class="badge">ws{s.workspace}</span>
           <span class="nm">{s.session}</span>
-          <span class="path dim">{tilde(s.path)}</span>
+          {#if s.state === "blocked"}
+            <span class="st blocked">{s.tool ? `${s.tool}?` : "needs you"}</span>
+          {:else if s.state === "working"}
+            <span class="st working">working</span>
+          {/if}
+          <span class="path dim">{s.state === "blocked" && s.detail ? s.detail : tilde(s.path)}</span>
           <span class="age dim">{idleFor(s)}</span>
         </button>
         <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
@@ -218,6 +229,12 @@
 </section>
 
 <style>
+  /* Pink is what failure and attention look like everywhere else on this
+     desktop; cyan is what active looks like. Reusing them means the state
+     reads before the word does. */
+  .st { flex: none; font-size: 11px; padding: 0 .4rem; border-radius: 6px; border: 1px solid; }
+  .st.blocked { color: var(--err); border-color: var(--err); }
+  .st.working { color: var(--ok); border-color: var(--ok); }
   section {
     flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0;
     scroll-snap-align: start;

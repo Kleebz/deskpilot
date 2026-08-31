@@ -3,7 +3,10 @@
   import Pane from "./lib/Pane.svelte";
   import Overview from "./lib/Overview.svelte";
   import { vis } from "./lib/visible.svelte.js";
-  import { hosts, currentHost, switchTo, back, hasPrevious, setCaps, capsFor } from "./lib/hosts.svelte.js";
+  import {
+    hosts, currentHost, switchTo, back, hasPrevious, setCaps, capsFor,
+    needsYou, setNeedsYou,
+  } from "./lib/hosts.svelte.js";
 
   const WORKSPACES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -63,6 +66,23 @@
     }
   }
 
+  // Every machine, not just the one on screen. This is the whole point of the
+  // strip: you should be able to see that another box needs you without
+  // leaving the session you are in. Only the count travels — the full list is
+  // still fetched lazily for whichever machine is selected.
+  async function pollOthers() {
+    await Promise.all(hosts.list.map(async (h) => {
+      try {
+        const list = await api("/sessions", { host: h, timeoutMs: 6000 });
+        setNeedsYou(h.origin, list.filter((s) => s.state === "blocked").length);
+      } catch {
+        // A machine that is off or unreachable is not a machine that needs
+        // you; it just has nothing to say.
+        setNeedsYou(h.origin, 0);
+      }
+    }));
+  }
+
   // Structural poll only — sessions and window geometry. Pane contents refresh
   // themselves, and only for the visible pane.
   //
@@ -79,9 +99,13 @@
     // once rather than waiting out the poll interval.
     void hosts.current;
     refresh();
+    pollOthers();
     if (!vis.visible) return;
     const id = setInterval(refresh, 5000);
-    return () => clearInterval(id);
+    // Slower than the foreground poll: this is N requests and it only feeds a
+    // badge, so it does not need to keep pace with the screen you are on.
+    const other = setInterval(pollOthers, 15000);
+    return () => { clearInterval(id); clearInterval(other); };
   });
 
   // Rail position 0 is the index; workspace N is therefore at position N.
@@ -149,7 +173,7 @@
         class:on={h.origin === hosts.current}
         onclick={() => (h.origin === hosts.current && hasPrevious() ? back() : switchTo(h.origin))}
         title={h.origin}
-      >{h.name}</button>
+      >{h.name}{#if needsYou[h.origin]}<span class="dot"></span>{/if}</button>
     {/each}
   </nav>
 {/if}
@@ -215,6 +239,12 @@
     border-radius: 999px; white-space: nowrap;
   }
   .machine.on { color: var(--ok); border-color: var(--ok); }
+  /* A dot, not a number: the useful question is "does that one need me", and a
+     count invites you to read it rather than act on it. */
+  .dot {
+    display: inline-block; width: 7px; height: 7px; margin-left: .4rem;
+    border-radius: 50%; background: var(--err); vertical-align: middle;
+  }
   /* Every child is flex:none except the status, which absorbs the slack and
      truncates. Without this the header overflowed below ~360px. */
   header {

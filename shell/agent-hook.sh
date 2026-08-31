@@ -2,8 +2,13 @@
 #
 # Turn an agent's own lifecycle hook into a deskpilot notification.
 #
+#   agent-hook.sh working   < hook-json     the agent started a turn
 #   agent-hook.sh blocked   < hook-json     the agent wants an answer
 #   agent-hook.sh done      < hook-json     the agent finished its turn
+#
+# Three states, not two. Without `working`, a session that has been running for
+# ten minutes looks exactly like one that has been idle for ten minutes, and
+# "which machine needs me" is the question this whole thing exists to answer.
 #
 # This is the per-agent adapter, and the only file in the project that knows
 # any agent's hook format. deskpilot itself receives "something happened" and
@@ -19,6 +24,8 @@
 # Wire it up in ~/.claude/settings.json:
 #
 #   "hooks": {
+#     "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "async": true,
+#       "command": "<repo>/shell/agent-hook.sh working" }] }],
 #     "PermissionRequest": [{ "hooks": [{ "type": "command", "async": true,
 #       "command": "<repo>/shell/agent-hook.sh blocked" }] }],
 #     "Stop":              [{ "hooks": [{ "type": "command", "async": true,
@@ -85,6 +92,12 @@ case "$KIND" in
     title="$session finished"
     body="ready for your next prompt"
     ;;
+  # Recorded, never announced: a turn starting is state the console wants and
+  # not something worth a notification. The server decides that, not this.
+  working)
+    title="$session started"
+    body="working"
+    ;;
   *)
     title="$session"
     body="$KIND"
@@ -92,8 +105,8 @@ case "$KIND" in
 esac
 
 jq -n --arg s "$session" --arg k "$KIND" --arg t "$title" --arg b "$body" \
-  --arg tool "$tool" --arg id "$reqid" \
-  '{session:$s, kind:$k, title:$t, body:$b, tool:$tool, reqid:$id}' 2>/dev/null |
+  --arg tool "$tool" --arg id "$reqid" --arg d "$detail" \
+  '{session:$s, kind:$k, title:$t, body:$b, tool:$tool, reqid:$id, detail:$d}' 2>/dev/null |
   curl -s -m 5 -o /dev/null \
     -X POST "http://127.0.0.1:${PORT}/api/event" \
     -H "authorization: Bearer $token" \
