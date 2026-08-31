@@ -62,8 +62,8 @@ WorkingDirectory=$REPO
 Environment=DESKPILOT_HOST=${DESKPILOT_HOST:-127.0.0.1}
 Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
 
-# --allow-run is scoped to two scripts, tmux, and script(1) — the last only
-# because Deno has no PTY and \`script\` provides one for the terminal endpoint.
+# --allow-run is scoped to two scripts and tmux. script(1) is gone: the
+# terminal used to need a pty from it, and control mode needs no pty at all.
 # This is why the server is Deno rather than Bun: adding a subprocess is a
 # deliberate act, and an injection bug still cannot reach rm, ssh or curl.
 #
@@ -76,7 +76,7 @@ ExecStart=$(command -v deno) run \\
   --allow-read \\
   --allow-env \\
   --allow-write=$HOME/.local/state/deskpilot \\
-  --allow-run=$REPO/scripts/desk.sh,$REPO/scripts/sessions.sh,tmux,script \\
+  --allow-run=$REPO/scripts/desk.sh,$REPO/scripts/sessions.sh,tmux \\
   $REPO/server/server.ts
 
 # CRITICAL: tmux new-session starts the tmux *server* as a child of this

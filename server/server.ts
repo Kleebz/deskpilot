@@ -12,6 +12,7 @@
 // behind Tailscale — this endpoint can run commands on the machine.
 
 import { loadVapid, sendPush, type Subscription } from "./push.ts";
+import { ControlClient, keysCommand } from "./control.ts";
 
 const ROOT = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
 const SCRIPTS = `${ROOT}/scripts`;
@@ -550,65 +551,85 @@ async function handle(req: Request): Promise<Response> {
 
     let socket: WebSocket, response: Response;
     try {
-      // Every connection holds a PTY and a tmux client, so a peer that goes
-      // away without closing — a tab discarded, a phone that lost signal —
-      // must not pin them open forever. Deno pings and closes if no pong comes
-      // back, which lands in onclose below and reaps the child. A browser
-      // answers pings by itself, so an idle-but-live terminal is unaffected.
+      // Every connection holds a tmux client, so a peer that goes away without
+      // closing — a tab discarded, a phone that lost signal — must not pin one
+      // open forever. Deno pings and closes if no pong comes back, which lands
+      // in onclose below and reaps the child. A browser answers pings by
+      // itself, so an idle-but-live terminal is unaffected.
       ({ socket, response } = Deno.upgradeWebSocket(req, { idleTimeout: 60 }));
     } catch {
       return fail("expected a websocket", 400);
     }
 
-    // -f flushes so output arrives as it is produced rather than in blocks.
-    const child = new Deno.Command("script", {
-      args: ["-qfc", `stty cols ${cols} rows ${rows}; exec tmux attach -t ${name}`, "/dev/null"],
-      // A systemd service inherits no TERM, and tmux refuses to attach without
-      // one ("terminal does not support clear"). xterm-256color matches what
-      // xterm.js actually implements.
-      env: { TERM: "xterm-256color" },
-      stdin: "piped", stdout: "piped", stderr: "null",
-    }).spawn();
-    liveChildren.add(child);
-
-    const writer = child.stdin.getWriter();
     let closed = false;
-    const shutdown = () => {
-      if (closed) return;
-      closed = true;
-      try { writer.close(); } catch { /* already gone */ }
-      try { socket.close(); } catch { /* already closed */ }
-      // SIGTERM alone is not enough. `script` does not forward it to the tmux
-      // client in its pty, and nothing reaps the child unless its status is
-      // awaited — so every connection used to leave a `script` and a
-      // `tmux: client` behind. Escalate, then reap.
-      (async () => {
-        try { child.kill("SIGTERM"); } catch { /* already gone */ }
-        const timer = setTimeout(() => {
-          try { child.kill("SIGKILL"); } catch { /* already gone */ }
-        }, 2000);
-        try { await child.status; } catch { /* already gone */ }
-        clearTimeout(timer);
-        liveChildren.delete(child);
-      })();
+    let active = "";                 // pane id whose output this client renders
+    let hold: string[] | null = [];  // output buffered until history is sent
+
+    const say = (msg: unknown) => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
     };
 
+    const ctl = new ControlClient(name, {
+      output: (pane, data) => {
+        // Splits are rare here and a phone shows one pane, so only the active
+        // one is rendered. Everything else is still running; it is just not
+        // what this screen is looking at.
+        if (active && pane !== active) return;
+        if (hold) hold.push(data);
+        else say({ t: "o", d: data });
+      },
+      exit: (reason) => { say({ t: "end", d: reason }); shutdown(); },
+    });
+    liveChildren.add(ctl.child);
+
+    function shutdown() {
+      if (closed) return;
+      closed = true;
+      ctl.close().finally(() => liveChildren.delete(ctl.child));
+      try { socket.close(); } catch { /* already closed */ }
+    }
+
+    // Size first, then find the pane, then prime the scrollback. Output that
+    // arrives in the meantime is held rather than dropped, so nothing is lost
+    // between attaching and the history landing.
     (async () => {
       try {
-        for await (const chunk of child.stdout) {
-          if (socket.readyState !== WebSocket.OPEN) break;
-          socket.send(chunk);
-        }
-      } catch { /* pipe torn down */ }
-      shutdown();
+        await ctl.send(`refresh-client -C ${cols}x${rows}`);
+        active = (await ctl.send(`display -p -t ${name} '#{pane_id}'`))[0] ?? "";
+        // -J unwraps lines the desk terminal wrapped at its own width, so the
+        // phone re-wraps them at its own rather than inheriting 130 columns.
+        const hist = await ctl.send(`capture-pane -p -e -J -S -1000 -t ${name}`);
+        say({ t: "hist", d: hist.join("\r\n") + "\r\n" });
+        const held = hold ?? [];
+        hold = null;
+        for (const d of held) say({ t: "o", d });
+      } catch {
+        hold = null;
+        shutdown();
+      }
     })();
 
-    socket.binaryType = "arraybuffer";
     socket.onmessage = (e) => {
-      const data = typeof e.data === "string"
-        ? new TextEncoder().encode(e.data)
-        : new Uint8Array(e.data as ArrayBuffer);
-      writer.write(data).catch(shutdown);
+      if (typeof e.data !== "string") return;
+      let m: { t?: string; d?: string; c?: number; r?: number };
+      try { m = JSON.parse(e.data); } catch { return; }
+
+      if (m.t === "i" && typeof m.d === "string" && m.d.length) {
+        for (const c of keysCommand(name, m.d)) ctl.send(c).catch(shutdown);
+      } else if (m.t === "r") {
+        // The whole point of control mode: a resize is a request, not a
+        // reconnect.
+        const c = Math.min(400, Math.max(20, Number(m.c) || cols));
+        const r = Math.min(200, Math.max(10, Number(m.r) || rows));
+        ctl.send(`refresh-client -C ${c}x${r}`).catch(shutdown);
+      } else if (m.t === "hist") {
+        (async () => {
+          try {
+            const h = await ctl.send(`capture-pane -p -e -J -S -1000 -t ${name}`);
+            say({ t: "hist", d: h.join("\r\n") + "\r\n" });
+          } catch { /* gone */ }
+        })();
+      }
     };
     socket.onclose = shutdown;
     socket.onerror = shutdown;
