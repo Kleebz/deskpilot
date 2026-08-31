@@ -20,6 +20,9 @@ const WEB = `${ROOT}/web`;
 
 const HOST = Deno.env.get("DESKPILOT_HOST") ?? "127.0.0.1";
 const PORT = Number(Deno.env.get("DESKPILOT_PORT") ?? "8790");
+// What this machine calls itself in a list of machines. The hostname is the
+// right default: it is what the user already calls the box.
+const NAME = Deno.env.get("DESKPILOT_NAME") ?? Deno.hostname();
 const TOKEN = (await readToken()).trim();
 
 async function readToken(): Promise<string> {
@@ -93,6 +96,38 @@ function normalizeCapture(raw: string): string {
 // list — observed: a session running on ws9 shown as "no session on this
 // screen" while the server was reporting it correctly.
 const NO_STORE = { "cache-control": "no-store" };
+
+// One phone talking to several machines means requests arrive cross-origin, so
+// the API has to answer them — but only for origins that are themselves
+// deskpilot hosts. The token still does the real authentication; this only
+// decides whose page a browser will let read the answer.
+//
+// Note what is NOT done here: credentials are never allowed. The dp cookie is
+// SameSite=Strict and same-origin only by design, so a cross-host client
+// authenticates with the bearer token and nothing rides along implicitly.
+const ORIGINS = (Deno.env.get("DESKPILOT_ORIGINS") ?? "")
+  .split(",").map((o) => o.trim()).filter(Boolean);
+
+function originOk(origin: string | null): boolean {
+  if (!origin) return true;                    // same-origin / non-browser
+  if (ORIGINS.includes(origin)) return true;
+  try {
+    const h = new URL(origin).hostname;
+    // Any host on the same tailnet is a peer by construction, and localhost
+    // covers a second instance during development.
+    return h.endsWith(".ts.net") || h === "localhost" || h === "127.0.0.1";
+  } catch { return false; }
+}
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  if (!origin || !originOk(origin)) return {};
+  return {
+    "access-control-allow-origin": origin,
+    "vary": "origin",
+    "access-control-allow-headers": "authorization, content-type",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+  };
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -221,6 +256,11 @@ async function handle(req: Request): Promise<Response> {
 
   if (!path.startsWith("/api/")) return new Response("not found", { status: 404 });
 
+  const origin = req.headers.get("origin");
+  if (!originOk(origin)) return fail("origin not allowed", 403);
+  const cors = corsHeaders(origin);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
   // ---- auth ----
   // Three sources, same secret. The cookie exists because iOS Safari evicts
   // localStorage after ~7 days of not visiting a site, which would re-prompt
@@ -238,8 +278,28 @@ async function handle(req: Request): Promise<Response> {
     : `dp=${TOKEN}; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly`;
   const withCookie = (r: Response) => {
     if (setCookie) r.headers.append("set-cookie", setCookie);
+    for (const [k, v] of Object.entries(cors)) r.headers.set(k, v);
     return r;
   };
+
+  // What this host can actually do. A phone holding several machines cannot
+  // assume they are alike — one may be a desktop, the next a headless box with
+  // no compositor at all — so it asks rather than guessing, and hides what is
+  // absent instead of offering controls that will fail.
+  if (req.method === "GET" && path === "/api/capabilities") {
+    const r = await run(`${SCRIPTS}/desk.sh`, ["capabilities"]);
+    let caps = {
+      windows: false, screenshot: false, input: false,
+      lock: "unknown", compositor: "none",
+    };
+    try { caps = { ...caps, ...JSON.parse(r.out) }; } catch { /* keep defaults */ }
+    return withCookie(json({
+      name: NAME,
+      terminal: true,       // the one thing every host has
+      sessions: true,
+      ...caps,
+    }));
+  }
 
   // ---- sessions ----
   if (req.method === "GET" && path === "/api/sessions") {
@@ -548,6 +608,11 @@ async function handle(req: Request): Promise<Response> {
     if (!SAFE_NAME.test(name)) return fail("bad session name");
     const cols = Math.min(400, Math.max(20, Number(url.searchParams.get("cols")) || 80));
     const rows = Math.min(200, Math.max(10, Number(url.searchParams.get("rows")) || 24));
+
+    // A WebSocket upgrade gets no CORS preflight, so the origin has to be
+    // checked here explicitly or any page could open a socket and rely on the
+    // token being in the query string of a URL it guessed.
+    if (!originOk(req.headers.get("origin"))) return fail("origin not allowed", 403);
 
     let socket: WebSocket, response: Response;
     try {

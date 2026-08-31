@@ -5,6 +5,7 @@
 #
 #   desk.sh state [ws]      window state, one line each (all, or one workspace)
 #   desk.sh json [ws]       same, as JSON
+#   desk.sh capabilities    what this host can do, as JSON (works with no WM)
 #   desk.sh locked          "locked" or "unlocked"; exit 0 if locked
 #   desk.sh shot [out] [ws] screenshot, refuses when locked
 #   desk.sh shot-window <addr> [out]   crop to one window at readable quality
@@ -35,6 +36,30 @@ have_env || {
   export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR/hypr" 2>/dev/null | head -1)
   export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 }
+# `capabilities` has to answer on a host with no compositor at all — that is
+# the entire point of asking — so it is handled before the check that would
+# refuse to run. Everything else still requires Hyprland.
+if [ "${1:-}" = capabilities ]; then
+  hypr=false; shot=false; input=false; lock=unknown
+  if have_env && hyprctl version >/dev/null 2>&1; then
+    hypr=true
+    command -v grim >/dev/null 2>&1 && shot=true
+    command -v ydotool >/dev/null 2>&1 &&
+      { [ -S "${YDOTOOL_SOCKET:-/run/user/$(id -u)/.ydotool_socket}" ] || pidof ydotoold >/dev/null 2>&1; } &&
+      input=true
+  fi
+  # Reported separately from `shot`: a host that cannot tell whether it is
+  # locked must refuse to capture, so the UI needs to know which of the two
+  # reasons it is looking at.
+  if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then lock=readable
+  elif command -v "${DESKPILOT_LOCK_PROCESS:-hyprlock}" >/dev/null 2>&1; then lock=readable
+  fi
+  printf '{"windows":%s,"screenshot":%s,"input":%s,"lock":"%s","compositor":"%s"}\n' \
+    "$hypr" "$([ "$shot" = true ] && [ "$lock" = readable ] && echo true || echo false)" \
+    "$input" "$lock" "$([ "$hypr" = true ] && echo hyprland || echo none)"
+  exit 0
+fi
+
 have_env || die "no Hyprland instance found"
 
 # Omarchy replaced hyprlock with a compositor-integrated lock, so `pidof

@@ -2,6 +2,8 @@
 // param, or a cookie it sets on first contact — so after one QR scan the
 // header below is belt-and-braces rather than the only thing holding auth.
 
+import { currentHost, addHost } from "./hosts.svelte.js";
+
 const KEY = "dp_token";
 
 function readToken() {
@@ -19,6 +21,9 @@ export let token = readToken();
 export function setToken(t) {
   token = t;
   localStorage.setItem(KEY, t);
+  // Keep the keyring in step, so the machine that served this page is a
+  // first-class entry rather than a special case.
+  addHost({ origin: location.origin, token: t, name: location.hostname });
 }
 
 // A dropped tailnet does not refuse connections, it swallows packets — so
@@ -34,14 +39,32 @@ export class Unreachable extends Error {
   }
 }
 
+// Requests go to whichever machine is selected. Same-origin stays a relative
+// URL so the cookie still applies there; every other host is absolute and
+// authenticates with its own token from the keyring.
+export function resolve(path, host) {
+  const h = host ?? currentHost();
+  const same = h.origin === location.origin;
+  return {
+    url: same ? `/api${path}` : `${h.origin}/api${path}`,
+    token: h.token || (same ? token : ""),
+    same,
+  };
+}
+
 export async function api(path, opts = {}) {
   let res;
+  const { url, token: tok, same } = resolve(path, opts.host);
   try {
-    res = await fetch(`/api${path}`, {
+    res = await fetch(url, {
       ...opts,
       signal: opts.signal ?? AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS),
+      // Never "include": the cookie is same-origin by design, and asking for
+      // credentials cross-origin would require the server to relax CORS in a
+      // way that makes every other site's page a possible caller.
+      credentials: same ? "same-origin" : "omit",
       headers: {
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(tok ? { authorization: `Bearer ${tok}` } : {}),
         ...(opts.headers ?? {}),
       },
     });

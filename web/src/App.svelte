@@ -3,6 +3,7 @@
   import Pane from "./lib/Pane.svelte";
   import Overview from "./lib/Overview.svelte";
   import { vis } from "./lib/visible.svelte.js";
+  import { hosts, currentHost, switchTo, back, hasPrevious, setCaps, capsFor } from "./lib/hosts.svelte.js";
 
   const WORKSPACES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -36,10 +37,17 @@
 
   async function refresh() {
     try {
-      const [s, w, l] = await Promise.all([
-        api("/sessions"), api("/desk/state"), api("/desk/locked"),
+      const here = currentHost().origin;
+      const [s, w, l, c] = await Promise.all([
+        api("/sessions"),
+        // A machine with no compositor answers these with nothing useful, so
+        // they must not be able to fail the whole refresh.
+        api("/desk/state").catch(() => []),
+        api("/desk/locked").catch(() => ({ locked: false })),
+        api("/capabilities").catch(() => null),
       ]);
       sessions = s; windows = w; locked = l.locked;
+      if (c) setCaps(here, c);
       needToken = false;
       offline = false;
       lastSeen = new Date();
@@ -67,6 +75,9 @@
   // is conditional.
   $effect(() => {
     void vis.wokeAt;
+    // Reading the selected machine here is what makes switching refetch at
+    // once rather than waiting out the poll interval.
+    void hosts.current;
     refresh();
     if (!vis.visible) return;
     const id = setInterval(refresh, 5000);
@@ -116,13 +127,32 @@
   <b class="brand">deskpilot</b>
   <button class="dots" onclick={() => jump(0)} title="all sessions">
     <i class:on={activeWs === 0} class="idx"></i>
-    {#each WORKSPACES as n}
-      <i class:on={n === activeWs} class:has={occupied(n)}></i>
-    {/each}
+    {#if capsFor().windows}
+      {#each WORKSPACES as n}
+        <i class:on={n === activeWs} class:has={occupied(n)}></i>
+      {/each}
+    {/if}
   </button>
   <span class:err={bad} class="dim status">{status}</span>
   <button class="reload" onclick={refresh}>↻</button>
 </header>
+
+{#if hosts.list.length > 1}
+  <!-- Machines live here rather than on a vertical swipe: dragging up and down
+       is how a terminal scrolls, and the two would fight on every session
+       screen. One tap switches; the strip stays visible so you can see where
+       the work is without leaving the session you are in. -->
+  <nav class="machines">
+    {#each hosts.list as h (h.origin)}
+      <button
+        class="machine"
+        class:on={h.origin === hosts.current}
+        onclick={() => (h.origin === hosts.current && hasPrevious() ? back() : switchTo(h.origin))}
+        title={h.origin}
+      >{h.name}</button>
+    {/each}
+  </nav>
+{/if}
 
 {#if offline && !needToken}
   <div class="offline">
@@ -169,6 +199,22 @@
 {/if}
 
 <style>
+  /* A scrollable strip rather than a wrapping row: the header must never grow
+     a second line, and this reads well up to five or six machines before it
+     wants to become a picker instead. */
+  .machines {
+    display: flex; gap: .35rem; overflow-x: auto; min-width: 0;
+    padding: .3rem .6rem; scrollbar-width: none;
+    border-bottom: 1px solid var(--card-line);
+  }
+  .machines::-webkit-scrollbar { height: 0; }
+  .machine {
+    flex: none; min-height: 44px; padding: 0 .8rem;
+    font-size: 12px; color: var(--dim);
+    background: var(--card); border: 1px solid var(--card-line);
+    border-radius: 999px; white-space: nowrap;
+  }
+  .machine.on { color: var(--ok); border-color: var(--ok); }
   /* Every child is flex:none except the status, which absorbs the slack and
      truncates. Without this the header overflowed below ~360px. */
   header {

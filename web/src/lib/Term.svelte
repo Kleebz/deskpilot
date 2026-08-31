@@ -4,6 +4,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import "@xterm/xterm/css/xterm.css";
   import { token } from "./api.js";
+  import { currentHost } from "./hosts.svelte.js";
 
   let { session, fontPx = 10, alive = false, busy = false, onactivity } = $props();
 
@@ -62,14 +63,19 @@
     if (!term) return;
     state = "connecting";
     quietUntil = performance.now() + 1200;
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    // A WebSocket cannot carry an Authorization header; the same-origin cookie
-    // covers it, and the token is a fallback for a session that has not got one.
+    // The socket goes to whichever machine is selected, which is why the token
+    // comes from the keyring rather than from this page. A WebSocket cannot
+    // carry an Authorization header, and the cookie is same-origin only, so for
+    // any other machine the query token is the only thing that authenticates.
+    const h = currentHost();
+    const base = new URL(h.origin);
+    const proto = base.protocol === "https:" ? "wss" : "ws";
     const q = new URLSearchParams({
       session, cols: String(term.cols), rows: String(term.rows),
     });
-    if (token) q.set("token", token);
-    ws = new WebSocket(`${proto}://${location.host}/api/term?${q}`);
+    const tok = h.token || token;
+    if (tok) q.set("token", tok);
+    ws = new WebSocket(`${proto}://${base.host}/api/term?${q}`);
 
     ws.onopen = () => (state = "live");
     ws.onmessage = (e) => {
