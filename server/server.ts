@@ -22,7 +22,14 @@ const HOST = Deno.env.get("DESKPILOT_HOST") ?? "127.0.0.1";
 const PORT = Number(Deno.env.get("DESKPILOT_PORT") ?? "8790");
 // What this machine calls itself in a list of machines. The hostname is the
 // right default: it is what the user already calls the box.
-const NAME = Deno.env.get("DESKPILOT_NAME") ?? Deno.hostname();
+//
+// Deno.hostname() needs --allow-sys, and widening the sandbox for a display
+// label is a bad trade — the scoped permission list is the reason this server
+// is Deno. /etc/hostname is covered by --allow-read, which is already granted.
+const NAME = Deno.env.get("DESKPILOT_NAME") ?? (() => {
+  try { return Deno.readTextFileSync("/etc/hostname").trim() || "deskpilot"; }
+  catch { return "deskpilot"; }
+})();
 const TOKEN = (await readToken()).trim();
 
 async function readToken(): Promise<string> {
