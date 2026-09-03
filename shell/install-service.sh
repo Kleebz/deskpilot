@@ -61,6 +61,7 @@ Type=simple
 WorkingDirectory=$REPO
 Environment=DESKPILOT_HOST=${DESKPILOT_HOST:-127.0.0.1}
 Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
+Environment=DESKPILOT_UNLOCK=${DESKPILOT_UNLOCK:-0}
 
 # --allow-run is scoped to two scripts and tmux. script(1) is gone: the
 # terminal used to need a pty from it, and control mode needs no pty at all.

@@ -14,6 +14,7 @@
 import { loadVapid, sendPush, type Subscription } from "./push.ts";
 import { ControlClient, keysCommand } from "./control.ts";
 import { Devices } from "./devices.ts";
+import { describe } from "./version.ts";
 
 const ROOT = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
 const SCRIPTS = `${ROOT}/scripts`;
@@ -27,6 +28,32 @@ const PORT = Number(Deno.env.get("DESKPILOT_PORT") ?? "8790");
 // Deno.hostname() needs --allow-sys, and widening the sandbox for a display
 // label is a bad trade — the scoped permission list is the reason this server
 // is Deno. /etc/hostname is covered by --allow-read, which is already granted.
+// Remote unlock types your desktop password into a live lock screen. It needs
+// ydotool, which needs a udev rule and group membership, and it is the single
+// most dangerous thing this server can do — so it is off unless someone turns
+// it on deliberately. Presence of ydotool is not consent.
+const UNLOCK_ENABLED = /^(1|true|yes|on)$/i.test(
+  Deno.env.get("DESKPILOT_UNLOCK") ?? "",
+);
+
+// Failed unlock attempts. PAM is slow on failure, which throttles guessing a
+// little, but not enough: an authenticated session could sit and grind. Five
+// wrong answers buys a five minute pause, which costs nothing when you mistype
+// and a great deal when you are guessing.
+const unlockFails: number[] = [];
+const UNLOCK_WINDOW_MS = 300_000;
+const UNLOCK_MAX = 5;
+
+function unlockLockedOut(): number {
+  const now = Date.now();
+  while (unlockFails.length && now - unlockFails[0] > UNLOCK_WINDOW_MS) {
+    unlockFails.shift();
+  }
+  if (unlockFails.length < UNLOCK_MAX) return 0;
+  return Math.ceil((UNLOCK_WINDOW_MS - (now - unlockFails[0])) / 1000);
+}
+
+const BUILD = describe(ROOT);
 const NAME = Deno.env.get("DESKPILOT_NAME") ?? (() => {
   try { return Deno.readTextFileSync("/etc/hostname").trim() || "deskpilot"; }
   catch { return "deskpilot"; }
@@ -424,6 +451,9 @@ async function handle(req: Request): Promise<Response> {
       terminal: true,       // the one thing every host has
       sessions: true,
       shellHook: shellHookInstalled(),
+      version: BUILD,
+      // `input` says ydotool works; `unlock` says it is allowed to be used.
+      unlock: UNLOCK_ENABLED && caps.input,
       repo: ROOT,
       ...caps,
     }));
@@ -799,6 +829,18 @@ async function handle(req: Request): Promise<Response> {
   // (/proc/*/cmdline is world-readable), never written to disk, and never
   // echoed back in a response or a log line.
   if (req.method === "POST" && path === "/api/unlock") {
+    if (!UNLOCK_ENABLED) {
+      return withCookie(fail(
+        "remote unlock is off — set DESKPILOT_UNLOCK=1 to enable it", 403,
+      ));
+    }
+    const waitFor = unlockLockedOut();
+    if (waitFor) {
+      return withCookie(json(
+        { error: `too many attempts — try again in ${Math.ceil(waitFor / 60)} min` },
+        429,
+      ));
+    }
     const body = await req.json().catch(() => null);
     const pw = body?.password;
     if (typeof pw !== "string" || !pw.length) return fail("password required");
@@ -813,9 +855,14 @@ async function handle(req: Request): Promise<Response> {
     const { code, stderr } = await child.output();
 
     if (code !== 0) {
+      // Counted only when the password was actually rejected. Refusing because
+      // the screen was never locked is not a guess, and holding it against the
+      // caller would let an unrelated mistake lock out a real unlock.
       const msg = new TextDecoder().decode(stderr).trim();
+      if (/rejected|still locked/i.test(msg)) unlockFails.push(Date.now());
       return withCookie(fail(msg || "unlock failed", 409));
     }
+    unlockFails.length = 0;
     return withCookie(json({ ok: true, locked: false }));
   }
 
@@ -1175,7 +1222,7 @@ setInterval(() => {
   tick().catch((e) => console.error("recorder:", e?.message ?? e));
 }, POLL_MS);
 
-console.log(`deskpilot listening on http://${HOST}:${PORT}`);
+console.log(`deskpilot ${BUILD} listening on http://${HOST}:${PORT}`);
 if (HOST !== "127.0.0.1") {
   console.log("WARNING: bound beyond localhost — make sure you are behind Tailscale");
 }

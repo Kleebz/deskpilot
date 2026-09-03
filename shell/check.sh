@@ -30,6 +30,16 @@ bad()  { printf '  \033[31m✗\033[0m %s\n     → %s\n' "$1" "$2"; fails=$((fai
 warn() { printf '  \033[33m!\033[0m %s\n     → %s\n' "$1" "$2"; warns=$((warns+1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
+head_ "Build"
+if v=$(curl -s -m 3 "http://127.0.0.1:${PORT}/api/capabilities" \
+        -H "authorization: Bearer $(cat "$HOME/.config/deskpilot/token" 2>/dev/null | tr -d '\n')" \
+        2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p') && [ -n "$v" ]; then
+  ok "deskpilot version $v (running)"
+else
+  git_sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)
+  warn "could not ask the running service its version" "checkout is at $git_sha"
+fi
+
 head_ "Core tools"
 for c in tmux jq grim hyprctl; do
   if command -v "$c" >/dev/null; then ok "$c"

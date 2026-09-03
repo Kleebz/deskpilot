@@ -40,3 +40,9 @@ DESKPILOT_QUALITY=70
 # skipped, so one list works across machines with different agents on them.
 # Defaults to claude alone.
 DESKPILOT_WRAP="claude codex aider opencode"
+
+# Remote unlock types your desktop password into the lock screen through PAM.
+# It needs ydotool (see shell/install-input.sh) and is OFF unless set here —
+# having ydotool installed is not the same as consenting to this.
+# Attempts are rate limited: five wrong answers pauses it for five minutes.
+#DESKPILOT_UNLOCK=1

@@ -310,7 +310,16 @@
   {/if}
   </div>
 
-  {#if locked}
+  {#if locked && caps.unlock === false}
+    <div class="why">
+      Screen is locked, so screenshots would return the password prompt. Sessions
+      and window state are unaffected.
+      <br /><br />
+      Remote unlock is off on this machine. It types your password into the lock
+      screen, so it has to be turned on deliberately —
+      <code>DESKPILOT_UNLOCK=1</code> in the config, then restart the service.
+    </div>
+  {:else if locked}
     <div class="why">
       Screen is locked, so screenshots would return the password prompt. Sessions and
       window state are unaffected.
