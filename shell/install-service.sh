@@ -70,8 +70,10 @@ Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
 # claude-tmux.sh sources it too. Plain KEY=VALUE with optional quotes is both.
 EnvironmentFile=-$CONF
 
-# --allow-run is scoped to two scripts and tmux. script(1) is gone: the
-# terminal used to need a pty from it, and control mode needs no pty at all.
+# --allow-run is scoped to one script and three binaries. sessions.sh moved
+# in-process, which removed jq; `ps` replaced reading /proc, because Deno 2.9
+# gates /proc behind --allow-all and taking that would defeat the point of
+# scoping anything. script(1) went when control mode removed the need for a pty.
 # This is why the server is Deno rather than Bun: adding a subprocess is a
 # deliberate act, and an injection bug still cannot reach rm, ssh or curl.
 #
@@ -84,7 +86,7 @@ ExecStart=$(command -v deno) run \\
   --allow-read \\
   --allow-env \\
   --allow-write=$HOME/.local/state/deskpilot \\
-  --allow-run=$REPO/scripts/desk.sh,$REPO/scripts/sessions.sh,tmux \\
+  --allow-run=$REPO/scripts/desk.sh,tmux,ps,hyprctl \\
   $REPO/server/server.ts
 
 # CRITICAL: tmux new-session starts the tmux *server* as a child of this

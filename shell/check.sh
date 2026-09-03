@@ -41,7 +41,9 @@ else
 fi
 
 head_ "Core tools"
-for c in tmux jq grim hyprctl; do
+# jq is no longer required: session listing moved in-process. It is still used
+# by desk.sh, so it is checked with the rest of the desk tier rather than here.
+for c in tmux ps; do
   if command -v "$c" >/dev/null; then ok "$c"
   else bad "$c missing" "install it — deskpilot cannot work without it"; fi
 done

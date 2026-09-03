@@ -6,6 +6,11 @@
 #   scripts/sessions.sh          JSON array
 #   scripts/sessions.sh --plain  one line per session
 #
+# NOTE: the server no longer calls this. Session listing moved into
+# server/sessions.ts so that a headless install needs no jq and so a compiled
+# binary can be one file. This stays as the standalone CLI — it is useful from
+# a keybind or an agent, and it is the reference the port was checked against.
+#
 # Deliberately agent-agnostic. It reports tmux sessions, not Claude sessions —
 # nothing here knows or cares what is running inside them. Swapping Claude Code
 # for another agent, or a bare shell, changes nothing.

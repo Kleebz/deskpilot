@@ -15,6 +15,7 @@ import { loadVapid, sendPush, type Subscription } from "./push.ts";
 import { ControlClient, keysCommand } from "./control.ts";
 import { Devices } from "./devices.ts";
 import { describe } from "./version.ts";
+import { listSessions } from "./sessions.ts";
 
 const ROOT = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
 const SCRIPTS = `${ROOT}/scripts`;
@@ -496,12 +497,12 @@ async function handle(req: Request): Promise<Response> {
 
   // ---- sessions ----
   if (req.method === "GET" && path === "/api/sessions") {
-    const r = await run(`${SCRIPTS}/sessions.sh`, []);
-    if (r.code !== 0) return fail(r.err || "sessions.sh failed", 500);
-    // sessions.sh stays agent-agnostic and knows nothing about state; the merge
-    // happens here so the script keeps being a plain tmux question.
-    let list: Record<string, unknown>[];
-    try { list = JSON.parse(r.out); } catch { return fail("bad session list", 500); }
+    // In-process rather than shelling out to sessions.sh: that script needed jq,
+    // which was the last dependency in the portable half — a headless box with
+    // no compositor still had to install a JSON processor to list its own
+    // sessions. Verified byte-identical to the shell version against live
+    // sessions before it was swapped in.
+    const list = await listSessions();
     const merged = list.map((x) => {
       const st = agentState.get(String(x.session));
       return st ? { ...x, ...st } : { ...x, state: "idle", since: 0 };
