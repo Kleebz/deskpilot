@@ -10,9 +10,14 @@
 # not exercise a missing hyprctl, a missing grim, an absent Wayland socket, or a
 # different $HOME.
 #
-# bwrap rather than docker: it is rootless, needs no daemon, and is already on
-# any Arch box. The sandbox shares the network namespace on purpose, so the test
-# can reach the server from outside it.
+# On a machine that already has no desktop — a CI runner, a server — no
+# isolation is needed and none is used: the host *is* the case under test.
+# Wrapping it in a sandbox there would only prove the sandbox works, and Ubuntu
+# runners refuse unprivileged user namespaces anyway.
+#
+# On a developer box with a compositor, bwrap supplies the missing conditions.
+# Rootless, no daemon, already present on Arch, and it shares the network
+# namespace on purpose so the test can reach the server from outside it.
 #
 # What is asserted:
 #   * the server starts with no compositor binaries on PATH
@@ -31,7 +36,21 @@ fail() { printf '  \033[31m✗\033[0m %s\n     → %s\n' "$1" "${2:-}"; FAILED=$
 FAILED=0
 
 [ -x "$BIN" ] || { echo "no binary at $BIN — run shell/build.sh first" >&2; exit 1; }
-command -v bwrap >/dev/null || { echo "bwrap is required (package: bubblewrap)" >&2; exit 1; }
+
+# Is this machine already the thing being tested?
+#
+# DESKPILOT_HEADLESS_HOST=1 forces the no-sandbox branch. Without it that branch
+# only ever runs in CI, which is the one place nobody watches it — and a branch
+# that has never been executed locally is where the next surprise lives.
+if [ "${DESKPILOT_HEADLESS_HOST:-0}" = 1 ]; then
+  SANDBOX=0
+elif command -v hyprctl >/dev/null 2>&1 || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+  SANDBOX=1
+  command -v bwrap >/dev/null \
+    || { echo "this host has a desktop, so bwrap is needed (package: bubblewrap)" >&2; exit 1; }
+else
+  SANDBOX=0
+fi
 
 # A free port, rather than a fixed one. bwrap forks, so a previous run that was
 # not torn down cleanly would still be holding it — and the test would talk to
@@ -40,6 +59,7 @@ PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print
 
 BOX=$(mktemp -d)
 cleanup() {
+  [ "${SANDBOX:-1}" = 0 ] && tmux kill-session -t headless 2>/dev/null
   # --die-with-parent is what makes this reliable; this is the belt.
   [ -n "${BOX_PID:-}" ] && kill "$BOX_PID" 2>/dev/null
   sleep 0.3
@@ -63,17 +83,32 @@ head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$BOX/home/.config/deskpil
 TOKEN=$(cat "$BOX/home/.config/deskpilot/token")
 cp "$BIN" "$BOX/deskpilot"
 
+# The sandbox sees /box; running directly, the same files are where they are.
+if [ "$SANDBOX" = 0 ]; then BOXROOT="$BOX"; else BOXROOT=/box; fi
+
 cat > "$BOX/start.sh" <<EOF
 #!/bin/sh
 # A session to find, then the server. /tmp is bound to a directory of the
 # test's own, so this cannot see or disturb the host's tmux server.
 tmux new-session -d -s headless 'exec bash --norc'
 tmux send-keys -t headless 'echo SANDBOX_OK' Enter
-exec /box/deskpilot
+exec $BOXROOT/deskpilot
 EOF
 chmod +x "$BOX/start.sh"
 
 box() {
+  if [ "$SANDBOX" = 0 ]; then
+    # Already headless. The same restricted PATH is still applied rather than
+    # inheriting the host's: leaving /usr/bin on it would let hyprctl through,
+    # and the test would be asserting "no desk.sh" while claiming "no
+    # compositor". The fresh HOME matters too — a compiled binary bakes its
+    # --allow-write path at build time, and a different HOME is where that
+    # silently goes wrong.
+    env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u DISPLAY \
+      PATH="$BOX/bin" HOME="$BOX/home" \
+      DESKPILOT_PORT="$PORT" "$@"
+    return
+  fi
   bwrap \
     --ro-bind /usr /usr --ro-bind /etc /etc \
     --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin \
@@ -86,8 +121,12 @@ box() {
     "$@"
 }
 
-echo "==> starting a server with no compositor, no Wayland, and a fresh HOME"
-box /box/start.sh > "$BOX/log" 2>&1 &
+if [ "$SANDBOX" = 1 ]; then
+  echo "==> this host has a desktop; sandboxing one that does not"
+else
+  echo "==> this host has no desktop, so it is the test"
+fi
+box "$BOXROOT/start.sh" > "$BOX/log" 2>&1 &
 BOX_PID=$!
 
 for _ in $(seq 1 30); do
