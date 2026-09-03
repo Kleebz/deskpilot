@@ -9,6 +9,8 @@
 // server can print a version would be a poor trade — reading a file is already
 // permitted, and a compiled binary has no .git anyway, which is why the
 // baked-in value takes precedence.
+import { COMMIT as BAKED } from "./build-info.ts";
+
 export const VERSION = "0.1.0";
 
 function fromGit(root: string): string {
@@ -30,7 +32,7 @@ function fromGit(root: string): string {
 }
 
 export function describe(root: string): string {
-  const baked = Deno.env.get("DESKPILOT_COMMIT");
+  const baked = BAKED || Deno.env.get("DESKPILOT_COMMIT");
   const sha = baked || fromGit(root);
   return sha ? `${VERSION}+${sha.slice(0, 7)}` : VERSION;
 }

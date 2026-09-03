@@ -16,10 +16,55 @@ import { ControlClient, keysCommand } from "./control.ts";
 import { Devices } from "./devices.ts";
 import { describe } from "./version.ts";
 import { listSessions } from "./sessions.ts";
+import { SCRIPTS_DIR as BAKED_SCRIPTS } from "./build-info.ts";
 
+// Two different roots, because the binary treats them differently.
+//
+// ROOT is where the *module* lives. Running from a checkout that is the repo;
+// inside a compiled binary it is the virtual filesystem deno mounts, which is
+// where --include puts the built web assets. So the UI travels inside the
+// binary and there is nothing to build on the target.
 const ROOT = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
-const SCRIPTS = `${ROOT}/scripts`;
 const WEB = `${ROOT}/web`;
+
+// desk.sh is deliberately NOT embedded. It is the compositor-specific half —
+// hyprctl, grim, ydotool — and keeping it as readable shell beside the binary
+// is what makes a second compositor someone's contribution rather than a
+// rewrite. A binary that hid it would be tidier and worse.
+//
+// Searched in the order that puts an operator's copy ahead of the packaged one.
+// Resolved on use, and cached only once it succeeds. Resolving once at startup
+// meant a desk.sh that appeared afterwards was never noticed — a package that
+// installs files after enabling the service, or a first boot where ordering is
+// not guaranteed, would report itself headless forever. Found by restoring
+// desk.sh under a running binary and watching it keep saying "no compositor".
+let scriptsCache = "";
+function scriptsDir(): string {
+  if (scriptsCache) return scriptsCache;
+
+  // An explicit override always wins, and whoever sets it is responsible for
+  // it being executable by this build.
+  const fromEnv = Deno.env.get("DESKPILOT_SCRIPTS");
+  if (fromEnv) return (scriptsCache = fromEnv);
+
+  // A compiled binary does not search. Its --allow-run allowlist is fixed at
+  // compile time, so the only desk.sh it can execute is the one at the baked
+  // path — and searching found a *different* copy next to the binary, cached
+  // it, and then failed to execute it, reporting the machine as headless with
+  // a perfectly good desk.sh sitting right there. A path it cannot run is
+  // worse than no path at all, because it looks like it worked.
+  if (BAKED_SCRIPTS) return (scriptsCache = BAKED_SCRIPTS);
+
+  // Running from a checkout, where permissions are whatever the caller passed.
+  // Not cached until it resolves, so a desk.sh installed after start is seen.
+  for (const dir of [`${ROOT}/scripts`, "/usr/share/deskpilot/scripts"]) {
+    try {
+      Deno.statSync(`${dir}/desk.sh`);
+      return (scriptsCache = dir);
+    } catch { /* keep looking */ }
+  }
+  return `${ROOT}/scripts`;
+}
 
 const HOST = Deno.env.get("DESKPILOT_HOST") ?? "127.0.0.1";
 const PORT = Number(Deno.env.get("DESKPILOT_PORT") ?? "8790");
@@ -85,14 +130,27 @@ function tokenOk(given: string | null): boolean {
   return diff === 0;
 }
 
+// A command that cannot be spawned at all is a normal state here, not an
+// exception. A headless host has no desk.sh — that is the entire premise of
+// capability negotiation — and a compiled binary may be looking at a path its
+// allowlist does not cover. Both used to throw straight out of the handler and
+// return 500, so a machine with no compositor could not even be *asked* what it
+// could do. Found by running the binary with desk.sh removed, which is the
+// first time that case has been exercised for real rather than simulated.
 async function run(cmd: string, args: string[]) {
-  const p = new Deno.Command(cmd, { args, stdout: "piped", stderr: "piped" });
-  const { code, stdout, stderr } = await p.output();
-  return {
-    code,
-    out: new TextDecoder().decode(stdout),
-    err: new TextDecoder().decode(stderr),
-  };
+  try {
+    const p = new Deno.Command(cmd, { args, stdout: "piped", stderr: "piped" });
+    const { code, stdout, stderr } = await p.output();
+    return {
+      code,
+      out: new TextDecoder().decode(stdout),
+      err: new TextDecoder().decode(stderr),
+    };
+  } catch (e) {
+    // 127 is what a shell reports for "command not found", which is what this
+    // is, and callers already treat any non-zero code as failure.
+    return { code: 127, out: "", err: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 // A capture is padded to the pane height, so most of it is blank: measured
@@ -441,7 +499,7 @@ async function handle(req: Request): Promise<Response> {
   }
 
   if (req.method === "GET" && path === "/api/capabilities") {
-    const r = await run(`${SCRIPTS}/desk.sh`, ["capabilities"]);
+    const r = await run(`${scriptsDir()}/desk.sh`, ["capabilities"]);
     let caps = {
       windows: false, screenshot: false, input: false,
       lock: "unknown", compositor: "none",
@@ -731,7 +789,7 @@ async function handle(req: Request): Promise<Response> {
 
     if (ws != null) {
       const term = Deno.env.get("DESKPILOT_TERMINAL") ?? "alacritty";
-      await run(`${SCRIPTS}/desk.sh`, ["place", String(ws), term, "-e", "tmux", "attach", "-t", name]);
+      await run(`${scriptsDir()}/desk.sh`, ["place", String(ws), term, "-e", "tmux", "attach", "-t", name]);
     }
     return withCookie(json({ ok: true, session: name, workspace: ws ?? null }));
   }
@@ -815,7 +873,7 @@ async function handle(req: Request): Promise<Response> {
     const exists = await run("tmux", ["has-session", "-t", name]);
     if (exists.code !== 0) return fail("no such session", 404);
     const term = Deno.env.get("DESKPILOT_TERMINAL") ?? "alacritty";
-    const r = await run(`${SCRIPTS}/desk.sh`,
+    const r = await run(`${scriptsDir()}/desk.sh`,
       ["place", String(ws), term, "-e", "tmux", "attach", "-t", name]);
     if (r.code !== 0) return fail(r.err || "place failed", 500);
     return withCookie(json({ ok: true, session: name, workspace: ws }));
@@ -846,7 +904,7 @@ async function handle(req: Request): Promise<Response> {
     const pw = body?.password;
     if (typeof pw !== "string" || !pw.length) return fail("password required");
 
-    const child = new Deno.Command(`${SCRIPTS}/desk.sh`, {
+    const child = new Deno.Command(`${scriptsDir()}/desk.sh`, {
       args: ["unlock"],
       stdin: "piped", stdout: "piped", stderr: "piped",
     }).spawn();
@@ -978,9 +1036,14 @@ async function handle(req: Request): Promise<Response> {
   }
 
   // ---- desktop ----
+  // An empty list, not an error: a host with no compositor has no windows,
+  // which is a true answer rather than a failure. The UI already hides window
+  // controls when capabilities say windows: false.
   if (req.method === "GET" && path === "/api/desk/state") {
     const ws = url.searchParams.get("ws") ?? "";
-    const r = await run(`${SCRIPTS}/desk.sh`, ["json", ws]);
+    const r = await run(`${scriptsDir()}/desk.sh`, ["json", ws]);
+    // 127 is "no desk.sh here", which is a headless host answering honestly.
+    if (r.code === 127) return withCookie(json([]));
     if (r.code !== 0) return fail(r.err || "desk.sh failed", 500);
     return withCookie(new Response(r.out, {
       headers: { "content-type": "application/json", ...NO_STORE },
@@ -992,7 +1055,7 @@ async function handle(req: Request): Promise<Response> {
     // definite "unlocked" is reported as locked, so an undetermined state
     // makes the UI hide the screenshot controls rather than offer a capture
     // that desk.sh is going to refuse anyway.
-    const r = await run(`${SCRIPTS}/desk.sh`, ["locked"]);
+    const r = await run(`${scriptsDir()}/desk.sh`, ["locked"]);
     const state = r.out.trim();
     return withCookie(json({ locked: state !== "unlocked", state }));
   }
@@ -1001,8 +1064,8 @@ async function handle(req: Request): Promise<Response> {
     const addr = url.searchParams.get("address");
     const out = `/tmp/deskpilot-shot-${Date.now()}.jpg`;
     const r = addr
-      ? await run(`${SCRIPTS}/desk.sh`, ["shot-window", addr, out])
-      : await run(`${SCRIPTS}/desk.sh`, ["shot", out, url.searchParams.get("ws") ?? ""]);
+      ? await run(`${scriptsDir()}/desk.sh`, ["shot-window", addr, out])
+      : await run(`${scriptsDir()}/desk.sh`, ["shot", out, url.searchParams.get("ws") ?? ""]);
     if (r.code !== 0) return fail(r.err.trim() || "capture failed", 409);
     const bytes = await Deno.readFile(out);
     await Deno.remove(out).catch(() => {});
@@ -1014,14 +1077,14 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === "POST" && path === "/api/desk/move") {
     const b = await req.json().catch(() => null);
     if (!b?.address || b?.workspace == null) return fail("address and workspace required");
-    const r = await run(`${SCRIPTS}/desk.sh`, ["move", b.address, String(b.workspace)]);
+    const r = await run(`${scriptsDir()}/desk.sh`, ["move", b.address, String(b.workspace)]);
     return withCookie(r.code === 0 ? json({ ok: true }) : fail(r.err || "move failed", 500));
   }
 
   if (req.method === "POST" && path === "/api/desk/tile") {
     const b = await req.json().catch(() => null);
     if (!b?.address) return fail("address required");
-    const r = await run(`${SCRIPTS}/desk.sh`, ["tile", b.address]);
+    const r = await run(`${scriptsDir()}/desk.sh`, ["tile", b.address]);
     return withCookie(r.code === 0 ? json({ ok: true }) : fail(r.err || "tile failed", 500));
   }
 

@@ -440,7 +440,14 @@
   /* Pink is what failure and attention look like everywhere else on this
      desktop; cyan is what active looks like. Reusing them means the state
      reads before the word does. */
-  .st { flex: none; font-size: 11px; padding: 0 .4rem; border-radius: 6px; border: 1px solid; }
+  /* Shrinkable, unlike the badge: at 320px a row carrying a workspace badge, a
+     name, a state and a path has more than fits, and something has to give.
+     The state is the least useful half-word of the four. */
+  .st {
+    flex: 0 1 auto; min-width: 0; font-size: 11px; padding: 0 .4rem;
+    border-radius: 6px; border: 1px solid;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .st.blocked { color: var(--err); border-color: var(--err); }
   .st.working { color: var(--ok); border-color: var(--ok); }
   .machines { display: flex; flex-direction: column; gap: .35rem; }
@@ -510,8 +517,15 @@
   }
   /* the tap-to-jump area; the kill button sits outside it so we never nest
      interactive elements inside a button */
+  /* justify-content is not decoration here. A <button> used as a flex container
+     inherits centring from the UA stylesheet, so when its children do not fit,
+     the overflow escapes BOTH sides — the workspace badge ended up 16px to the
+     left of the button that contains it, outside the pane entirely. Starting at
+     flex-start means overflow can only ever go one way, and truncation can
+     then deal with it. */
   .go {
     flex: 1; min-width: 0; display: flex; align-items: center; gap: .45rem;
+    justify-content: flex-start;
     border: 0; padding: .2rem 0; text-align: left; background: transparent;
   }
   .row.static { border-style: dashed; }

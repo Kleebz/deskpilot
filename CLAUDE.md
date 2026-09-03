@@ -51,6 +51,9 @@ Every one of these was a real bug here, and every one failed **silently**:
   to another session instead of closing them. Set it on the target before killing.
 - **Flex items default to `min-width: auto`** and will not shrink below content, which
   inflates panes past the viewport. Every flex container here needs `min-width: 0`.
+- **A `<button>` used as a flex container inherits centring from the UA stylesheet**, so
+  when its children overflow they escape *both* sides — a badge ended up 16px left of the
+  button holding it, outside the pane. Set `justify-content: flex-start` explicitly.
 - **API responses must be `no-store`** or the browser caches a stale session list.
 - **Anything gated on page visibility is untestable in a headless browser**, which
   reports `document.hidden: true`. Initial loads must never be gated on it.

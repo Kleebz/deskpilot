@@ -5,3 +5,4 @@ dist/
 token
 *.ts.net.crt
 *.ts.net.key
+server/build-info.ts.orig
