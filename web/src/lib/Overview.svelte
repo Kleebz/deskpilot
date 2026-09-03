@@ -378,9 +378,9 @@
       {#if hookMissing}
         <br /><br />
         <b>Agents you start at your desk will not appear here.</b>
-        Typing <code>claude</code> in a terminal runs it outside tmux, where nothing
-        can reach it. Start them with <code>dp claude</code>, or add the shell hook
-        once and plain <code>claude</code> works everywhere:
+        Starting one in a terminal runs it outside tmux, where nothing can reach it.
+        Add the shell hook once and they show up on their own — it wraps whichever
+        agents you list in <code>DESKPILOT_WRAP</code>, not just one:
         <div class="cmd">{hookHint}</div>
         <button class="sm" onclick={copyHint}>{copied ? "copied" : "copy"}</button>
       {/if}

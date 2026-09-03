@@ -34,3 +34,9 @@ DESKPILOT_PORT=8790
 # these are a floor on legibility rather than a bandwidth target.
 DESKPILOT_MAX_WIDTH=1200
 DESKPILOT_QUALITY=70
+
+# Which commands the shell hook wraps so they start inside tmux, and so become
+# reachable from the phone. Space separated; names that are not installed are
+# skipped, so one list works across machines with different agents on them.
+# Defaults to claude alone.
+DESKPILOT_WRAP="claude codex aider opencode"

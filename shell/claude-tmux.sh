@@ -8,8 +8,8 @@
 # directory, so `claude` in ~/Projects/zigwam becomes the tmux session `zigwam`.
 #
 # Deliberately agent-agnostic. `send-keys` types into a terminal and does not
-# care what is running there, so nothing above the tmux layer is tied to Claude
-# Code. Wrap another agent by adding one line at the bottom of this file.
+# care what is running there, so nothing above the tmux layer is tied to any one
+# agent. Which commands get wrapped is a config list, not something baked in.
 #
 # Desk experience is unchanged — you still just type `claude`.
 #
@@ -98,13 +98,32 @@ _deskpilot_wrap() {
     attach-session -t "$name"
 }
 
-# Full path, not a bare name: mise activation prepends its own
-# installs/claude/latest to PATH, which shadows ~/.local/bin/claude — the
-# Omarchy wrapper that runs `mise use -g claude` and actually pulls updates.
-# Resolving through PATH would run the already-installed binary forever.
-claude() { _deskpilot_wrap "$HOME/.local/bin/claude" "$@"; }
+# Which commands to wrap. Set DESKPILOT_WRAP in ~/.config/deskpilot/config to
+# change it — the whole point of this project is that the agent is swappable, so
+# hardcoding one name here was at odds with the design and meant a Codex user
+# had to edit a file we ship.
+#
+#   DESKPILOT_WRAP="claude codex aider opencode"
+#
+# A name that is not installed is skipped, so one list works across machines
+# that have different agents on them.
+[ -r "${DESKPILOT_CONFIG:-$HOME/.config/deskpilot/config}" ] &&
+  . "${DESKPILOT_CONFIG:-$HOME/.config/deskpilot/config}"
 
-# Add other agents the same way — the rest of deskpilot needs no changes:
-#   aider()   { _deskpilot_wrap aider "$@"; }
-#   codex()   { _deskpilot_wrap codex "$@"; }
-#   opencode(){ _deskpilot_wrap opencode "$@"; }
+for _dp_cmd in ${DESKPILOT_WRAP:-claude}; do
+  command -v "$_dp_cmd" >/dev/null 2>&1 || continue
+
+  # Resolve to a path now, while the name is still the binary rather than the
+  # function about to shadow it.
+  _dp_bin=$(command -v "$_dp_cmd")
+
+  # One exception, and it is Omarchy-specific: mise activation prepends its own
+  # installs/claude/latest to PATH, which shadows ~/.local/bin/claude — the
+  # wrapper that runs `mise use -g claude` and actually pulls updates. Resolving
+  # through PATH would run the already-installed binary forever.
+  [ "$_dp_cmd" = claude ] && [ -x "$HOME/.local/bin/claude" ] &&
+    _dp_bin="$HOME/.local/bin/claude"
+
+  eval "$_dp_cmd() { _deskpilot_wrap '$_dp_bin' \"\$@\"; }"
+done
+unset _dp_cmd _dp_bin
