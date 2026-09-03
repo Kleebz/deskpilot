@@ -15,6 +15,15 @@
 
 set -uo pipefail
 
+# --yes adds the shell wrapper without asking; --no-shell never adds it.
+DP_YES=""; DP_NO_SHELL=0
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y) DP_YES=y ;;
+    --no-shell) DP_NO_SHELL=1 ;;
+  esac
+done
+
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 ok=0; skip=0; fail=0
 
@@ -57,12 +66,50 @@ for s in install-permissions install-hooks; do
   fi
 done
 
+# Editing someone's shell profile without asking is the one genuinely invasive
+# thing this installer does, and it is not necessary: it exists so that typing
+# `claude` at your desk starts the agent inside tmux, where the phone can reach
+# it. Declining leaves everything else working — you just start agents with
+# `tmux new -s name <agent>` instead, and the app says so when the list is empty.
+#
+# --yes / --no-shell answers it for a scripted install, so nothing hangs waiting
+# on a terminal that is not there.
 say "Shell wrapper"
-if grep -qs "deskpilot/shell/claude-tmux.sh" "$HOME/.bashrc"; then
-  same "already sourced from ~/.bashrc"
+RC="${DESKPILOT_SHELL_RC:-$HOME/.bashrc}"
+if grep -qs "deskpilot/shell/claude-tmux.sh" "$RC"; then
+  same "already sourced from $(basename "$RC")"
+elif [ "${DP_NO_SHELL:-0}" = 1 ]; then
+  same "skipped (--no-shell)"
 else
-  echo "source $REPO/shell/claude-tmux.sh" >> "$HOME/.bashrc"
-  good "added to ~/.bashrc — takes effect in new terminals"
+  answer=${DP_YES:-}
+  if [ -z "$answer" ]; then
+    if [ -t 0 ]; then
+      echo
+      echo "    Agents you start at your desk only appear on your phone if they are"
+      echo "    running inside tmux. Adding one line to $(basename "$RC") makes that"
+      echo "    automatic for: ${DESKPILOT_WRAP:-claude}"
+      echo
+      echo "    Declining is fine — everything else works, and you can run this"
+      echo "    again later to change your mind."
+      echo
+      printf '    Add it? [Y/n] '
+      read -r answer < /dev/tty || answer=n
+    else
+      # No terminal to ask on, and silently editing a profile is exactly what
+      # this change exists to stop.
+      answer=n
+      same "not a terminal — skipping (pass --yes to add it)"
+    fi
+  fi
+  case "$answer" in
+    [Nn]*)
+      same "skipped — add it later with: shell/setup.sh --yes"
+      ;;
+    *)
+      echo "source $REPO/shell/claude-tmux.sh" >> "$RC"
+      good "added to $(basename "$RC") — takes effect in new terminals"
+      ;;
+  esac
 fi
 
 say "Service"
