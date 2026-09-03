@@ -166,9 +166,31 @@ That prints an eight-character code, good for ten minutes and one device:
   K7MQ3FDN
 ```
 
-On the phone, open the machine's address — `https://yourbox.tailnet.ts.net` — and enter
-the code. Then **add it to your home screen**; it is a PWA, and installing it is what gets
-you notifications and full-screen.
+On the phone, open the machine's address in a browser — `https://yourbox.tailnet.ts.net` —
+and enter the code.
+
+### Installing it on the phone
+
+It is a web app, so there is nothing to download. Open the address and the app offers to
+install itself:
+
+- **Android / Chrome** — a bar appears saying *"Add to your home screen for a full-screen
+  app"* with an **install** button. Tapping it is the whole process. If you dismissed it,
+  the browser's ⋮ menu has **Add to Home screen**.
+- **iOS / Safari** — Safari gives no install button, so the app tells you what to do
+  instead: tap **Share**, then **Add to Home Screen**. Use Safari; other iOS browsers are
+  less reliable at this.
+
+**Installing is worth doing rather than bookmarking.** It runs full-screen without browser
+chrome, it keeps its own storage so you are not re-pairing after a browser clean-up, and
+push notifications only work from an installed app on iOS.
+
+It needs HTTPS to be installable at all — a plain `http://` address is not a secure
+context and browsers will not offer it. That is what `shell/use-https.sh` is for.
+
+You can open the same address from a desktop browser too; it is the same app, and Chrome
+will offer to install it there as well. Useful for a look without reaching for your phone,
+though the layout is built for a phone.
 
 That device now has **its own credential**, not a copy of the machine's key. Lose the
 phone and you revoke that one device from the app; everything else stays paired.
