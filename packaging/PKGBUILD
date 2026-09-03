@@ -10,7 +10,7 @@
 
 pkgname=deskpilot-bin
 _pkgname=deskpilot
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Phone-facing remote for tmux sessions and a Hyprland desktop"
 arch=('x86_64')
