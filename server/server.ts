@@ -337,8 +337,16 @@ async function handle(req: Request): Promise<Response> {
   //
   // 400 days rather than 365: Chrome caps cookie lifetime at 400 and silently
   // truncates anything longer, so this asks for exactly what the ceiling is.
-  const setCookie =
-    `dp=${TOKEN}; Path=/; Max-Age=34560000; SameSite=Strict; HttpOnly`;
+  //
+  // Only on the session poll, not on every response. The app makes ~50 requests
+  // a minute, and re-emitting the token in a header that often is needless
+  // repetition of the one value here worth protecting. /api/sessions is polled
+  // for as long as the app is open, which is the same liveness signal at a
+  // fraction of the exposure.
+  const rolling = !cookie || path === "/api/sessions";
+  const setCookie = rolling
+    ? `dp=${TOKEN}; Path=/; Max-Age=34560000; SameSite=Strict; HttpOnly`
+    : undefined;
   const withCookie = (r: Response) => {
     if (setCookie) r.headers.append("set-cookie", setCookie);
     for (const [k, v] of Object.entries(cors)) r.headers.set(k, v);
