@@ -133,3 +133,24 @@ Required: `hyprctl`, `tmux`, `jq`, `grim`, `deno`, plus `npm` to build the UI.
 Needed for the optional pieces: `tailscale` (reach it from outside),
 `ydotool` (remote unlock), `qrencode` (nicer pairing QR — `pair.sh` falls back to Deno).
 `check.sh` reports on all of them.
+
+## Verifying phone layout
+
+Do not judge phone layout by eye or by desktop screenshots — both have lied
+here repeatedly. Measure it:
+
+```
+deno run -A tests/layout.ts            # against the local service
+deno run -A tests/layout.ts --url https://host --token abc
+```
+
+It drives headless Chromium over CDP at 320/360/390/430, and asserts the
+viewport is the size it asked for *before* trusting anything else — a resize
+silently not taking effect is how a layout once got declared "verified in a
+narrow viewport" at 941px.
+
+Then: every pane exactly one viewport wide, no header overflow, nothing
+escaping its own pane's clipping box, and every control at least 44px tall.
+
+All four assertions have been checked against deliberate breakage; a test that
+cannot fail is worse than no test.

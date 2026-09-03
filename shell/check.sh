@@ -168,6 +168,13 @@ else
   warn "deno not found" "cannot run the test suite"
 fi
 
+# Not run here: it starts a browser and talks to the live service, which is a
+# different kind of slow and flaky from a unit test. Named so it is findable.
+say_layout() {
+  printf '  \033[2m·\033[0m %s\n' "phone layout: deno run -A tests/layout.ts"
+}
+say_layout
+
 head_ "Reachability"
 if command -v tailscale >/dev/null && systemctl is-active --quiet tailscaled 2>/dev/null; then
   ts=$(tailscale ip -4 2>/dev/null | head -1)
