@@ -46,7 +46,7 @@ jobs:
           cp dist/deskpilot "$STAGE/"
           mkdir -p "$STAGE/scripts" "$STAGE/docs"
           cp scripts/desk.sh scripts/sessions.sh "$STAGE/scripts/"
-          cp README.md deskpilot.conf.example "$STAGE/"
+          cp README.md LICENSE deskpilot.conf.example "$STAGE/"
           cp docs/decisions.md "$STAGE/docs/"
           TAR="deskpilot-$VER-x86_64.tar.gz"
           tar -czf "$TAR" -C "$STAGE" .

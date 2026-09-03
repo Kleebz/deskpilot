@@ -159,4 +159,4 @@ Early. It has run daily on one Arch/Hyprland machine since August 2026, and CI e
 the headless path on every commit. It has not been run on a second compositor, and the
 packaging has been installed by exactly one person.
 
-MIT.
+Licensed under the [MIT License](LICENSE).
