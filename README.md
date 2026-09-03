@@ -69,18 +69,63 @@ That path is not cosmetic. The binary's subprocess allowlist is fixed when it is
 `/usr/share/deskpilot/scripts/desk.sh` is the only copy it may execute — a copy elsewhere
 is found and then refused, which looks exactly like "this machine has no compositor".
 
-Then:
+Then set it up and start it:
 
 ```
-deskpilot setup     # makes a token, writes the user service, says what to start
-deskpilot pair      # a one-time code for a device
+deskpilot setup
+systemctl --user daemon-reload
+systemctl --user enable --now deskpilot
 ```
 
-Open the machine's address on your phone, enter the code, add it to your home screen.
+`setup` makes a token, writes the user service, and prints those two commands. It runs
+`systemctl` for you nowhere — that would mean adding it to the server's subprocess
+allowlist, which is not a trade worth making to save you a paste.
 
-An Arch package is generated with every release — `PKGBUILD` is attached to the release
-alongside the tarball — but it has not been submitted to the AUR yet, so build it by hand
-for now.
+An Arch package is generated with every release — `PKGBUILD` is attached alongside the
+tarball — but it has not been submitted to the AUR yet, so build it by hand for now.
+
+## Connecting a phone
+
+deskpilot listens on loopback and expects something in front of it, so the phone has an
+address to reach. Today that is [Tailscale](https://tailscale.com):
+
+```
+shell/use-https.sh
+```
+
+That puts Tailscale Serve in front, which gives a real certificate — needed for the app to
+be installable — and keeps the port closed on every interface. On the same network you can
+skip it and use the machine's LAN address, but you will not get the PWA.
+
+Then, on the machine:
+
+```
+deskpilot pair
+```
+
+That prints an eight-character code, good for ten minutes and one device:
+
+```
+  K7MQ3FDN
+```
+
+On the phone, open the machine's address — `https://yourbox.tailnet.ts.net` — and enter
+the code. Then **add it to your home screen**; it is a PWA, and installing it is what gets
+you notifications and full-screen.
+
+That device now has **its own credential**, not a copy of the machine's key. Lose the
+phone and you revoke that one device from the app; everything else stays paired.
+
+**Adding more devices** is the same: run `deskpilot pair` again for each.
+
+**Adding more machines** works from the app. Install deskpilot on the second machine, run
+`deskpilot pair` there, then in the app open the index, tap **add a machine**, and give it
+that machine's address and code. A strip appears at the top once you have two, one tap to
+switch, with a dot on any machine that needs you.
+
+**If nothing appears in the app**, the usual cause is that agents started at your desk are
+running outside tmux, where nothing can reach them. The app says so on the empty screen
+and gives you the one line that fixes it.
 
 **It asks two things**, both editing files outside deskpilot, both declinable, both
 reversible by running `setup` again:
@@ -92,15 +137,9 @@ reversible by running `setup` again:
 `--yes` accepts both for a scripted install; `--no-shell` and `--no-claude` refuse them
 individually. With no terminal attached it declines rather than assuming.
 
-## Reaching it from outside
-
-deskpilot binds loopback and expects something in front of it. Today that is
-[Tailscale](https://tailscale.com) — `shell/use-https.sh` puts Tailscale Serve in front,
-which gives a real certificate and keeps the port closed on every interface.
-
-That means a VPN client on the phone, which is a real cost and an honest one. Removing it
-means WebRTC with a signalling server, which is designed and not built —
-[decisions.md](docs/decisions.md) has the reasoning, including why a relay that can read
+Requiring Tailscale means a VPN client on the phone, which is a real cost and an honest
+one. Removing it means WebRTC with a signalling server — designed, not built.
+[decisions.md](docs/decisions.md) has the reasoning, including why a relay that could read
 your traffic was rejected twice.
 
 ## Security

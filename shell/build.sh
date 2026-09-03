@@ -73,4 +73,8 @@ echo
 echo "  $OUT/deskpilot        $(du -h "$OUT/deskpilot" | cut -f1)"
 echo "  $OUT/scripts/desk.sh  (not embedded, on purpose)"
 echo
-echo "Run it with:  DESKPILOT_SCRIPTS=$OUT/scripts $OUT/deskpilot"
+echo "Install the scripts before running it — the binary's allowlist is fixed at"
+echo "compile time, so $SCRIPTS_TARGET/desk.sh is the only copy it may execute:"
+echo
+echo "  sudo install -Dm755 $OUT/scripts/*.sh -t $SCRIPTS_TARGET/"
+echo "  $OUT/deskpilot setup"
