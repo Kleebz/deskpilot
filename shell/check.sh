@@ -77,6 +77,24 @@ case "$lock_now" in
         "no compositor lock helper and no '$LOCKPROC' process — captures and unlock both refuse" ;;
 esac
 
+head_ "tmux"
+# deskpilot needs no tmux configuration — verified against each non-default
+# setting this machine happened to have. detach-on-destroy is handled by setting
+# it on the target before a kill, `mouse` stopped mattering when scrollback moved
+# into the client, and history-limit only has to be non-zero.
+#
+# The single exception is window-size manual, which pins a window to a fixed
+# size and makes tmux ignore what a client asks for — so the phone's resize is
+# silently discarded and the terminal renders at the desk's width forever.
+# Measured: latest, smallest and largest all honour it; manual does not.
+wsize=$(tmux show -gv window-size 2>/dev/null || echo latest)
+if [ "$wsize" = manual ]; then
+  bad "window-size is manual" \
+      "the phone cannot resize the terminal; set it to latest in your tmux.conf"
+else
+  ok "window-size $wsize (phone can resize the terminal)"
+fi
+
 head_ "Terminal"
 if command -v "$TERMINAL" >/dev/null; then ok "$TERMINAL"
 else bad "$TERMINAL not found" "set DESKPILOT_TERMINAL in the config to one you have"; fi
