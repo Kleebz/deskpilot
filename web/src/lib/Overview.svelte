@@ -529,7 +529,11 @@
     border: 0; padding: .2rem 0; text-align: left; background: transparent;
   }
   .row.static { border-style: dashed; }
-  .nm { font-weight: 600; color: var(--ok); flex: 0 1 auto; min-width: 0;
+  /* The name identifies the row, so it yields last rather than first. It was
+     collapsing to "deskpil…" while a fixed-width "kill" button kept every
+     pixel it asked for — visible the moment the interface was screenshotted at
+     390px rather than looked at on a desktop. */
+  .nm { font-weight: 600; color: var(--ok); flex: 1 1 auto; min-width: 4.5rem;
          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .path {
     flex: 1; min-width: 0; font-size: 11px;
@@ -548,6 +552,11 @@
   /* Pushed to the right of its row and allowed to shrink away first: it is
      the least important thing on the line until you are deciding what to kill. */
   .age { flex: 0 0 auto; margin-left: auto; font-size: 11px; white-space: nowrap; }
+  /* "blocked on Bash" beats "idle 5h": when there is state to report, the clock
+     is the thing worth dropping on a narrow screen. */
+  @media (max-width: 430px) {
+    .row:has(.st) .age { display: none; }
+  }
   .clearall { align-self: flex-start; margin: .1rem 0 .35rem; }
 
   .why {

@@ -51,6 +51,10 @@ jobs:
           TAR="deskpilot-$VER-x86_64.tar.gz"
           tar -czf "$TAR" -C "$STAGE" .
           sha256sum "$TAR" > "$TAR.sha256"
+          # A fixed name as well, because `latest/download/` cannot resolve a
+          # filename containing the version — the installer reads this to learn
+          # both what to fetch and what it should hash to.
+          cp "$TAR.sha256" deskpilot-checksums.txt
           echo "tar=$TAR" >> "$GITHUB_OUTPUT"
           echo "sha=$(cut -d' ' -f1 "$TAR.sha256")" >> "$GITHUB_OUTPUT"
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
@@ -68,5 +72,7 @@ jobs:
           files: |
             ${{ steps.pack.outputs.tar }}
             ${{ steps.pack.outputs.tar }}.sha256
+            deskpilot-checksums.txt
+            shell/install.sh
             PKGBUILD
           generate_release_notes: true
