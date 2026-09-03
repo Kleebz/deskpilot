@@ -134,6 +134,54 @@ Needed for the optional pieces: `tailscale` (reach it from outside),
 `ydotool` (remote unlock), `qrencode` (nicer pairing QR — `pair.sh` falls back to Deno).
 `check.sh` reports on all of them.
 
+## Installing
+
+**Arch / Omarchy**
+
+```
+yay -S deskpilot-bin      # or paru, or makepkg from the PKGBUILD on the release
+deskpilot setup           # asks two questions, then prints a pairing code
+```
+
+**Anywhere else**
+
+Download the tarball from the [releases page](https://github.com/Kleebz/deskpilot/releases),
+check it against the published `.sha256`, then put `desk.sh` where the binary is
+compiled to look for it:
+
+```
+tar xzf deskpilot-*-x86_64.tar.gz
+sudo install -Dm755 deskpilot /usr/bin/deskpilot
+sudo install -Dm755 scripts/*.sh -t /usr/share/deskpilot/scripts/
+```
+
+That path is not cosmetic: the binary's subprocess allowlist is fixed when it is
+built, so `/usr/share/deskpilot/scripts/desk.sh` is the only copy it is
+permitted to execute. A copy elsewhere is found and then refused, which looks
+like "this machine has no compositor".
+
+**What is actually required:** `tmux`, and nothing else. `hyprland`, `grim` and
+`ydotool` are optional — the server reports what it can do and the app hides the
+rest, so a headless box serves sessions and terminals and simply says it has no
+windows. That path is tested, not assumed: `tests/headless.sh` runs the real
+binary in a sandbox with no compositor, no Wayland and a different `$HOME`.
+
+**What it will ask you.** Two things, both editing files outside deskpilot, both
+declinable and both reversible by running `setup` again:
+
+- one line in your shell profile, so agents you start at your desk appear on
+  your phone
+- notification hooks and permission rules in `~/.claude/settings.json`
+
+`--yes` accepts both for a scripted install; `--no-shell` and `--no-claude`
+refuse them individually. With no terminal attached it declines rather than
+assuming.
+
+**Remote unlock is off** unless you set `DESKPILOT_UNLOCK=1`. It types your
+password into the lock screen and needs `ydotool`'s udev rule, so having the
+tool installed is not the same as consenting to it being reachable.
+
+
 ## Verifying phone layout
 
 Do not judge phone layout by eye or by desktop screenshots — both have lied

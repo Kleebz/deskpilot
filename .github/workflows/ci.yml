@@ -1,0 +1,70 @@
+# Every check that can run without a desktop.
+#
+# The layout and headless suites both need a running server, and both get one
+# from the compiled binary rather than a source checkout — which means CI also
+# exercises the artifact people actually install, not just the code.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Typecheck
+        run: deno check server/server.ts
+
+      - name: Unit tests
+        run: deno test --allow-read --allow-write --allow-env tests/
+
+      - name: Shell syntax
+        run: for f in shell/*.sh scripts/*.sh tests/*.sh; do bash -n "$f" || exit 1; done
+
+  binary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Dependencies
+        # tmux because it is the substrate; bubblewrap for the headless sandbox;
+        # chromium for the layout measurements.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux bubblewrap chromium-browser
+          npm --prefix web ci
+
+      - name: Build the binary
+        run: shell/build.sh dist /usr/share/deskpilot/scripts
+
+      - name: A host with no desktop
+        # The ubuntu runner has no compositor at all, so this is the real case
+        # rather than a simulation of it.
+        run: tests/headless.sh dist/deskpilot
+
+      - name: Phone layout
+        run: |
+          mkdir -p ~/.config/deskpilot ~/.local/state/deskpilot
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > ~/.config/deskpilot/token
+          DESKPILOT_PORT=8790 ./dist/deskpilot &
+          for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null http://127.0.0.1:8790/ && break; done
+          deno run -A tests/layout.ts --url http://127.0.0.1:8790
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deskpilot-binary
+          path: dist/
+          retention-days: 7

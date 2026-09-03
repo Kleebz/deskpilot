@@ -1,0 +1,57 @@
+# Maintainer: Jacob Morosoff <jacob.morosoff@gmail.com>
+#
+# A -bin package: it installs a prebuilt release rather than compiling here.
+# Building from source would need deno and npm on every user's machine, which is
+# the toolchain the single binary exists to remove.
+#
+# Deliberately installs nothing into a user's home and asks nothing. Packages
+# should not edit dotfiles or prompt; `deskpilot setup` is where the two
+# questions live, and the user runs that when they choose to.
+
+pkgname=deskpilot-bin
+_pkgname=deskpilot
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Phone-facing remote for tmux sessions and a Hyprland desktop"
+arch=('x86_64')
+url="https://github.com/Kleebz/deskpilot"
+license=('MIT')
+
+# tmux is the only hard dependency: it is the session substrate, and the
+# portable half is useless without it.
+depends=('tmux')
+
+# The desk tier — windows, screenshots, unlock — is capability-negotiated, so
+# the server reports these as unavailable rather than failing when they are
+# absent. hyprland brings hyprctl with it.
+optdepends=(
+  'hyprland: window listing, moving and tiling'
+  'grim: screenshots'
+  'jq: the standalone scripts/ CLI tools'
+  'ydotool: remote unlock and input injection (off unless DESKPILOT_UNLOCK=1)'
+  'qrencode: a QR code when pairing instead of a typed code'
+)
+
+provides=('deskpilot')
+conflicts=('deskpilot')
+
+source=("$_pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/deskpilot-$pkgver-x86_64.tar.gz")
+sha256sums=('SKIP')  # replaced by the release workflow
+
+package() {
+  cd "$srcdir"
+
+  install -Dm755 deskpilot "$pkgdir/usr/bin/deskpilot"
+
+  # Not embedded in the binary, on purpose. desk.sh is the compositor-specific
+  # half, and keeping it as readable shell is what makes a second compositor
+  # somebody's contribution rather than a rewrite. This path is the one the
+  # binary was compiled to allow itself to execute — it can run no other copy.
+  install -Dm755 scripts/desk.sh "$pkgdir/usr/share/deskpilot/scripts/desk.sh"
+  install -Dm755 scripts/sessions.sh "$pkgdir/usr/share/deskpilot/scripts/sessions.sh"
+
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$_pkgname/README.md"
+  install -Dm644 docs/decisions.md "$pkgdir/usr/share/doc/$_pkgname/decisions.md"
+  install -Dm644 deskpilot.conf.example \
+    "$pkgdir/usr/share/doc/$_pkgname/deskpilot.conf.example"
+}

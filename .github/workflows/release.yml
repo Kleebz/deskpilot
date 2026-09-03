@@ -1,0 +1,72 @@
+# Cut a release from a tag.
+#
+# The artifact is what the AUR package downloads, so the layout of this tarball
+# and the paths in packaging/PKGBUILD have to agree: the binary can only execute
+# the desk.sh at the path it was compiled to allow.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux bubblewrap
+          npm --prefix web ci
+
+      - name: Build
+        # The default scripts path is the packaged one, and it must match what
+        # PKGBUILD installs.
+        run: shell/build.sh dist /usr/share/deskpilot/scripts
+
+      - name: Refuse to ship a binary that fails the headless case
+        run: tests/headless.sh dist/deskpilot
+
+      - name: Package
+        id: pack
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          STAGE=$(mktemp -d)
+          cp dist/deskpilot "$STAGE/"
+          mkdir -p "$STAGE/scripts" "$STAGE/docs"
+          cp scripts/desk.sh scripts/sessions.sh "$STAGE/scripts/"
+          cp README.md deskpilot.conf.example "$STAGE/"
+          cp docs/decisions.md "$STAGE/docs/"
+          TAR="deskpilot-$VER-x86_64.tar.gz"
+          tar -czf "$TAR" -C "$STAGE" .
+          sha256sum "$TAR" > "$TAR.sha256"
+          echo "tar=$TAR" >> "$GITHUB_OUTPUT"
+          echo "sha=$(cut -d' ' -f1 "$TAR.sha256")" >> "$GITHUB_OUTPUT"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: A PKGBUILD that matches this release
+        # Written out with the real checksum, so the AUR package is a copy of
+        # this file rather than something maintained by hand and drifting.
+        run: |
+          sed -e "s/^pkgver=.*/pkgver=${{ steps.pack.outputs.ver }}/" \
+              -e "s/^sha256sums=.*/sha256sums=('${{ steps.pack.outputs.sha }}')/" \
+              packaging/PKGBUILD > PKGBUILD
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.pack.outputs.tar }}
+            ${{ steps.pack.outputs.tar }}.sha256
+            PKGBUILD
+          generate_release_notes: true
