@@ -17,6 +17,31 @@
   let adding = $state(false);
   let pasted = $state("");
 
+  // Which session is being renamed, and to what. A session is named after the
+  // directory it started in, so "deskpilot" tells you where it is and nothing
+  // about what it is doing — worth being able to say "review" or "hotfix".
+  let renaming = $state("");
+  let newName = $state("");
+
+  function startRename(name) {
+    renaming = name;
+    newName = name;
+  }
+
+  async function saveRename(ev) {
+    ev.preventDefault();
+    const to = newName.trim();
+    if (!to || to === renaming) { renaming = ""; return; }
+    try {
+      await post("/sessions/rename", { session: renaming, name: to });
+      onstatus(`renamed to ${to}`);
+      renaming = "";
+      onchanged();
+    } catch (e) {
+      onstatus(e.message, true);
+    }
+  }
+
   function addMachine(ev) {
     ev.preventDefault();
     let url;
@@ -246,8 +271,18 @@
           <span class="path dim">{s.state === "blocked" && s.detail ? s.detail : tilde(s.path)}</span>
           <span class="age dim">{idleFor(s)}</span>
         </button>
+        <button class="sm" title="rename" aria-label="rename {s.session}"
+                onclick={() => startRename(s.session)}>✎</button>
         <button class="sm danger" onclick={() => kill(s.session)}>kill</button>
       </div>
+      {#if renaming === s.session}
+        <form class="unlock rn" onsubmit={saveRename}>
+          <input bind:value={newName} placeholder="new name"
+                 autocapitalize="off" autocorrect="off" spellcheck="false" />
+          <button disabled={!newName.trim()}>save</button>
+          <button type="button" class="sm" onclick={() => (renaming = "")}>cancel</button>
+        </form>
+      {/if}
     {/each}
   {:else if !detached.length}
     <div class="why">
@@ -303,6 +338,9 @@
   .st.blocked { color: var(--err); border-color: var(--err); }
   .st.working { color: var(--ok); border-color: var(--ok); }
   .machines { display: flex; flex-direction: column; gap: .35rem; }
+  /* Sits under the row it belongs to rather than replacing it, so the name you
+     are changing stays visible while you type the new one. */
+  .rn { margin: .1rem 0 .5rem; }
   .badge.live { color: var(--ok); border-color: var(--ok); }
 
   /* Machines are an axis above sessions, not another item in the same list, so

@@ -633,6 +633,40 @@ async function handle(req: Request): Promise<Response> {
   // Kill a session outright. Separate from closing its window, which only
   // detaches — that distinction is tmux's whole point, but it means orphaned
   // sessions need an explicit way to die or they accumulate invisibly.
+  // A session is named after the directory it started in, which is a decent
+  // default and often not what you want to read on a phone — "deskpilot" says
+  // where, not what. Renaming is tmux's own operation; the work here is that
+  // everything keyed by the name has to move with it.
+  if (req.method === "POST" && path === "/api/sessions/rename") {
+    const body = await req.json().catch(() => null);
+    const from = String(body?.session ?? "");
+    const to = String(body?.name ?? "").trim();
+    if (!SAFE_NAME.test(from)) return fail("bad session name");
+    if (!SAFE_NAME.test(to)) {
+      return fail("names may use letters, numbers, dot, dash and underscore");
+    }
+    if (from === to) return withCookie(json({ ok: true, name: to }));
+
+    // tmux would happily merge two sessions' clients if the target existed.
+    const exists = await run("tmux", ["has-session", "-t", to]);
+    if (exists.code === 0) return fail(`there is already a session called ${to}`, 409);
+
+    const r = await run("tmux", ["rename-session", "-t", from, to]);
+    if (r.code !== 0) return fail(r.err || "no such session", 404);
+
+    // Carry the state across, or a renamed session forgets it was blocked —
+    // which is the one thing the console exists to remember.
+    const st = agentState.get(from);
+    if (st) { agentState.delete(from); agentState.set(to, st); saveAgentState(); }
+    const w = watched.get(from);
+    if (w) { watched.delete(from); watched.set(to, w); }
+    const pend = pending.get(from);
+    if (pend) { pending.delete(from); pending.set(to, pend); }
+
+    console.log(`rename: ${from} -> ${to}`);
+    return withCookie(json({ ok: true, name: to }));
+  }
+
   if (req.method === "POST" && path === "/api/sessions/kill") {
     const body = await req.json().catch(() => null);
     const name = body?.session ?? "";
