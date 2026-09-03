@@ -54,10 +54,24 @@ second compositor is somebody's afternoon rather than a rewrite.
 ## Install
 
 Every release ships a single binary — the server and the web UI in one file, so the
-target needs neither Deno nor npm.
+target needs neither Deno nor npm. There is also a [source
+build](#building-from-source) if you would rather compile it yourself.
 
-Download the tarball from [releases](https://github.com/Kleebz/deskpilot/releases), check
-it against the published `.sha256`, then:
+The quick way, which verifies the published checksum before installing anything:
+
+```
+curl -fsSL https://github.com/Kleebz/deskpilot/releases/latest/download/install.sh -o install.sh
+less install.sh          # it installs as root; read it first
+sh install.sh
+```
+
+Piping straight into `sh` works too. It is not suggested first on purpose: this is a tool
+that runs commands on your machine, which makes it a poor candidate for executing code you
+have not read.
+
+By hand, if you prefer — download the tarball from
+[releases](https://github.com/Kleebz/deskpilot/releases), check it against the published
+`.sha256`, then:
 
 ```
 tar xzf deskpilot-*-x86_64.tar.gz
@@ -83,6 +97,49 @@ allowlist, which is not a trade worth making to save you a paste.
 
 An Arch package is generated with every release — `PKGBUILD` is attached alongside the
 tarball — but it has not been submitted to the AUR yet, so build it by hand for now.
+
+## Building from source
+
+You need `deno`, `node` and `npm` — none of which the released binary requires, which is
+the point of shipping one.
+
+```
+git clone https://github.com/Kleebz/deskpilot
+cd deskpilot
+npm --prefix web install
+```
+
+From there, two paths.
+
+**Run it from the checkout.** No binary; the service runs `deno` against the repo, so
+edits take effect on a restart. This is the development setup and the one to use if you
+intend to change anything:
+
+```
+shell/setup.sh
+```
+
+It builds the UI, installs a user service pointing at this directory, and runs the checks.
+It asks before touching your shell profile or `~/.claude/settings.json`, and `--yes`,
+`--no-shell` and `--no-claude` answer for it. Because the service points at the checkout,
+**moving or deleting the directory breaks it** — re-run `shell/setup.sh` after a move.
+
+**Or build the binary yourself**, which is what the release does:
+
+```
+shell/build.sh
+sudo install -Dm755 dist/deskpilot /usr/bin/deskpilot
+sudo install -Dm755 dist/scripts/*.sh -t /usr/share/deskpilot/scripts/
+deskpilot setup
+```
+
+`build.sh` takes the scripts path as its second argument and defaults to
+`/usr/share/deskpilot/scripts`. That value is compiled into the binary's allowlist, so if
+you install `desk.sh` somewhere else you have to build with that path — the two are not
+independent.
+
+Verified from a clean clone: `npm install`, build, typecheck, tests and the binary all
+work with no prior state.
 
 ## Connecting a phone
 

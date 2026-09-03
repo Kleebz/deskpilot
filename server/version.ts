@@ -11,7 +11,7 @@
 // baked-in value takes precedence.
 import { COMMIT as BAKED } from "./build-info.ts";
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.1.2";
 
 function fromGit(root: string): string {
   try {
