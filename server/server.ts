@@ -15,6 +15,7 @@ import { loadVapid, sendPush, type Subscription } from "./push.ts";
 import { ControlClient, keysCommand } from "./control.ts";
 import { Devices } from "./devices.ts";
 import { describe } from "./version.ts";
+import { runCommand } from "./cli.ts";
 import { listSessions } from "./sessions.ts";
 import { SCRIPTS_DIR as BAKED_SCRIPTS } from "./build-info.ts";
 
@@ -100,6 +101,13 @@ function unlockLockedOut(): number {
 }
 
 const BUILD = describe(ROOT);
+
+// Subcommands run and exit before the server exists. A packaged binary is all
+// its user has — shell/setup.sh is in the repo, not the package — so making a
+// token, writing the unit and pairing a device have to be reachable here.
+if (Deno.args.length > 0) {
+  Deno.exit(await runCommand(Deno.args[0], BUILD));
+}
 const NAME = Deno.env.get("DESKPILOT_NAME") ?? (() => {
   try { return Deno.readTextFileSync("/etc/hostname").trim() || "deskpilot"; }
   catch { return "deskpilot"; }

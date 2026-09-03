@@ -1,153 +1,63 @@
 # deskpilot
 
-Prompt Claude Code — and steer the Omarchy desktop it runs on — from a phone.
+A phone-facing remote for the machine you left running.
 
-The goal is not a shrunk-down desktop. It is: kick off work, steer it, and have Claude
-*interpret* what is on screen and report back in prose. Pixels are the exception, not
-the medium.
+Coding agents work for minutes at a time and then stop to ask a question. If you are not
+at the desk when that happens, the work is not slow — it is stopped. deskpilot puts those
+sessions on your phone: see which one is blocked and on what, answer it, start new work,
+and — on Hyprland — look at the screen and move windows.
 
-## Design in one line
+It runs entirely on your own hardware. There is no service in the middle, no account, and
+nothing leaves your machine except the notifications you asked for.
 
-Three tiers of visibility, cheapest first — window state as text (~1 KB), a cropped
-still on demand (~70 KB), a live stream only if it earns its place.
-
-Step-by-step install is in **[docs/setup.md](docs/setup.md)** — ordered, each step with
-a verification and a rollback. Full reasoning, including the options rejected and why,
-is in [docs/decisions.md](docs/decisions.md).
-
-## Start here
-
-```bash
-shell/setup.sh
+```
+┌─ machines ────────────────────┐
+│  ● desk       needs you       │   a session blocked on a permission prompt,
+│  ○ buildbox                   │   sorted to the top, saying what it is asking
+├─ sessions ────────────────────┤
+│  ws2  api        Bash?  rm -rf│
+│  ws6  deskpilot  working      │
+│  ws7  notes                   │
+└───────────────────────────────┘
 ```
 
-Does everything that can be automated — builds the UI, links the skill, merges the
-Claude Code settings, sources the wrapper, installs the service, then runs the checks.
-Idempotent, so re-run it after pulling or moving the repo. It finishes by printing the
-three things no script can do for you: authenticating Tailscale, pairing the phone, and
-granting notification permission on the device.
+## What it is not
 
-That gets you a working app on `localhost`. To reach it from outside the house, add
-Tailscale and run `shell/use-https.sh` — see [docs/setup.md](docs/setup.md) step 4.
-For the phone to tell you when a session needs you rather than waiting to be checked,
-run `shell/install-hooks.sh` and turn notifications on in the app — step 5.
+Not a remote desktop. Streaming pixels to a phone is expensive and unreadable; a screen of
+terminal output is about 2 KB of text where a screenshot of the same thing is 130–210 KB.
+So the cheap path is the main one: state as text, a cropped still only when pixels are
+genuinely the content, and no video at all.
 
-## Which scripts you run, and how often
+Not tied to one agent, either. A session is a tmux session and what runs inside it is not
+this project's business — Claude Code, Codex, Aider, or a bare shell all work the same
+way, because typing into a terminal does not care what is reading.
 
-Everything except `check.sh` and `pair.sh` is **one-time**. The state each one sets up
-persists across reboots — systemd units, a Tailscale Serve config, a udev rule, a line
-in `.bashrc`.
+## Requirements
 
-| Script | When |
+**tmux.** That is the whole hard requirement.
+
+Everything desktop-shaped is optional and negotiated: the server reports what it can do
+and the app hides the rest. A headless box serves sessions and terminals and honestly says
+it has no windows — that path is tested on every commit, not assumed.
+
+| For | You need |
 |---|---|
-| `setup.sh` | any time — runs everything below that can be automated |
-| `check.sh` | any time — diagnostic, changes nothing |
-| `install-service.sh` | once, and again only if you move the repo |
-| `install-permissions.sh` | once, and again if the rule set changes |
-| `install-hooks.sh` | once — lets an agent announce when it needs you; re-run if you move the repo |
-| `install-input.sh` | once — needed for remote unlock |
-| `use-https.sh` | once — real certificate, loopback-only binding, PWA installable |
-| `use-tailscale.sh` | only as a fallback if you cannot enable certificates |
-| `pair.sh` | per device, and whenever the address changes |
+| sessions, terminals, notifications | `tmux` |
+| window listing, moving, tiling | Hyprland |
+| screenshots | `grim` |
+| remote unlock and input | `ydotool`, plus turning it on deliberately |
 
-`use-https.sh` and `use-tailscale.sh` are alternatives, not a sequence. HTTPS is both
-easier and safer — Serve proxies from loopback, so the port never has to be open on any
-interface — and it is the only one that makes the PWA installable. Take the fallback
-only if you cannot turn on HTTPS certificates for your tailnet.
+The desk half is Hyprland-only today. It is one shell script, `scripts/desk.sh`, kept
+readable and shipped beside the binary rather than compiled into it, precisely so that a
+second compositor is somebody's afternoon rather than a rewrite.
 
-Expect to re-pair whenever the address changes: a token is stored per host and does not
-carry over.
+## Install
 
-## Status
+Every release ships a single binary — the server and the web UI in one file, so the
+target needs neither Deno nor npm.
 
-| Piece | State |
-|---|---|
-| `desk-control` skill — query, move, capture, verify | **done, tested** |
-| `claude()` tmux wrapper — makes sessions addressable | **done, tested** |
-| Permission rules — stop the prompt storm from a phone | **done** |
-| Deno server — wraps `scripts/` behind HTTP, runs as a user service | **done, tested** |
-| Svelte web UI — swipe workspaces 1–10, prompt, tile, look | **done, tested** |
-| Terminal view — a PTY sized to the phone, via xterm.js | **done, tested** |
-| Tailscale + HTTPS reachability, PWA install | **done, tested** |
-| `ydotool` remote unlock | **done, tested** |
-| Remote Control trial — evaluated and **rejected** | see decisions |
-| Optional wayvnc stream | deferred, may never be needed |
-
-Each piece is useful without the ones below it. The skill works from any terminal on
-this machine with nothing else installed.
-
-## Layout
-
-```
-CLAUDE.md               context for an agent working on this repo
-deskpilot.conf.example  terminal, lock program, dirs, host — copy to ~/.config/deskpilot/config
-shell/                  installers and diagnostics, all idempotent and safe to re-run
-web/                    Svelte + Vite UI; `npm run build` before first use
-server/server.ts        Deno HTTP wrapper over scripts/ and tmux
-scripts/                portable shell — the actual desktop + session commands
-  desk.sh               window state, screenshots, move/tile, place
-  sessions.sh           tmux sessions and the workspace each is on
-shell/claude-tmux.sh    bash wrapper — opt in by sourcing from ~/.bashrc
-skills/desk-control/    thin Claude Code pointer at scripts/; symlinked into ~/.claude/skills/
-docs/decisions.md       what was chosen, what was rejected, and why
-docs/setup.md           ordered install, each step with a check and a rollback
-docs/permissions.json   permission rules, applied by shell/install-permissions.sh
-```
-
-Everything in `scripts/` is plain shell with no agent involved. That is deliberate — see
-the hard constraints in the decisions doc.
-
-## The skill
-
-Lives here, symlinked so edits are live:
-
-```bash
-mkdir -p ~/.claude/skills
-ln -s "$PWD/skills/desk-control" ~/.claude/skills/desk-control
-```
-
-It documents the runtime vocabulary — `hyprctl clients -j` for state,
-`hyprctl dispatch` for moves, `grim` for pixels — plus the traps found by
-actually hitting them (see decisions doc).
-
-## The tmux wrapper
-
-Installed via `~/.bashrc`. Opt out by removing the `source` line.
-
-To install on a fresh machine:
-
-```bash
-echo "source $PWD/shell/claude-tmux.sh" >> ~/.bashrc
-```
-
-Then `claude` in `~/some-project` transparently runs inside a tmux session named
-`some-project`. Desk experience is unchanged; the session becomes addressable as
-`tmux send-keys -t some-project ...`, which is what everything remote is built on.
-
-## Environment this was verified against
-
-Omarchy / Hyprland 0.56.0, single 1920x1080 output `DP-2`, hyprlock 0.9.6,
-Deno 2.9.3, Node 26.2.0.
-
-Required: `hyprctl`, `tmux`, `jq`, `grim`, `deno`, plus `npm` to build the UI.
-Needed for the optional pieces: `tailscale` (reach it from outside),
-`ydotool` (remote unlock), `qrencode` (nicer pairing QR — `pair.sh` falls back to Deno).
-`check.sh` reports on all of them.
-
-## Installing
-
-**Arch / Omarchy**
-
-```
-yay -S deskpilot-bin      # or paru, or makepkg from the PKGBUILD on the release
-deskpilot setup           # asks two questions, then prints a pairing code
-```
-
-**Anywhere else**
-
-Download the tarball from the [releases page](https://github.com/Kleebz/deskpilot/releases),
-check it against the published `.sha256`, then put `desk.sh` where the binary is
-compiled to look for it:
+Download the tarball from [releases](https://github.com/Kleebz/deskpilot/releases), check
+it against the published `.sha256`, then:
 
 ```
 tar xzf deskpilot-*-x86_64.tar.gz
@@ -155,50 +65,98 @@ sudo install -Dm755 deskpilot /usr/bin/deskpilot
 sudo install -Dm755 scripts/*.sh -t /usr/share/deskpilot/scripts/
 ```
 
-That path is not cosmetic: the binary's subprocess allowlist is fixed when it is
-built, so `/usr/share/deskpilot/scripts/desk.sh` is the only copy it is
-permitted to execute. A copy elsewhere is found and then refused, which looks
-like "this machine has no compositor".
+That path is not cosmetic. The binary's subprocess allowlist is fixed when it is built, so
+`/usr/share/deskpilot/scripts/desk.sh` is the only copy it may execute — a copy elsewhere
+is found and then refused, which looks exactly like "this machine has no compositor".
 
-**What is actually required:** `tmux`, and nothing else. `hyprland`, `grim` and
-`ydotool` are optional — the server reports what it can do and the app hides the
-rest, so a headless box serves sessions and terminals and simply says it has no
-windows. That path is tested, not assumed: `tests/headless.sh` runs the real
-binary in a sandbox with no compositor, no Wayland and a different `$HOME`.
+Then:
 
-**What it will ask you.** Two things, both editing files outside deskpilot, both
-declinable and both reversible by running `setup` again:
+```
+deskpilot setup     # makes a token, writes the user service, says what to start
+deskpilot pair      # a one-time code for a device
+```
 
-- one line in your shell profile, so agents you start at your desk appear on
-  your phone
+Open the machine's address on your phone, enter the code, add it to your home screen.
+
+An Arch package is generated with every release — `PKGBUILD` is attached to the release
+alongside the tarball — but it has not been submitted to the AUR yet, so build it by hand
+for now.
+
+**It asks two things**, both editing files outside deskpilot, both declinable, both
+reversible by running `setup` again:
+
+- one line in your shell profile, so agents you start at your desk are visible to your
+  phone rather than running where nothing can reach them
 - notification hooks and permission rules in `~/.claude/settings.json`
 
-`--yes` accepts both for a scripted install; `--no-shell` and `--no-claude`
-refuse them individually. With no terminal attached it declines rather than
-assuming.
+`--yes` accepts both for a scripted install; `--no-shell` and `--no-claude` refuse them
+individually. With no terminal attached it declines rather than assuming.
 
-**Remote unlock is off** unless you set `DESKPILOT_UNLOCK=1`. It types your
-password into the lock screen and needs `ydotool`'s udev rule, so having the
-tool installed is not the same as consenting to it being reachable.
+## Reaching it from outside
 
+deskpilot binds loopback and expects something in front of it. Today that is
+[Tailscale](https://tailscale.com) — `shell/use-https.sh` puts Tailscale Serve in front,
+which gives a real certificate and keeps the port closed on every interface.
 
-## Verifying phone layout
+That means a VPN client on the phone, which is a real cost and an honest one. Removing it
+means WebRTC with a signalling server, which is designed and not built —
+[decisions.md](docs/decisions.md) has the reasoning, including why a relay that can read
+your traffic was rejected twice.
 
-Do not judge phone layout by eye or by desktop screenshots — both have lied
-here repeatedly. Measure it:
+## Security
+
+This is a service that runs commands on your machine, so the posture is worth stating
+plainly rather than burying.
+
+- **Every device gets its own credential.** Pairing hands over a single-use code, not the
+  machine's key. Revoke a lost phone from the app and nothing else is disturbed. Tokens
+  are stored hashed — the state file is not a set of working credentials.
+- **Remote unlock is off** unless you set `DESKPILOT_UNLOCK=1`. It types your password
+  into the lock screen through PAM and needs `ydotool`'s udev rule, so having the tool
+  installed is not the same as consenting to it being reachable. Attempts are rate
+  limited.
+- **The sandbox is narrow.** The server runs under Deno with subprocess access scoped to
+  one script and three binaries — an injection bug cannot reach `rm`, `ssh` or `curl`.
+  That scoping is why this is Deno rather than anything with an all-or-nothing model.
+- **Screenshots refuse when the screen is locked.** `grim` will happily photograph a lock
+  screen and return it as a valid image, so the guard fails closed on "unknown" as well as
+  "locked".
+
+## Design
+
+The reasoning lives in **[docs/decisions.md](docs/decisions.md)**, including the options
+that were tried and rejected — a second agent that could not be made to render, three
+transports, and a multiplexer that would have replaced tmux. Most of it was learned the
+hard way and is written down so it is not learned twice.
+
+The short version:
+
+- **Text first.** Window state as text, a still image on demand, no stream.
+- **tmux is the seam.** Sessions survive dropped connections, a crashed server and an
+  upgrade, because tmux is not part of deskpilot.
+- **The terminal is real.** tmux control mode over a WebSocket, so resizing does not drop
+  the connection when the soft keyboard opens.
+- **Capabilities are asked for, never assumed.** Which is what lets one phone hold several
+  machines that are not alike.
+
+## Development
 
 ```
-deno run -A tests/layout.ts            # against the local service
-deno run -A tests/layout.ts --url https://host --token abc
+deno test --allow-read --allow-write --allow-env tests/   # unit tests
+deno run -A tests/layout.ts                               # phone layout, headless chromium
+tests/headless.sh dist/deskpilot                          # a host with no desktop
+shell/check.sh                                            # every environment assumption
+shell/build.sh                                            # the single binary
 ```
 
-It drives headless Chromium over CDP at 320/360/390/430, and asserts the
-viewport is the size it asked for *before* trusting anything else — a resize
-silently not taking effect is how a layout once got declared "verified in a
-narrow viewport" at 941px.
+Judge phone layout by measurement, never by eye or a desktop screenshot — both have lied
+repeatedly here. `tests/layout.ts` drives real Chromium at 320/360/390/430 and asserts the
+viewport is the size it asked for *before* trusting anything else.
 
-Then: every pane exactly one viewport wide, no header overflow, nothing
-escaping its own pane's clipping box, and every control at least 44px tall.
+## Status
 
-All four assertions have been checked against deliberate breakage; a test that
-cannot fail is worse than no test.
+Early. It has run daily on one Arch/Hyprland machine since August 2026, and CI exercises
+the headless path on every commit. It has not been run on a second compositor, and the
+packaging has been installed by exactly one person.
+
+MIT.
