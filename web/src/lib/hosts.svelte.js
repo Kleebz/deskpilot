@@ -10,7 +10,9 @@
 // SameSite=Strict and same-origin, so it only ever covers the machine the page
 // was served from. Every other host authenticates with its bearer token from
 // this keyring — which also means losing localStorage loses those, where the
-// cookie used to be the safety net. Re-pairing is the recovery.
+// cookie covers only the machine that served the page. Re-pairing is the
+// recovery, and re-pairing needs access to the machine, which is exactly what
+// you do not have when it matters. Passkeys are the real answer.
 
 const HOSTS = "dp_hosts";
 const CURRENT = "dp_host";
@@ -22,13 +24,16 @@ function load() {
     if (Array.isArray(raw) && raw.length) return raw;
   } catch { /* corrupt or absent */ }
 
-  // Migration: before this existed there was one token for the machine that
-  // served the page. Carry it in rather than making an existing install re-pair.
-  const legacy = localStorage.getItem(LEGACY_TOKEN);
-  if (legacy) {
-    return [{ origin: location.origin, token: legacy, name: location.hostname }];
-  }
-  return [];
+  // The machine serving this page is always in the list, with or without a
+  // token to show for it. It showed "machines · 0" while working perfectly:
+  // the app was authenticating with the dp cookie, which is HttpOnly and so
+  // invisible to script, and localStorage had been evicted — exactly the case
+  // this list most needs to render.
+  return [{
+    origin: location.origin,
+    token: localStorage.getItem(LEGACY_TOKEN) ?? "",
+    name: location.hostname,
+  }];
 }
 
 export const hosts = $state({

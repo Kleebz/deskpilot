@@ -161,6 +161,7 @@
     {/if}
   </h2>
 
+  <div class="mblock">
   <h2>machines · {hosts.list.length}</h2>
   <div class="machines">
     {#each hosts.list as h (h.origin)}
@@ -192,8 +193,9 @@
       no screen — and paste the link it prints. The token is stored on this phone only.
     </div>
   {:else}
-    <button class="sm" onclick={() => (adding = true)}>add a machine</button>
+    <button class="addm" onclick={() => (adding = true)}>+ add a machine</button>
   {/if}
+  </div>
 
   {#if locked}
     <div class="why">
@@ -302,6 +304,27 @@
   .st.working { color: var(--ok); border-color: var(--ok); }
   .machines { display: flex; flex-direction: column; gap: .35rem; }
   .badge.live { color: var(--ok); border-color: var(--ok); }
+
+  /* Machines are an axis above sessions, not another item in the same list, so
+     the block is set apart rather than left to run into the session rows
+     underneath it. */
+  .mblock {
+    border: 1px solid var(--card-line); border-radius: var(--radius);
+    background: var(--panel); padding: .1rem .6rem .6rem;
+    margin-bottom: 1.1rem;
+  }
+  .mblock h2 { margin-top: .6rem; }
+
+  /* Dashed and full width: this adds something, where every other button on
+     this screen acts on a thing that already exists. Nothing else here is
+     dashed, so it reads as a different kind of control at a glance rather than
+     after reading the label. */
+  .addm {
+    width: 100%; margin-top: .5rem; min-height: 44px;
+    background: transparent; color: var(--ok);
+    border: 1px dashed var(--ok); border-radius: var(--radius);
+    font-size: 13px;
+  }
   section {
     flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0;
     scroll-snap-align: start;

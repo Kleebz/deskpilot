@@ -327,9 +327,18 @@ async function handle(req: Request): Promise<Response> {
     url.searchParams.get("token") ?? cookie ?? null;
   if (!tokenOk(given)) return fail("unauthorized", 401);
 
-  const setCookie = cookie
-    ? undefined
-    : `dp=${TOKEN}; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly`;
+  // Refreshed on every authenticated request, not just when it is missing.
+  //
+  // It used to be set once at pairing, so the year ran from that day and
+  // expired on a fixed date however much the app was used — and the moment it
+  // lapses is the moment you cannot re-pair, because re-pairing means running
+  // pair.sh on the machine you are away from. A rolling window means the
+  // credential only ages while you are not using it.
+  //
+  // 400 days rather than 365: Chrome caps cookie lifetime at 400 and silently
+  // truncates anything longer, so this asks for exactly what the ceiling is.
+  const setCookie =
+    `dp=${TOKEN}; Path=/; Max-Age=34560000; SameSite=Strict; HttpOnly`;
   const withCookie = (r: Response) => {
     if (setCookie) r.headers.append("set-cookie", setCookie);
     for (const [k, v] of Object.entries(cors)) r.headers.set(k, v);
