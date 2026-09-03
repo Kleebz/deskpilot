@@ -45,9 +45,14 @@ function randomHex(bytes: number): string {
   return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-// No vowels and no look-alikes: this gets read off one screen and typed on
-// another, sometimes from a photograph of a terminal.
-const CODE_ALPHABET = "34679ACDEFGHJKLMNPQRTUVWXY";
+// No vowels and no look-alikes. Look-alikes because this gets read off one
+// screen and typed on another, sometimes from a photograph of a terminal:
+// 0/O, 1/I/L, 5/S, 8/B, 2/Z. Vowels because without them a code cannot spell a
+// word, and a random code that happens to spell something is a bad surprise.
+//
+// 22 characters over 8 positions is about 35 bits, which is only enough because
+// codes are single-use, expire in ten minutes and are rate limited.
+const CODE_ALPHABET = "34679CDFGHJKMNPQRTVWXY";
 
 export function makeCode(len = 8): string {
   const b = new Uint8Array(len);
@@ -78,8 +83,14 @@ export class Devices {
     return this.#list;
   }
 
+  // Written synchronously. It was fire-and-forget, which left a window where a
+  // token had been handed out but not recorded: a crash in that window gives
+  // someone a credential the server will never recognise. The file is a few
+  // hundred bytes and this happens on enrol and revoke, not per request.
   #save() {
-    Deno.writeTextFile(this.#path, JSON.stringify(this.#list, null, 2)).catch(() => {});
+    try {
+      Deno.writeTextFileSync(this.#path, JSON.stringify(this.#list, null, 2));
+    } catch { /* nothing useful to do — the in-memory list is still right */ }
   }
 
   // Returns the device that matches, so the caller can record it was used.

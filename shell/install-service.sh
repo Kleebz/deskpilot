@@ -61,7 +61,14 @@ Type=simple
 WorkingDirectory=$REPO
 Environment=DESKPILOT_HOST=${DESKPILOT_HOST:-127.0.0.1}
 Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
-Environment=DESKPILOT_UNLOCK=${DESKPILOT_UNLOCK:-0}
+
+# Read at start rather than baked in, so editing the config takes effect on the
+# next restart instead of requiring this installer to be run again. The leading
+# dash means a missing file is not an error — most installs will not have one.
+#
+# The file has to stay valid shell as well as valid systemd, because
+# claude-tmux.sh sources it too. Plain KEY=VALUE with optional quotes is both.
+EnvironmentFile=-$CONF
 
 # --allow-run is scoped to two scripts and tmux. script(1) is gone: the
 # terminal used to need a pty from it, and control mode needs no pty at all.

@@ -157,6 +157,17 @@ else
   warn "deskpilot not running" "run shell/install-service.sh"
 fi
 
+head_ "Tests"
+if command -v deno >/dev/null; then
+  if deno test --quiet --allow-read --allow-write --allow-env "$REPO/tests/" >/dev/null 2>&1; then
+    ok "test suite passes"
+  else
+    bad "test suite fails" "run: deno test --allow-read --allow-write --allow-env tests/"
+  fi
+else
+  warn "deno not found" "cannot run the test suite"
+fi
+
 head_ "Reachability"
 if command -v tailscale >/dev/null && systemctl is-active --quiet tailscaled 2>/dev/null; then
   ts=$(tailscale ip -4 2>/dev/null | head -1)

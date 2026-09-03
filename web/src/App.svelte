@@ -131,7 +131,7 @@
   // does not necessarily know which they were handed — and telling them apart
   // is trivial. A code is eight characters from a deliberately unambiguous
   // alphabet; a token is 64 hex characters.
-  const looksLikeCode = (v) => /^[34679ACDEFGHJKLMNPQRTUVWXY]{8}$/i.test(v);
+  const looksLikeCode = (v) => /^[34679CDFGHJKMNPQRTVWXY]{8}$/i.test(v);
 
   async function saveToken(ev) {
     ev.preventDefault();
