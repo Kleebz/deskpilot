@@ -48,7 +48,25 @@ if command -v tailscale >/dev/null; then
     BASE="$SERVED"
   fi
 fi
-URL="${BASE}/?token=${TOKEN}"
+# Ask the server for a one-time enrolment code rather than handing over the
+# machine's own token. The token cannot be revoked without re-pairing every
+# device; a code mints a credential belonging to this device alone, so losing a
+# phone costs you that phone.
+#
+# Falls back to the token if the server is not answering — pairing a machine
+# whose service is down is a worse failure than pairing it the old way, and the
+# old way is exactly what every already-paired device is using.
+# Ask the port we are actually pairing against rather than checking the service
+# unit: they are the same thing in normal use and not when PORT is overridden.
+CODE=$(curl -s -m 5 -X POST "http://127.0.0.1:${PORT}/api/devices/code" \
+  -H "authorization: Bearer ${TOKEN}" 2>/dev/null \
+  | sed -n 's/.*"code":"\([^"]*\)".*/\1/p')
+
+if [ -n "$CODE" ]; then
+  URL="${BASE}/?code=${CODE}"
+else
+  URL="${BASE}/?token=${TOKEN}"
+fi
 
 if ! systemctl --user is-active --quiet deskpilot; then
   echo "warning: the deskpilot service is not running" >&2
@@ -81,5 +99,15 @@ fi
 echo
 echo "  $URL"
 echo
-echo "Scan it, then add the page to your home screen. The token is stored in a"
-echo "one-year cookie as well as localStorage, so you only do this once per host."
+if [ -n "$CODE" ]; then
+  echo "Code: $CODE   (good for 10 minutes, one device)"
+  echo
+  echo "Scan it, then add the page to your home screen. This device gets its own"
+  echo "credential — revoke it from the app without disturbing anything else."
+else
+  echo "Scan it, then add the page to your home screen."
+  echo
+  echo "NOTE: handing over the shared token, because the service did not answer."
+  echo "That credential cannot be revoked on its own. Start the service and"
+  echo "re-run this to pair properly."
+fi

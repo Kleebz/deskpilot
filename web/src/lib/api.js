@@ -18,6 +18,44 @@ function readToken() {
 
 export let token = readToken();
 
+// Pairing now hands over a one-time code rather than the machine's own token,
+// and the code is exchanged here for a credential belonging to this device
+// alone. That is what makes losing a phone survivable: revoke that one, leave
+// everything else paired.
+//
+// Everything else in this file waits on `ready`, so no request can go out
+// holding the wrong credential — or none — while the exchange is in flight.
+export async function enroll(code) {
+  const res = await fetch("/api/devices/enroll", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    // Named after the browser rather than left blank: a list of four entries
+    // called "device" is not a list you can revoke from with any confidence.
+    body: JSON.stringify({ code, name: deviceName() }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? "pairing failed");
+  if (body.token) { token = body.token; localStorage.setItem(KEY, body.token); }
+  return body;
+}
+
+async function enrollFromCode() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("code");
+  if (!code) return;
+  history.replaceState(null, "", location.pathname);
+  try { await enroll(code); } catch { /* falls back to what is stored */ }
+}
+
+function deviceName() {
+  const ua = navigator.userAgent;
+  const m = ua.match(/\((?:Linux; )?(?:Android [\d.]+; )?([^;)]+)/);
+  const model = m?.[1]?.trim();
+  return (model && model.length < 30 ? model : "phone");
+}
+
+export const ready = enrollFromCode();
+
 export function setToken(t) {
   token = t;
   localStorage.setItem(KEY, t);
@@ -53,6 +91,7 @@ export function resolve(path, host) {
 }
 
 export async function api(path, opts = {}) {
+  await ready;
   let res;
   const { url, token: tok, same } = resolve(path, opts.host);
   try {

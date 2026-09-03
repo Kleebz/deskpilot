@@ -13,6 +13,7 @@
 
 import { loadVapid, sendPush, type Subscription } from "./push.ts";
 import { ControlClient, keysCommand } from "./control.ts";
+import { Devices } from "./devices.ts";
 
 const ROOT = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
 const SCRIPTS = `${ROOT}/scripts`;
@@ -201,6 +202,9 @@ type AgentState = {
 // Declared here rather than beside the other state paths because the store
 // below reads it at module load.
 const AGENT_FILE = `${Deno.env.get("HOME")}/.local/state/deskpilot/agent-state.json`;
+const devices = new Devices(
+  `${Deno.env.get("HOME")}/.local/state/deskpilot/devices.json`,
+);
 
 const agentState = new Map<string, AgentState>();
 
@@ -315,6 +319,23 @@ async function handle(req: Request): Promise<Response> {
   const cors = corsHeaders(origin);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
+  // Enrollment happens before there is anything to authenticate with, so it
+  // sits ahead of the auth check. The code is the credential: single-use, ten
+  // minutes, and rate-limited so a short code cannot be ground down.
+  if (req.method === "POST" && path === "/api/devices/enroll") {
+    if (devices.rateLimited) {
+      return json({ error: "too many attempts — wait a few minutes" }, 429);
+    }
+    const b = await req.json().catch(() => null);
+    const code = String(b?.code ?? "");
+    const name = String(b?.name ?? "device");
+    if (!code) return fail("code required");
+    const made = await devices.enroll(code, name);
+    if (!made) return fail("that code is not valid, or has already been used", 403);
+    console.log(`enrolled: ${made.device.name} (${made.device.id})`);
+    return json({ token: made.token, id: made.device.id, name: made.device.name });
+  }
+
   // ---- auth ----
   // Three sources, same secret. The cookie exists because iOS Safari evicts
   // localStorage after ~7 days of not visiting a site, which would re-prompt
@@ -325,7 +346,17 @@ async function handle(req: Request): Promise<Response> {
     ?.match(/(?:^|;\s*)dp=([^;]+)/)?.[1];
   const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
     url.searchParams.get("token") ?? cookie ?? null;
-  if (!tokenOk(given)) return fail("unauthorized", 401);
+
+  // Two credential kinds during the changeover. The shared token still works —
+  // it is what every already-paired device holds, and breaking those to improve
+  // credentials would be a strange way round. New pairings mint a device token,
+  // which is the one that can be revoked on its own.
+  let device = null;
+  if (!tokenOk(given)) {
+    device = given ? await devices.match(given) : null;
+    if (!device) return fail("unauthorized", 401);
+    devices.touch(device);
+  }
 
   // Refreshed on every authenticated request, not just when it is missing.
   //
@@ -370,6 +401,41 @@ async function handle(req: Request): Promise<Response> {
       sessions: true,
       ...caps,
     }));
+  }
+
+  // ---- devices ----
+  if (req.method === "GET" && path === "/api/devices") {
+    // Never the hash: it is not a working credential, but there is no reason
+    // for it to leave the machine either.
+    return withCookie(json({
+      devices: devices.list.map(({ id, name, created, lastSeen }) => ({
+        id, name, created, lastSeen,
+        current: device?.id === id,
+      })),
+      // An already-paired device on the old shared token has nothing to revoke,
+      // and the UI should say so rather than showing an empty list.
+      legacy: !device,
+    }));
+  }
+
+  if (req.method === "POST" && path === "/api/devices/code") {
+    return withCookie(json({ code: devices.newCode(), expiresInSec: 600 }));
+  }
+
+  if (req.method === "POST" && path === "/api/devices/revoke") {
+    const b = await req.json().catch(() => null);
+    const id = String(b?.id ?? "");
+    if (!devices.revoke(id)) return fail("no such device", 404);
+    console.log(`revoked: ${id}`);
+    return withCookie(json({ ok: true, self: device?.id === id }));
+  }
+
+  if (req.method === "POST" && path === "/api/devices/rename") {
+    const b = await req.json().catch(() => null);
+    if (!devices.rename(String(b?.id ?? ""), String(b?.name ?? ""))) {
+      return fail("no such device", 404);
+    }
+    return withCookie(json({ ok: true }));
   }
 
   // ---- sessions ----

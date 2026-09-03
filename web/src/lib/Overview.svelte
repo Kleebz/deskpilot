@@ -23,6 +23,46 @@
   let renaming = $state("");
   let newName = $state("");
 
+  // Paired devices. This is the half that makes a lost phone survivable: a
+  // credential you can take away on its own, and a list honest enough to tell
+  // you which one you are holding.
+  let devices = $state([]);
+  let legacy = $state(false);
+  let pairCode = $state("");
+
+  async function loadDevices() {
+    try {
+      const d = await api("/devices");
+      devices = d.devices;
+      legacy = d.legacy;
+    } catch { /* not fatal — the rest of the screen still works */ }
+  }
+  $effect(() => { loadDevices(); });
+
+  async function pairAnother() {
+    try {
+      const { code } = await post("/devices/code", {});
+      pairCode = code;
+    } catch (e) { onstatus(e.message, true); }
+  }
+
+  async function revokeDevice(d) {
+    try {
+      const r = await post("/devices/revoke", { id: d.id });
+      onstatus(r.self ? "revoked this device — reload to re-pair" : `revoked ${d.name}`);
+      loadDevices();
+    } catch (e) { onstatus(e.message, true); }
+  }
+
+  const ago = (t) => {
+    if (!t) return "";
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 2) return "now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+  };
+
   function startRename(name) {
     renaming = name;
     newName = name;
@@ -222,6 +262,36 @@
   {/if}
   </div>
 
+  <div class="mblock">
+  <h2>devices · {devices.length}</h2>
+  {#if legacy}
+    <div class="why">
+      This device is on the old shared credential, which cannot be revoked by
+      itself. Pair it again below to give it its own.
+    </div>
+  {/if}
+  {#each devices as d (d.id)}
+    <div class="row">
+      <button class="go" onclick={() => {}} disabled>
+        <span class="badge" class:live={d.current}>{d.current ? "this" : "•"}</span>
+        <span class="nm">{d.name}</span>
+        <span class="path dim">last used {ago(d.lastSeen)}</span>
+      </button>
+      <button class="sm danger" onclick={() => revokeDevice(d)}>revoke</button>
+    </div>
+  {/each}
+
+  {#if pairCode}
+    <div class="code">{pairCode}</div>
+    <div class="hint dim">
+      Open this machine's address on the other device and enter the code, or run
+      <code>shell/pair.sh</code> there for a QR. Good for ten minutes, one device.
+    </div>
+  {:else}
+    <button class="addm" onclick={pairAnother}>+ pair another device</button>
+  {/if}
+  </div>
+
   {#if locked}
     <div class="why">
       Screen is locked, so screenshots would return the password prompt. Sessions and
@@ -341,6 +411,11 @@
   /* Sits under the row it belongs to rather than replacing it, so the name you
      are changing stays visible while you type the new one. */
   .rn { margin: .1rem 0 .5rem; }
+  /* Big and spaced: this gets read off one screen and typed on another. */
+  .code {
+    font-family: ui-monospace, monospace; font-size: 26px; letter-spacing: .18em;
+    text-align: center; color: var(--ok); padding: .7rem 0 .3rem;
+  }
   .badge.live { color: var(--ok); border-color: var(--ok); }
 
   /* Machines are an axis above sessions, not another item in the same list, so

@@ -1,5 +1,5 @@
 <script>
-  import { api, token, setToken } from "./lib/api.js";
+  import { api, token, setToken, enroll } from "./lib/api.js";
   import Pane from "./lib/Pane.svelte";
   import Overview from "./lib/Overview.svelte";
   import { vis } from "./lib/visible.svelte.js";
@@ -127,9 +127,28 @@
     rail?.scrollTo({ left: ws * (rail.clientWidth || 1), behavior: "smooth" });
   }
 
-  function saveToken(ev) {
+  // Takes either a pairing code or a raw token, because the person typing it
+  // does not necessarily know which they were handed — and telling them apart
+  // is trivial. A code is eight characters from a deliberately unambiguous
+  // alphabet; a token is 64 hex characters.
+  const looksLikeCode = (v) => /^[34679ACDEFGHJKLMNPQRTUVWXY]{8}$/i.test(v);
+
+  async function saveToken(ev) {
     ev.preventDefault();
-    setToken(tokenInput.trim());
+    const v = tokenInput.trim();
+    if (!v) return;
+    if (looksLikeCode(v)) {
+      try {
+        await enroll(v);
+        tokenInput = "";
+        onstatus("paired");
+        refresh();
+      } catch (e) {
+        onstatus(e.message, true);
+      }
+      return;
+    }
+    setToken(v);
     tokenInput = "";
     refresh();
   }
@@ -192,10 +211,12 @@
 {#if needToken}
   <form class="gate" onsubmit={saveToken}>
     <p class="dim">
-      Paste the bearer token from <code>~/.config/deskpilot/token</code>, or open the
-      QR link once and it stores itself.
+      Enter the pairing code from <code>shell/pair.sh</code>, or scan its QR and it
+      pairs itself. A token from <code>~/.config/deskpilot/token</code> also works.
     </p>
-    <input bind:value={tokenInput} placeholder="token" autocomplete="off" />
+    <input bind:value={tokenInput} placeholder="pairing code"
+           autocomplete="off" autocapitalize="characters" autocorrect="off"
+           spellcheck="false" />
     <button>save</button>
   </form>
 {:else}
