@@ -15,12 +15,27 @@
 
 set -uo pipefail
 
+# Ask before touching anything outside deskpilot's own files. Defaults to yes,
+# answers itself with --yes, and declines when there is no terminal to ask on —
+# a scripted install must never silently rewrite someone's config.
+ask() {
+  local prompt=$1
+  [ "${DP_YES:-}" = y ] && return 0
+  if [ ! -t 0 ]; then
+    return 1
+  fi
+  printf '    %s [Y/n] ' "$prompt"
+  local a; read -r a < /dev/tty || a=n
+  case "$a" in [Nn]*) return 1 ;; *) return 0 ;; esac
+}
+
 # --yes adds the shell wrapper without asking; --no-shell never adds it.
-DP_YES=""; DP_NO_SHELL=0
+DP_YES=""; DP_NO_SHELL=0; DP_NO_CLAUDE=0
 for arg in "$@"; do
   case "$arg" in
     --yes|-y) DP_YES=y ;;
     --no-shell) DP_NO_SHELL=1 ;;
+    --no-claude) DP_NO_CLAUDE=1 ;;
   esac
 done
 
@@ -55,16 +70,40 @@ else
   fi
 fi
 
-# Both of these write ~/.claude/settings.json. You can run them; an agent
-# cannot, which is why they are separate scripts rather than inlined here.
+# Both of these write ~/.claude/settings.json — another program's config, not
+# ours. They used to run unasked, which was worse than the .bashrc edit we now
+# prompt for: one of them widens what an agent may do without stopping to ask,
+# and that is not a decision to make on someone's behalf.
+#
+# You can run them; an agent cannot. The auto mode classifier blocks an agent
+# from widening its own permissions, which is why these are separate scripts.
 say "Claude Code settings"
-for s in install-permissions install-hooks; do
-  if out=$("$REPO/shell/$s.sh" 2>&1); then
-    good "$s"
+if [ "${DP_NO_CLAUDE:-0}" = 1 ]; then
+  same "skipped (--no-claude)"
+elif [ ! -f "$HOME/.claude/settings.json" ] && [ ! -d "$HOME/.claude" ]; then
+  same "no ~/.claude — skipping (not a Claude Code machine)"
+else
+  echo
+  echo "    deskpilot can wire itself into Claude Code by editing"
+  echo "    ~/.claude/settings.json (backed up first). Two changes:"
+  echo
+  echo "      hooks        so a session can say when it is blocked or done,"
+  echo "                   which is what makes your phone buzz"
+  echo "      permissions  so window moves and screenshots stop prompting."
+  echo "                   This widens what the agent may do without asking."
+  echo
+  if ask "Apply both?"; then
+    for s in install-permissions install-hooks; do
+      if out=$("$REPO/shell/$s.sh" 2>&1); then
+        good "$s"
+      else
+        bad "$s failed:"; printf '%s\n' "$out" | sed 's/^/      /'
+      fi
+    done
   else
-    bad "$s failed:"; printf '%s\n' "$out" | sed 's/^/      /'
+    same "skipped — apply later with: shell/install-hooks.sh and install-permissions.sh"
   fi
-done
+fi
 
 # Editing someone's shell profile without asking is the one genuinely invasive
 # thing this installer does, and it is not necessary: it exists so that typing
@@ -81,35 +120,20 @@ if grep -qs "deskpilot/shell/claude-tmux.sh" "$RC"; then
 elif [ "${DP_NO_SHELL:-0}" = 1 ]; then
   same "skipped (--no-shell)"
 else
-  answer=${DP_YES:-}
-  if [ -z "$answer" ]; then
-    if [ -t 0 ]; then
-      echo
-      echo "    Agents you start at your desk only appear on your phone if they are"
-      echo "    running inside tmux. Adding one line to $(basename "$RC") makes that"
-      echo "    automatic for: ${DESKPILOT_WRAP:-claude}"
-      echo
-      echo "    Declining is fine — everything else works, and you can run this"
-      echo "    again later to change your mind."
-      echo
-      printf '    Add it? [Y/n] '
-      read -r answer < /dev/tty || answer=n
-    else
-      # No terminal to ask on, and silently editing a profile is exactly what
-      # this change exists to stop.
-      answer=n
-      same "not a terminal — skipping (pass --yes to add it)"
-    fi
+  echo
+  echo "    Agents you start at your desk only appear on your phone if they are"
+  echo "    running inside tmux. Adding one line to $(basename "$RC") makes that"
+  echo "    automatic for: ${DESKPILOT_WRAP:-claude}"
+  echo
+  echo "    Declining is fine — everything else works, and you can run this"
+  echo "    again later to change your mind."
+  echo
+  if ask "Add it?"; then
+    echo "source $REPO/shell/claude-tmux.sh" >> "$RC"
+    good "added to $(basename "$RC") — takes effect in new terminals"
+  else
+    same "skipped — add it later with: shell/setup.sh --yes"
   fi
-  case "$answer" in
-    [Nn]*)
-      same "skipped — add it later with: shell/setup.sh --yes"
-      ;;
-    *)
-      echo "source $REPO/shell/claude-tmux.sh" >> "$RC"
-      good "added to $(basename "$RC") — takes effect in new terminals"
-      ;;
-  esac
 fi
 
 say "Service"
