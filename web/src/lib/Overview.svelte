@@ -5,7 +5,7 @@
   import Notify from "./Notify.svelte";
   import Usage from "./Usage.svelte";
 
-  import { hosts, switchTo, addHost, removeHost, needsYou } from "./hosts.svelte.js";
+  import { hosts, switchTo, addHost, removeHost, needsYou, capsFor } from "./hosts.svelte.js";
 
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
@@ -52,6 +52,24 @@
       onstatus(r.self ? "revoked this device — reload to re-pair" : `revoked ${d.name}`);
       loadDevices();
     } catch (e) { onstatus(e.message, true); }
+  }
+
+  // Shown only when it explains something you are looking at. A permanent
+  // notice about a thing you chose not to install is a nag; the same sentence
+  // next to an empty list is an answer.
+  const caps = $derived(capsFor());
+  const hookMissing = $derived(caps.shellHook === false);
+  const hookHint = $derived(
+    `source ${caps.repo ?? "~/Projects/deskpilot"}/shell/claude-tmux.sh`,
+  );
+
+  let copied = $state(false);
+  async function copyHint() {
+    try {
+      await navigator.clipboard.writeText(`echo '${hookHint}' >> ~/.bashrc`);
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    } catch { onstatus("could not copy — select it by hand", true); }
   }
 
   const ago = (t) => {
@@ -357,6 +375,15 @@
   {:else if !detached.length}
     <div class="why">
       Nothing running yet. Start one below.
+      {#if hookMissing}
+        <br /><br />
+        <b>Agents you start at your desk will not appear here.</b>
+        Typing <code>claude</code> in a terminal runs it outside tmux, where nothing
+        can reach it. Start them with <code>dp claude</code>, or add the shell hook
+        once and plain <code>claude</code> works everywhere:
+        <div class="cmd">{hookHint}</div>
+        <button class="sm" onclick={copyHint}>{copied ? "copied" : "copy"}</button>
+      {/if}
     </div>
   {/if}
 
@@ -415,6 +442,12 @@
   .code {
     font-family: ui-monospace, monospace; font-size: 26px; letter-spacing: .18em;
     text-align: center; color: var(--ok); padding: .7rem 0 .3rem;
+  }
+  .cmd {
+    font-family: ui-monospace, monospace; font-size: 12px; color: var(--ok);
+    background: var(--card); border: 1px solid var(--card-line);
+    border-radius: 8px; padding: .5rem; margin: .5rem 0;
+    overflow-x: auto; white-space: pre;
   }
   .badge.live { color: var(--ok); border-color: var(--ok); }
 

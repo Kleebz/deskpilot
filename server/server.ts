@@ -388,6 +388,30 @@ async function handle(req: Request): Promise<Response> {
   // assume they are alike — one may be a desktop, the next a headless box with
   // no compositor at all — so it asks rather than guessing, and hides what is
   // absent instead of offering controls that will fail.
+  // Whether agents started at the desk will show up here at all. Without the
+  // shell hook, typing `claude` in a terminal starts it outside tmux, where
+  // nothing can reach it — and the failure is silent: the app just looks empty.
+  // Someone who declined the prompt at install has no way to connect those two
+  // facts weeks later, so the app has to be able to say it.
+  //
+  // Checked across shells rather than bash alone, since the hook being
+  // bash-only is itself a reason someone would not have it.
+  function shellHookInstalled(): boolean {
+    const home = Deno.env.get("HOME") ?? "";
+    const files = [
+      `${home}/.bashrc`, `${home}/.zshrc`, `${home}/.profile`,
+      `${home}/.config/fish/config.fish`,
+    ];
+    for (const f of files) {
+      try {
+        if (Deno.readTextFileSync(f).includes("deskpilot/shell/claude-tmux.sh")) {
+          return true;
+        }
+      } catch { /* not there */ }
+    }
+    return false;
+  }
+
   if (req.method === "GET" && path === "/api/capabilities") {
     const r = await run(`${SCRIPTS}/desk.sh`, ["capabilities"]);
     let caps = {
@@ -399,6 +423,8 @@ async function handle(req: Request): Promise<Response> {
       name: NAME,
       terminal: true,       // the one thing every host has
       sessions: true,
+      shellHook: shellHookInstalled(),
+      repo: ROOT,
       ...caps,
     }));
   }
