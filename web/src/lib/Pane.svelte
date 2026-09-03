@@ -33,7 +33,6 @@
   // is tagged and excluded from the count. Otherwise one session in one
   // terminal plus one other window reads as three.
   const ownWindows = $derived(new Set(session?.windows ?? []));
-  const otherCount = $derived(windows.filter((w) => !ownWindows.has(w.address)).length);
 
   // Ticks so `working` decays on its own. Deliberately NOT gated on page
   // visibility: if the clock stops while hidden, `working` can never expire and
@@ -138,8 +137,13 @@
       {#if working}<span class="pulse" title="output changing"></span>{/if}
       <button class="sm ghost" class:on={big} title="text size"
               onclick={() => (big = !big)}>{big ? "large" : "normal"}</button>
+      <!-- Labelled by what the drawer contains, not by what is left over. It
+           used to read "0 other" whenever a screen held only the session's own
+           terminal, which looks like an empty control rather than the way to
+           reach the window list — and moving that very terminal is one of the
+           things you most want from a phone. -->
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
-        {otherCount} other
+        {windows.length} window{windows.length === 1 ? "" : "s"}
       </button>
     </div>
 

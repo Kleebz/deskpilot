@@ -5,7 +5,38 @@
   import Notify from "./Notify.svelte";
   import Usage from "./Usage.svelte";
 
+  import { hosts, switchTo, addHost, removeHost, needsYou } from "./hosts.svelte.js";
+
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
+
+  // Adding a machine takes the pairing URL that machine's own pair.sh prints —
+  // the same thing its QR encodes. That means one paste and no new mechanism to
+  // learn, and it works for a headless box over SSH where there is no screen to
+  // scan. Eventually this is a short code approved with a passkey; the shape of
+  // the flow is the same either way.
+  let adding = $state(false);
+  let pasted = $state("");
+
+  function addMachine(ev) {
+    ev.preventDefault();
+    let url;
+    try { url = new URL(pasted.trim()); }
+    catch { onstatus("that does not look like a pairing link", true); return; }
+    const token = url.searchParams.get("token");
+    if (!token) { onstatus("no token in that link", true); return; }
+    addHost({ origin: url.origin, token, name: url.hostname });
+    pasted = "";
+    adding = false;
+    onstatus(`added ${url.hostname}`);
+    onchanged();
+  }
+
+  function forget(origin, name) {
+    if (hosts.list.length < 2) { onstatus("that is the only machine paired", true); return; }
+    removeHost(origin);
+    onstatus(`removed ${name}`);
+    onchanged();
+  }
 
   // The workspace-swipe model can only show a session that is on a workspace.
   // Detached ones — the normal result of closing a terminal — would otherwise
@@ -130,6 +161,40 @@
     {/if}
   </h2>
 
+  <h2>machines · {hosts.list.length}</h2>
+  <div class="machines">
+    {#each hosts.list as h (h.origin)}
+      <div class="row">
+        <button class="go" onclick={() => switchTo(h.origin)}>
+          <span class="badge" class:live={h.origin === hosts.current}>
+            {h.origin === hosts.current ? "here" : "go"}
+          </span>
+          <span class="nm">{h.name}</span>
+          {#if needsYou[h.origin]}<span class="st blocked">needs you</span>{/if}
+          <span class="path dim">{h.origin}</span>
+        </button>
+        {#if hosts.list.length > 1}
+          <button class="sm danger" onclick={() => forget(h.origin, h.name)}>forget</button>
+        {/if}
+      </div>
+    {/each}
+  </div>
+
+  {#if adding}
+    <form class="unlock" onsubmit={addMachine}>
+      <input
+        bind:value={pasted} placeholder="paste the pairing link"
+        autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <button disabled={!pasted.trim()}>add</button>
+    </form>
+    <div class="hint dim">
+      Run <code>shell/pair.sh</code> on the other machine — over SSH is fine, it needs
+      no screen — and paste the link it prints. The token is stored on this phone only.
+    </div>
+  {:else}
+    <button class="sm" onclick={() => (adding = true)}>add a machine</button>
+  {/if}
+
   {#if locked}
     <div class="why">
       Screen is locked, so screenshots would return the password prompt. Sessions and
@@ -235,6 +300,8 @@
   .st { flex: none; font-size: 11px; padding: 0 .4rem; border-radius: 6px; border: 1px solid; }
   .st.blocked { color: var(--err); border-color: var(--err); }
   .st.working { color: var(--ok); border-color: var(--ok); }
+  .machines { display: flex; flex-direction: column; gap: .35rem; }
+  .badge.live { color: var(--ok); border-color: var(--ok); }
   section {
     flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0;
     scroll-snap-align: start;
