@@ -306,7 +306,9 @@ function saveAgentState() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     Deno.writeTextFile(AGENT_FILE, JSON.stringify(Object.fromEntries(agentState)))
-      .catch(() => {});
+      .catch((e) =>
+        console.error(`agent state: could not write ${AGENT_FILE}: ${e.message}`)
+      );
   }, 500);
 }
 

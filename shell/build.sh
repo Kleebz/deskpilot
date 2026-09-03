@@ -12,6 +12,14 @@
 #
 # The commit is baked in, so a binary can say exactly what it is even though it
 # has no .git to read.
+#
+# One permission is deliberately wider here than when running from source:
+# --allow-write is unscoped. The state directory is under $HOME, and $HOME is
+# not knowable when the binary is built — baking the builder\'s path in meant
+# the binary silently failed to persist anything for every other user, which is
+# how a device could pair, work, and then not exist after a restart. Everything
+# else stays scoped, and writes are still confined by the OS to what the service
+# user can reach.
 
 set -uo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
@@ -45,7 +53,7 @@ deno compile \
   --allow-net \
   --allow-read \
   --allow-env \
-  --allow-write="$HOME/.local/state/deskpilot" \
+  --allow-write \
   --allow-run=tmux,ps,hyprctl,"$SCRIPTS_TARGET/desk.sh" \
   server/server.ts
 rc=$?

@@ -90,7 +90,16 @@ export class Devices {
   #save() {
     try {
       Deno.writeTextFileSync(this.#path, JSON.stringify(this.#list, null, 2));
-    } catch { /* nothing useful to do — the in-memory list is still right */ }
+    } catch (e) {
+      // Loudly. This used to be swallowed, and the failure it hid was a device
+      // enrolling successfully, working until the next restart, and then not
+      // existing — with nothing anywhere saying why. A credential store that
+      // cannot persist is worth a line in the log every time.
+      console.error(
+        `devices: could not write ${this.#path} — pairings will not survive a ` +
+        `restart: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   // Returns the device that matches, so the caller can record it was used.
