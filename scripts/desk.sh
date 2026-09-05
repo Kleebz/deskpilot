@@ -36,48 +36,6 @@ have_env || {
   export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR/hypr" 2>/dev/null | head -1)
   export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 }
-# `capabilities` has to answer on a host with no compositor at all — that is
-# the entire point of asking — so it is handled before the check that would
-# refuse to run. Everything else still requires Hyprland.
-if [ "${1:-}" = capabilities ]; then
-  hypr=false; shot=false; input=false; lock=unknown; hyprver=""; tooold=false
-  if have_env && hyprctl version >/dev/null 2>&1; then
-    hypr=true
-    # 0.56.2 moved every dispatcher to a Lua API. Nothing in this file works on
-    # the older `hyprctl dispatch` syntax, and the failure is silent: the
-    # dispatcher errors, the window does not move, and nobody is looking. Report
-    # the version so the caller can say so instead of appearing to work.
-    hyprver=$(hyprctl version 2>/dev/null | sed -n 's/^Hyprland \([0-9][0-9.]*\).*/\1/p' | head -1)
-    if [ -n "$hyprver" ]; then
-      # Sort-based compare: no bash arithmetic on dotted versions, and this has
-      # to run under sh on a machine we know nothing about.
-      older=$(printf '%s\n%s\n' "$hyprver" "0.56.2" | sort -V | head -1)
-      [ "$older" = "0.56.2" ] || tooold=true
-    fi
-    command -v grim >/dev/null 2>&1 && shot=true
-    command -v ydotool >/dev/null 2>&1 &&
-      { [ -S "${YDOTOOL_SOCKET:-/run/user/$(id -u)/.ydotool_socket}" ] || pidof ydotoold >/dev/null 2>&1; } &&
-      input=true
-  fi
-  # Reported separately from `shot`: a host that cannot tell whether it is
-  # locked must refuse to capture, so the UI needs to know which of the two
-  # reasons it is looking at.
-  if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then lock=readable
-  elif command -v "${DESKPILOT_LOCK_PROCESS:-hyprlock}" >/dev/null 2>&1; then lock=readable
-  fi
-  # `unsupported` is true when a compositor is present but too old to drive.
-  # Distinct from "no compositor": the difference is what the UI should say.
-  printf '{"windows":%s,"screenshot":%s,"input":%s,"lock":"%s","compositor":"%s","compositorVersion":"%s","unsupported":%s}\n' \
-    "$([ "$hypr" = true ] && [ "$tooold" = false ] && echo true || echo false)" \
-    "$([ "$shot" = true ] && [ "$lock" = readable ] && [ "$tooold" = false ] && echo true || echo false)" \
-    "$([ "$input" = true ] && [ "$tooold" = false ] && echo true || echo false)" \
-    "$lock" "$([ "$hypr" = true ] && echo hyprland || echo none)" \
-    "$hyprver" "$tooold"
-  exit 0
-fi
-
-have_env || die "no Hyprland instance found"
-
 # Omarchy replaced hyprlock with a compositor-integrated lock, so `pidof
 # hyprlock` — once the only reliable check — now matches nothing and reports
 # "unlocked" forever. That disarmed both callers silently: unlock refused to
@@ -102,6 +60,18 @@ lock_state() {
     esac
   elif command -v "$LOCK_PROCESS" >/dev/null 2>&1; then
     if pidof "$LOCK_PROCESS" >/dev/null; then echo locked; else echo unlocked; fi
+  elif command -v loginctl >/dev/null 2>&1 &&
+    [ -n "$(loginctl show-session "${XDG_SESSION_ID:-}" -p LockedHint --value 2>/dev/null)" ]
+  then
+    # UNVERIFIED on anything but this machine. hyprlock does not set LockedHint,
+    # which is where "loginctl cannot detect the lock" came from — but that is a
+    # fact about hyprlock, not about loginctl, and GNOME and KDE do set it.
+    # Only trusted when it answers at all: an empty reply is not a "no".
+    case "$(loginctl show-session "${XDG_SESSION_ID:-}" -p LockedHint --value 2>/dev/null)" in
+      yes) echo locked ;;
+      no)  echo unlocked ;;
+      *)   echo unknown ;;
+    esac
   else
     # No detector at all. Saying "unlocked" here is what caused the bug above,
     # so say so honestly and let both callers refuse.
@@ -111,6 +81,70 @@ lock_state() {
 
 known_unlocked() { [ "$(lock_state)" = unlocked ]; }
 known_locked()   { [ "$(lock_state)" = locked ]; }
+
+# `capabilities` has to answer on a host with no compositor at all — that is
+# the entire point of asking — so it is handled before the check that would
+# refuse to run. Everything else still requires Hyprland.
+if [ "${1:-}" = capabilities ]; then
+  hypr=false; shot=false; input=false; lock=unknown; hyprver=""; tooold=false
+  if have_env && hyprctl version >/dev/null 2>&1; then
+    hypr=true
+    # 0.56.2 moved every dispatcher to a Lua API. Nothing in this file works on
+    # the older `hyprctl dispatch` syntax, and the failure is silent: the
+    # dispatcher errors, the window does not move, and nobody is looking. Report
+    # the version so the caller can say so instead of appearing to work.
+    hyprver=$(hyprctl version 2>/dev/null | sed -n 's/^Hyprland \([0-9][0-9.]*\).*/\1/p' | head -1)
+    if [ -n "$hyprver" ]; then
+      # Sort-based compare: no bash arithmetic on dotted versions, and this has
+      # to run under sh on a machine we know nothing about.
+      older=$(printf '%s\n%s\n' "$hyprver" "0.56.2" | sort -V | head -1)
+      [ "$older" = "0.56.2" ] || tooold=true
+    fi
+    command -v grim >/dev/null 2>&1 && shot=true
+  fi
+
+  # Input is checked outside the compositor block on purpose. ydotool writes to
+  # /dev/uinput, which is the kernel — it is why this works on a lock screen at
+  # all, since it sits below the Wayland layer that refuses virtual keyboards.
+  # It has no idea what compositor is running and does not care. Nesting this
+  # inside the Hyprland check meant a GNOME, KDE or Sway machine reported it
+  # could not type, which was never true.
+  if command -v ydotool >/dev/null 2>&1 &&
+    { [ -S "${YDOTOOL_SOCKET:-/run/user/$(id -u)/.ydotool_socket}" ] || pidof ydotoold >/dev/null 2>&1; }
+  then
+    input=true
+  fi
+  # Asks the same detector the guards use, rather than repeating its checks.
+  # The two had already drifted: this said "unknown" on a machine where
+  # lock_state answered "unlocked", which is how a capture guard and the thing
+  # describing it end up disagreeing.
+  #
+  # Reported separately from `shot`: a host that cannot tell whether it is
+  # locked must refuse to capture, so the UI needs to know which of the two
+  # reasons it is looking at.
+  case "$(lock_state)" in
+    locked | unlocked) lock=readable ;;
+    *) lock=unknown ;;
+  esac
+  # `unsupported` is true when a compositor is present but too old to drive.
+  # Distinct from "no compositor": the difference is what the UI should say.
+  printf '{"windows":%s,"screenshot":%s,"input":%s,"lock":"%s","compositor":"%s","compositorVersion":"%s","unsupported":%s}\n' \
+    "$([ "$hypr" = true ] && [ "$tooold" = false ] && echo true || echo false)" \
+    "$([ "$shot" = true ] && [ "$lock" = readable ] && [ "$tooold" = false ] && echo true || echo false)" \
+    "$input" \
+    "$lock" "$([ "$hypr" = true ] && echo hyprland || echo none)" \
+    "$hyprver" "$tooold"
+  exit 0
+fi
+
+# Input and unlock need ydotool and a lock detector, neither of which involves a
+# compositor — so they are handled before the check that demands one. Windows and
+# screenshots still require Hyprland, and still say so.
+case "${1:-}" in
+  type | key | unlock) ;;
+  *) have_env || die "no Hyprland instance found" ;;
+esac
+
 
 # Hyprland 0.56.2 parses `hyprctl dispatch` as Lua: the old
 # `dispatch exec "[workspace 7 silent] foo"` form is now a syntax error, and

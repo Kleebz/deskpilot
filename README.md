@@ -45,7 +45,13 @@ it has no windows — that path is tested on every commit, not assumed.
 | sessions, terminals, notifications | `tmux` |
 | window listing, moving, tiling | Hyprland **0.56.2+** |
 | screenshots | `grim` |
-| remote unlock and input | `ydotool`, plus turning it on deliberately |
+| remote unlock and input | `ydotool` — **any Linux**, no compositor needed |
+
+Note what is *not* in that list: unlock and input injection. `ydotool` writes to
+`/dev/uinput`, which is the kernel — it is why this reaches a lock screen at all, since it
+sits below the Wayland layer that refuses virtual keyboards. It works on GNOME, KDE, Sway
+or a bare TTY, and needs no compositor support. Only windows and screenshots are
+Hyprland's.
 
 0.56.2 is a real floor, not a preference: every dispatcher moved to a Lua API in that
 release, and on an older Hyprland the window commands fail without saying so. The server
