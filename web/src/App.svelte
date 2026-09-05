@@ -120,10 +120,17 @@
   // this the pane always showed whichever sorted first — so the index could
   // list both but only ever reach one. A tap from the index records the choice
   // here; sessionFor honours it.
+  // Keyed by machine, then workspace. It was workspace alone, which meant a
+  // choice made on one machine silently applied to another machine's screen of
+  // the same number — and with sessions named after directories, two machines
+  // sharing a name is the normal case rather than a coincidence.
   let selected = $state({});
 
   function jump(ws, session) {
-    if (session) selected = { ...selected, [ws]: session };
+    if (session) {
+      const host = currentHost().origin;
+      selected = { ...selected, [host]: { ...(selected[host] ?? {}), [ws]: session } };
+    }
     rail?.scrollTo({ left: ws * (rail.clientWidth || 1), behavior: "smooth" });
   }
 
@@ -160,7 +167,8 @@
   // a session that is no longer there.
   const sessionFor = (ws) => {
     const here = sessions.filter((s) => s.workspace === ws);
-    return here.find((s) => s.session === selected[ws]) ?? here[0] ?? null;
+    return here.find((s) => s.session === selected[currentHost().origin]?.[ws]) ??
+      here[0] ?? null;
   };
   const windowsFor = (ws) => windows.filter((w) => w.workspace === ws);
   const occupied = (ws) => sessions.some((s) => s.workspace === ws) || windowsFor(ws).length > 0;

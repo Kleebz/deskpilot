@@ -1,6 +1,7 @@
 <script>
   import { post } from "./api.js";
   import WindowRow from "./WindowRow.svelte";
+  import { hosts } from "./hosts.svelte.js";
   import NewSession from "./NewSession.svelte";
   import Term from "./Term.svelte";
   import { vis } from "./visible.svelte.js";
@@ -162,12 +163,15 @@
          screens nobody is looking at. Swiping back re-attaches and tmux
          repaints immediately. -->
     {#if active}
-      <!-- Keyed on the session name so switching which session this screen
-           shows (two can share one workspace) tears down the old terminal and
-           reconnects to the new one. Term's boot effect depends on fontPx, not
-           session, so without this a changed session prop would keep the old
-           PTY attached — right name in the bar, wrong terminal below it. -->
-      {#key session.session}
+      <!-- Keyed on the machine *and* the session name. The session name alone
+           was not enough once a phone could hold more than one machine: Term
+           reads the host when it connects and nothing tells it to reconnect,
+           so switching machines left the terminal attached to the old one. Two
+           machines having a session of the same name — likely, since names come
+           from directory names — meant the key did not change either, and you
+           got the new machine's name in the bar over the old machine's
+           terminal. Silent, and exactly the wrong kind of wrong. -->
+      {#key `${hosts.current}:${session.session}`}
         <Term session={session.session} {fontPx} {alive} busy={working} onactivity={activity} />
       {/key}
     {:else}
