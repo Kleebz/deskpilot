@@ -781,13 +781,33 @@ async function handle(req: Request): Promise<Response> {
     const ws = body?.workspace;
     if (!SAFE_NAME.test(name)) return fail("bad session name");
 
-    // The command is passed to tmux as argv and exec'd directly — no shell, so
-    // there is no quoting hazard. Note that Deno's --allow-run allowlist does
-    // NOT constrain this: tmux execs whatever it is handed. That is inherent to
-    // an app whose purpose is running terminals, and no worse than send-keys,
-    // which can already type any command into any session.
+    // Launched through a login shell, so a session started from the phone runs
+    // exactly what the same command would run at the desk.
+    //
+    // It did not, and the difference bit. This service inherits systemd's
+    // environment, which has mise's *shims* on PATH but not the resolved tool
+    // directories an interactive shell gets from `mise activate`. So `claude`
+    // from the phone resolved to a shim — mise itself — which re-resolves the
+    // tool on every launch, with the network and its own warnings in the way,
+    // where the desk got the installed binary directly. Same word, two
+    // different programs, and the slower one only ever ran when you were not
+    // there to watch it.
+    //
+    // Nothing here is specific to one agent or one version manager: the point
+    // is to inherit the user's own environment rather than reproduce a guess at
+    // it. Anything they can start by typing, deskpilot can start the same way.
+    //
+    // `exec "$0" "$@"` keeps the no-quoting-hazard property of the old argv
+    // form — the command and its arguments stay separate words and are never
+    // reparsed by the shell. Note that Deno's --allow-run allowlist does NOT
+    // constrain this: tmux execs whatever it is handed. That is inherent to an
+    // app whose purpose is running terminals, and no worse than send-keys.
     const args = ["new-session", "-d", "-s", name, "-c", cwd];
-    if (cmd) args.push("--", ...String(cmd).split(/\s+/).filter(Boolean));
+    const parts = String(cmd).split(/\s+/).filter(Boolean);
+    if (parts.length) {
+      const shell = Deno.env.get("SHELL") || "/bin/bash";
+      args.push("--", shell, "-lc", 'exec "$0" "$@"', ...parts);
+    }
     const r = await run("tmux", args);
     if (r.code !== 0) return fail(r.err || "could not create session", 500);
 
