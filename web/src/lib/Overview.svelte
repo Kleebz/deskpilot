@@ -310,6 +310,15 @@
   {/if}
   </div>
 
+  {#if caps.unsupported}
+    <div class="why">
+      This machine runs Hyprland {caps.compositorVersion}, and the window and
+      screenshot controls need <b>0.56.2</b> or newer — every dispatcher moved to a
+      different API in that release, and on an older one they fail without saying so.
+      Sessions and terminals are unaffected.
+    </div>
+  {/if}
+
   {#if locked && caps.unlock === false}
     <div class="why">
       Screen is locked, so screenshots would return the password prompt. Sessions

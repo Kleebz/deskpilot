@@ -40,9 +40,20 @@ have_env || {
 # the entire point of asking — so it is handled before the check that would
 # refuse to run. Everything else still requires Hyprland.
 if [ "${1:-}" = capabilities ]; then
-  hypr=false; shot=false; input=false; lock=unknown
+  hypr=false; shot=false; input=false; lock=unknown; hyprver=""; tooold=false
   if have_env && hyprctl version >/dev/null 2>&1; then
     hypr=true
+    # 0.56.2 moved every dispatcher to a Lua API. Nothing in this file works on
+    # the older `hyprctl dispatch` syntax, and the failure is silent: the
+    # dispatcher errors, the window does not move, and nobody is looking. Report
+    # the version so the caller can say so instead of appearing to work.
+    hyprver=$(hyprctl version 2>/dev/null | sed -n 's/^Hyprland \([0-9][0-9.]*\).*/\1/p' | head -1)
+    if [ -n "$hyprver" ]; then
+      # Sort-based compare: no bash arithmetic on dotted versions, and this has
+      # to run under sh on a machine we know nothing about.
+      older=$(printf '%s\n%s\n' "$hyprver" "0.56.2" | sort -V | head -1)
+      [ "$older" = "0.56.2" ] || tooold=true
+    fi
     command -v grim >/dev/null 2>&1 && shot=true
     command -v ydotool >/dev/null 2>&1 &&
       { [ -S "${YDOTOOL_SOCKET:-/run/user/$(id -u)/.ydotool_socket}" ] || pidof ydotoold >/dev/null 2>&1; } &&
@@ -54,9 +65,14 @@ if [ "${1:-}" = capabilities ]; then
   if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then lock=readable
   elif command -v "${DESKPILOT_LOCK_PROCESS:-hyprlock}" >/dev/null 2>&1; then lock=readable
   fi
-  printf '{"windows":%s,"screenshot":%s,"input":%s,"lock":"%s","compositor":"%s"}\n' \
-    "$hypr" "$([ "$shot" = true ] && [ "$lock" = readable ] && echo true || echo false)" \
-    "$input" "$lock" "$([ "$hypr" = true ] && echo hyprland || echo none)"
+  # `unsupported` is true when a compositor is present but too old to drive.
+  # Distinct from "no compositor": the difference is what the UI should say.
+  printf '{"windows":%s,"screenshot":%s,"input":%s,"lock":"%s","compositor":"%s","compositorVersion":"%s","unsupported":%s}\n' \
+    "$([ "$hypr" = true ] && [ "$tooold" = false ] && echo true || echo false)" \
+    "$([ "$shot" = true ] && [ "$lock" = readable ] && [ "$tooold" = false ] && echo true || echo false)" \
+    "$([ "$input" = true ] && [ "$tooold" = false ] && echo true || echo false)" \
+    "$lock" "$([ "$hypr" = true ] && echo hyprland || echo none)" \
+    "$hyprver" "$tooold"
   exit 0
 fi
 

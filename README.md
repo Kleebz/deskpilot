@@ -43,9 +43,13 @@ it has no windows — that path is tested on every commit, not assumed.
 | For | You need |
 |---|---|
 | sessions, terminals, notifications | `tmux` |
-| window listing, moving, tiling | Hyprland |
+| window listing, moving, tiling | Hyprland **0.56.2+** |
 | screenshots | `grim` |
 | remote unlock and input | `ydotool`, plus turning it on deliberately |
+
+0.56.2 is a real floor, not a preference: every dispatcher moved to a Lua API in that
+release, and on an older Hyprland the window commands fail without saying so. The server
+detects it and reports the desk tier as unavailable rather than appearing to work.
 
 The desk half is Hyprland-only today. It is one shell script, `scripts/desk.sh`, kept
 readable and shipped beside the binary rather than compiled into it, precisely so that a
