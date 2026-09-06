@@ -5,9 +5,12 @@
 #   ~/Projects/deskpilot/shell/update.sh
 #
 # There was no update path at all: you were pinned to whatever you first
-# installed, with no way to tell what that was. This is the source-checkout
-# version — a packaged install updates through the package manager, and a
-# compiled binary replaces itself.
+# installed, with no way to tell what that was.
+#
+# This is the source-checkout version, and only that. The other two are:
+#   * a release install  ->  re-run install.sh, or `deskpilot update`
+#   * a package install  ->  the package manager
+# README.md has all three under "Updating".
 #
 # The order matters, and it is the order that bit us on a previous deploy.
 # Build the UI *before* restarting the service: the server serves web/dist

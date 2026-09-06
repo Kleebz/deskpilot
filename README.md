@@ -5,6 +5,7 @@ A phone-facing remote for the machine you left running.
 Coding agents work for minutes at a time and then stop to ask a question. If you are not
 at the desk when that happens, the work is not slow — it is stopped. deskpilot puts those
 sessions on your phone: see which one is blocked and on what, answer it, start new work,
+copy a command or a path out of a session into the phone's clipboard, paste one back in,
 and — on Hyprland — look at the screen and move windows.
 
 It runs entirely on your own hardware. There is no service in the middle, no account, and
@@ -106,7 +107,17 @@ systemctl --user enable --now deskpilot
 allowlist, which is not a trade worth making to save you a paste.
 
 An Arch package is generated with every release — `PKGBUILD` is attached alongside the
-tarball — but it has not been submitted to the AUR yet, so build it by hand for now.
+tarball — and building it by hand is the Arch route for now:
+
+```
+gh release download vX.Y.Z -p PKGBUILD
+makepkg -si
+```
+
+It is not in the AUR, and that is not a matter of getting round to it: AUR account
+registration is disabled upstream at the moment, in response to the volume of automated
+scraping the site has been absorbing, with no date on it. The package above is the same
+one that would be published there, so nothing is missing except the one-command install.
 
 ## Building from source
 
@@ -230,6 +241,79 @@ Requiring Tailscale means a VPN client on the phone, which is a real cost and an
 one. Removing it means WebRTC with a signalling server — designed, not built.
 [decisions.md](docs/decisions.md) has the reasoning, including why a relay that could read
 your traffic was rejected twice.
+
+## Updating
+
+**Sessions survive it.** tmux runs as a child of the service unit with `KillMode=process`,
+so a restart leaves every session attached and running — verified when the service
+crash-looped for thirty seconds and everything was still there afterwards.
+
+Whichever way you installed, `deskpilot version` says what you are running, and the app
+shows it per machine in the **machines** list — which is the one that matters once a phone
+holds more than one, since the question stops being "what am I running" and becomes "which
+of these is behind".
+
+**From a release** — the `install.sh` path:
+
+```
+sudo deskpilot update
+systemctl --user restart deskpilot
+```
+
+`update` fetches the release index, verifies the published sha256 **before touching
+anything on disk**, and replaces the binary and both scripts together — staged beside
+each destination and renamed, so a failure halfway cannot leave a new binary next to an
+old `desk.sh`. `deskpilot update --check` looks without installing, and a version
+argument pins it (`sudo deskpilot update 0.1.2`).
+
+It steps aside if a package manager owns the install, because overwriting a pacman-owned
+file leaves a mismatch that the next `pacman -Syu` silently reverts.
+
+Re-running the installer does the same job and is the fallback if the binary is too old to
+have `update`:
+
+```
+curl -fsSL https://github.com/Kleebz/deskpilot/releases/latest/download/install.sh | sh
+systemctl --user restart deskpilot
+```
+
+The restart is not optional in either case. Replacing the file does not disturb the
+process already running — it holds the old one open until something restarts it — so an
+update that stops before this appears to work and has changed nothing.
+
+**From the PKGBUILD**, which is where Arch users are for as long as AUR registration stays
+closed.
+Each release attaches a `PKGBUILD` with that version and checksum already filled in, so
+this is a download rather than an edit:
+
+```
+gh release download vX.Y.Z -p PKGBUILD --clobber
+makepkg -si
+systemctl --user restart deskpilot
+```
+
+This route makes pacman the owner of the binary, so `deskpilot update` will decline it and
+send you back here — deliberately, since replacing a pacman-owned file leaves a mismatch
+the next `-Syu` silently reverts. If the package ever reaches the AUR, this all becomes
+`pacman -Syu` like anything else.
+
+**From a source checkout:**
+
+```
+shell/update.sh
+```
+
+It refuses to clobber uncommitted work, fast-forwards, rebuilds the UI *before* restarting
+— the server serves `web/dist` straight off disk, so a rebuild goes live the moment it
+compiles — typechecks the server, and stops rather than restarting if either fails.
+
+### If the desk half goes quiet after an update
+
+`desk.sh` ships beside the binary rather than inside it, and the two move together. Update
+the binary alone and a new server can be talking to an old script, which surfaces as
+window and screenshot controls disappearing — the app reports the machine as having no
+compositor. `install.sh` and the package both replace the pair; a hand-unpacked tarball is
+the case to watch. `shell/check.sh` will say so.
 
 ## Security
 

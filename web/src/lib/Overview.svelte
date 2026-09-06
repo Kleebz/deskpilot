@@ -232,6 +232,14 @@
       onchanged();
     } catch (e) { onstatus(e.message, true); }
   }
+
+  // The server has always reported its version in /api/capabilities and nothing
+  // ever showed it, so neither end could tell it was out of date — and with
+  // several machines the question is not "what am I running" but "which of
+  // these is behind". Read off the caps map directly: capsFor() fills in
+  // defaults for a machine that has not answered, and a version is exactly the
+  // thing that must never be guessed.
+  const versionOf = (origin) => hosts.caps[origin]?.version ?? "";
 </script>
 
 <section>
@@ -256,6 +264,17 @@
           <span class="nm">{h.name}</span>
           {#if needsYou[h.origin]}<span class="st blocked">needs you</span>{/if}
           <span class="path dim">{h.origin}</span>
+          {#if versionOf(h.origin)}
+            <!-- Split so the narrow case keeps the part that answers the
+                 question. "0.1.2 vs 0.1.3" is what you compare on a phone; the
+                 commit only matters to someone running from a checkout, and it
+                 is the first thing to go when the row runs out of room. -->
+            <span class="ver dim">
+              {versionOf(h.origin).split("+")[0]}<!--
+              -->{#if versionOf(h.origin).includes("+")}<span class="vsha"
+                >+{versionOf(h.origin).split("+")[1]}</span>{/if}
+            </span>
+          {/if}
         </button>
         {#if hosts.list.length > 1}
           <button class="sm danger" onclick={() => forget(h.origin, h.name)}>forget</button>
@@ -537,7 +556,6 @@
     justify-content: flex-start;
     border: 0; padding: .2rem 0; text-align: left; background: transparent;
   }
-  .row.static { border-style: dashed; }
   /* The name identifies the row, so it yields last rather than first. It was
      collapsing to "deskpil…" while a fixed-width "kill" button kept every
      pixel it asked for — visible the moment the interface was screenshotted at
@@ -566,6 +584,13 @@
   @media (max-width: 430px) {
     .row:has(.st) .age { display: none; }
   }
+  /* Same shape as .age: pushed right, never the thing that shrinks. */
+  .ver {
+    flex: 0 0 auto; margin-left: auto; font-size: 11px; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 430px) { .vsha { display: none; } }
+
   .clearall { align-self: flex-start; margin: .1rem 0 .35rem; }
 
   .why {

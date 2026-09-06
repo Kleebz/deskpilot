@@ -18,8 +18,9 @@
 #     reach even if the rule is wrong.
 #   * A real Let's Encrypt certificate for <host>.<tailnet>.ts.net, renewed by
 #     Tailscale. No self-signed warnings, no CA to install on the phone.
-#   * Secure context also unlocks clipboard access and other gated APIs, if
-#     they are ever wanted.
+#   * Secure context is also what gives the app the clipboard API. Without it,
+#     copying falls back to the deprecated execCommand path and reading the
+#     clipboard — the pre-filled paste box — is not available at all.
 #
 # Reverse with:  tailscale serve reset
 

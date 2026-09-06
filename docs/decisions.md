@@ -887,3 +887,183 @@ generalises. Second compositor only when a real user with a real box turns up.
 shared. If shared, the Funnel decision above is right but pairing is not — one shared
 token does not survive contact with other people, and `ydotool`'s udev rule is a lot to
 ask a stranger for.
+
+## Copy and paste, in both directions
+
+The terminal became the whole UI and took an obvious thing with it: getting text *out*.
+xterm draws into a canvas, so long-pressing a path or a command selects nothing — there
+is no DOM node for the phone's selection handles to grab, and `getSelection()` over the
+terminal returns an empty string. On a desktop this is invisible because xterm's own
+mouse selection covers it; on a phone that selection is unreachable, since a vertical
+drag over the terminal is already the scroll gesture (see "drag to scroll") and taking
+long-press for selection would collide with the OS text menu.
+
+**Copy is a sheet of plain text, not a button.** Tapping `copy` opens a full-screen sheet
+holding the session's scrollback as a `<pre>`. That gives back the phone's own selection
+— handles, magnifier, long-press → Copy — which matters because the useful copy is nearly
+always *part* of a reply: one path, one command, one block. `copy all` is there for the
+whole thing. Same shape as the window lightbox, and for the same reason: text you are
+going to drag a selection across should not share the screen with a rail that swipes.
+
+The text comes from **xterm's own buffer**, not from a fresh `/api/capture`. The buffer is
+already in the process, so there is no round trip, and — more importantly — a capture
+could come back subtly different from what is on screen, which is exactly the wrong
+property for a copy. Wrapped rows are rejoined into the logical line they came from:
+a phone is 40-odd columns, so a real line is two or three rows here and copying them
+verbatim would paste pre-broken. Only the last row of a line is right-trimmed; trimming a
+continued row eats a space that is genuinely part of the text. Measured on a live session
+at 320px: 933 lines out of the buffer, longest 266 characters, i.e. rows were joined.
+
+What that cannot fix: an agent that wraps its own prose. Claude Code lays out to the pane
+width itself, so those line breaks are in the bytes and no amount of unwrapping at this
+layer will find them — `capture-pane -J` has the identical limit. Landscape or the smaller
+font is the answer there, and both already exist.
+
+**Paste is not typing.** `/api/send` types text as keystrokes, which is right for a line
+composed on the phone and wrong for a block off the clipboard: every newline is an Enter,
+so a thirty-line snippet arrives as thirty submitted prompts. `/api/paste` hands it to
+tmux instead — `load-buffer -` takes the text on stdin, so nothing is ever quoted into a
+command line (the same reason keystrokes travel as hex), and `paste-buffer -p` brackets it
+*if the application asked for bracketed paste*, which is how a TUI tells a paste from
+typing. Nothing on this path knows which application that is.
+
+Verified both ways against a live `bash`: with `-p`, `echo alpha\necho bravo\necho charlie`
+sat on the command line unexecuted; without it, alpha and bravo ran. Text containing
+`'quotes'` and `$(danger)` arrived byte-identical. The buffer is named and pasted with
+`-d`, so somebody's clipboard does not sit in tmux where `show-buffer` would print it and
+a later `prefix ]` would paste it somewhere nobody asked for.
+
+**Three clipboard APIs, because there is no single one.** `navigator.clipboard` exists
+only in a secure context, and deskpilot on a plain-http tailnet address is not one — only
+https and localhost are exempt. A copy button written against it does nothing at all,
+silently, which is the same failure mode as everything in the traps list. So
+`clipboard.js` tries `writeText`, falls back to `execCommand("copy")` (deprecated, not
+removed, and it works on http), and if both fail selects the text so the phone's own menu
+can finish. Reading is stricter still — secure context *and* a user gesture, with Safari
+interposing its own confirmation — so the paste drawer is a textarea that is pre-filled
+when reading is allowed and long-pressed into when it is not. This is now the strongest
+practical argument for `shell/use-https.sh`, which anticipated it.
+
+Measured at 320 and 390: the sheet and the drawer both hold the viewport exactly, nothing
+escapes a pane, every control is ≥44px, and `copy all` round-tripped 33,818 characters
+byte-identical through the clipboard. The composer input loses 54px to the paste button at
+320px, down to 124px, which is the honest cost of the second control on that row.
+
+## Errors that only existed on the other machine
+
+Found while reviewing the clipboard work, not by hitting it: every success returned
+through `withCookie()`, which sets the CORS headers, and every failure returned a bare
+`fail()`, which did not — 45 of 50 call sites. Same-origin that is invisible, because
+CORS does not apply. Cross-origin it means the browser refuses to expose the response at
+all, `fetch` rejects with a TypeError, and `api.js` maps TypeError to `Unreachable`:
+
+> can't reach the desktop — is Tailscale on?
+
+So on any machine other than the one serving the page, *every* error said the tailnet was
+down. A revoked device, a session that had gone, the unlock rate-limiter counting down —
+all of them, in the one direction that sends you to fix the thing that is working. It only
+affected the newest and least-exercised path, which is why it lasted.
+
+Reproduced in Chromium with two origins against one server (`127.0.0.1` and `localhost`
+are different origins, which is enough):
+
+| | before | after |
+|---|---|---|
+| cross-origin 200 | `{ ok: true, status: 200 }` | unchanged |
+| cross-origin 400 | `TypeError: Failed to fetch` | `400 {"error":"bad session name"}` |
+| cross-origin 401 | `TypeError: Failed to fetch` | `401` |
+
+Fixed at the `Deno.serve` boundary rather than in `fail()`. Fifty call sites is fifty
+chances for the next route to forget, and the wrapper cannot be forgotten. A disallowed
+origin still gets nothing — `corsHeaders` returns an empty set for it, which is the one
+case where an unreadable answer is the correct answer, and that was verified separately
+with `DESKPILOT_ORIGINS` set. Status 101 is skipped: a WebSocket upgrade's headers are not
+ours to touch.
+
+### The fix broke every terminal for ninety minutes
+
+Worth writing down because it was the fix, not the bug, and because of how it hid. The
+wrapper first read the origin *after* `await handle(req)`. For every ordinary request that
+is fine. For a WebSocket upgrade it is not: the upgrade consumes the request, so touching
+`req.headers` afterwards throws `TypeError: Request closed`, and the throw loses the
+upgrade response — Deno logs "Upgrade response was not returned from callback" and the
+socket never opens.
+
+Nothing said so. `systemctl` reported the service active, the session list, capabilities,
+send, paste and every other HTTP route answered normally, and `check.sh` passed all of it.
+The only broken thing was the one thing that is not HTTP. It was found in the journal, an
+hour and a half later, from the user noticing the app was dead.
+
+Two lessons. **Read the request before you await it** — now in CLAUDE.md. And the one
+about verification: `tests/layout.ts` *would* have caught this, because the copy sheet
+reads the live terminal buffer and would have come back empty, but it was run before the
+change and not after. `check.sh` is not sufficient on its own for anything that touches
+the request path, because it never opens a socket.
+
+The general lesson, which is now in CLAUDE.md: **a route that works on the machine serving
+the page has not been tested.** The multi-machine axis is the newest thing here and the
+easiest to leave out of a check, and it fails by misattributing the cause rather than by
+erroring.
+
+## Updating: three ways in, and only one of them had a way forward
+
+The install story was three paths and the update story was roughly zero. The README said
+"update" nowhere. `shell/update.sh` — the only place anyone would look — claimed "a
+compiled binary replaces itself", which was not true of any build that has ever existed.
+The AUR package, which would have made this someone else's problem on Arch, was never
+submitted — and cannot be for now, since AUR account registration is disabled upstream
+against scraping traffic. That is worth stating plainly because it changes what the
+release path is *for*: it is not a stopgap until the real packaging lands, it is the
+distribution channel. So whoever took the path the README leads with, `curl … install.sh`, was
+pinned to whatever they first installed with nothing telling them so.
+
+**Re-running the installer already worked.** That was the surprise. Overwriting
+`/usr/bin/deskpilot` while the service runs succeeds, because coreutils `install` unlinks
+the destination rather than truncating it — a naive truncating write gets `ETXTBSY`, which
+is what made this worth checking rather than assuming. The file is replaced and the
+running process keeps the old inode until something restarts it. So the update appeared to
+work and changed nothing until the next reboot, and install.sh printed the *first-install*
+next steps regardless. It now detects an existing binary, prints `0.1.2+abc -> 0.1.3+def`
+(or "already at X" when nothing is newer), and ends with the restart.
+
+**`deskpilot update`** does it in one command. It reads the same fixed-name
+`deskpilot-checksums.txt` that install.sh reads — one source of truth, so two updaters
+cannot drift — verifies the sha256 **before anything on disk is touched**, and stages every
+file beside its destination before renaming any of them. That ordering is the part worth
+keeping: a failure halfway cannot leave a new binary next to an old `desk.sh`, and that
+particular skew surfaces as "this machine has no compositor" and explains nothing.
+
+Two things it deliberately cannot do. It cannot restart the service, because `systemctl`
+would have to join an allowlist the *server* shares — the same trade already refused in
+`setup`. And it cannot replace a package-managed install:
+
+> a package manager owns /usr/bin/deskpilot.
+>   Update it the way you installed it:  pacman -Syu
+
+That check is the one part of this that was not optional. Overwriting a pacman-owned file
+leaves something pacman still believes it owns: `pacman -Qkk` reports a mismatch and the
+next `-Syu` puts the old version back, days later, with nothing connecting the two events.
+Detection is a marker file at `/usr/share/deskpilot/install-method` written by whichever
+installer ran, falling back to reading `/var/lib/pacman/local/*/files` for copies installed
+before the marker existed. Both are *read*; `pacman -Qo` would be tidier and would mean
+adding pacman to the allowlist, which is the thing this design exists to avoid. install.sh
+refuses on the same grounds.
+
+This is also the answer to whether any of it forecloses the AUR. It does not: the updater
+is another consumer of artifacts the release already publishes, it changes nothing about
+how they are built or named, and on a packaged install it steps aside. When the package
+lands, Arch users get `pacman -Syu` and everyone else — every non-Arch Linux box, which
+will never have an AUR option at all — keeps `deskpilot update`.
+
+**The one new dependency.** `jsr:@std/tar`, pinned, for unpacking the release archive. The
+alternative was `tar` in the binary's `--allow-run` allowlist, which is shared with the
+server. Trading a dependency for a wider execution allowlist on an endpoint whose job is
+executing things is the wrong way round.
+
+### What made this findable at all
+
+The version had been reported in `/api/capabilities` since it was introduced, explicitly so
+"an update check has something to compare against", and nothing had ever displayed it. It
+is now on each row of the machines list, pushed right like `.age` and shedding its commit
+suffix below 431px, because on a phone the comparison is `0.1.2` against `0.1.3` and the
+sha only matters to someone running from a checkout.

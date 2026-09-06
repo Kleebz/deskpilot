@@ -255,6 +255,13 @@ const ALLOWED_KEYS = new Set([
   "C-c", "C-d", "C-u", "C-l", "C-r", "C-w",
 ]);
 
+// One clipboard's worth, not a file transfer: a paste is delivered to whatever
+// is running in the pane, and handing a TUI a megabyte of text in one go is a
+// way to wedge it rather than a feature. A named buffer keeps pastes from
+// piling up on tmux's buffer stack.
+const PASTE_MAX = 100_000;
+const PASTE_BUFFER = "deskpilot";
+
 // Tools whose worst case is reading something. These are the only requests the
 // phone may approve with one tap: the notification shows what is being asked,
 // but a lock-screen glance is not a review, so anything that writes, executes
@@ -769,6 +776,56 @@ async function handle(req: Request): Promise<Response> {
     if (lit.code !== 0) return fail(lit.err || "send failed", 500);
     if (body?.enter !== false) await run("tmux", ["send-keys", "-t", s, "Enter"]);
     return withCookie(json({ ok: true, session: s }));
+  }
+
+  // Paste, which is not the same thing as typing.
+  //
+  // /api/send types text as keystrokes, which is right for a line composed on
+  // the phone and wrong for a block off the clipboard: every newline in it is
+  // an Enter, so a thirty-line snippet arrives as thirty submitted prompts.
+  //
+  // tmux's own buffer is the way round that. `load-buffer -` takes the text on
+  // stdin, so nothing is ever quoted into a command line — the same reason
+  // keystrokes travel as hex — and `paste-buffer -p` wraps it in bracketed-paste
+  // markers *if the application has asked for them*, which is how a TUI tells a
+  // paste from typing. Nothing here knows or asks which application that is.
+  //
+  // Nothing is sent afterwards: a paste lands in whatever is composing on the
+  // far end, unsubmitted, so it can be added to before it goes.
+  if (req.method === "POST" && path === "/api/paste") {
+    const body = await req.json().catch(() => null);
+    const s = String(body?.session ?? "");
+    if (!SAFE_NAME.test(s)) return fail("bad session name");
+    const text = body?.text;
+    if (typeof text !== "string" || !text.length) return fail("empty text");
+    if (text.length > PASTE_MAX) {
+      return fail(`too much text — ${PASTE_MAX} characters at a time`, 413);
+    }
+
+    const child = new Deno.Command("tmux", {
+      args: ["load-buffer", "-b", PASTE_BUFFER, "-"],
+      stdin: "piped", stdout: "null", stderr: "piped",
+    }).spawn();
+    const w = child.stdin.getWriter();
+    await w.write(new TextEncoder().encode(text));
+    await w.close();
+    const loaded = await child.output();
+    if (loaded.code !== 0) {
+      const msg = new TextDecoder().decode(loaded.stderr).trim();
+      return withCookie(fail(msg || "could not load the paste buffer", 500));
+    }
+
+    // -d drops the buffer as it is pasted. It holds somebody's clipboard, and
+    // there is no reason for that to sit in tmux until the next paste replaces
+    // it — where `showb` would print it, and a later `prefix ]` would paste it
+    // somewhere nobody asked for.
+    const r = await run("tmux",
+      ["paste-buffer", "-p", "-d", "-b", PASTE_BUFFER, "-t", s]);
+    if (r.code !== 0) {
+      await run("tmux", ["delete-buffer", "-b", PASTE_BUFFER]);
+      return withCookie(fail(r.err || "no such session", 404));
+    }
+    return withCookie(json({ ok: true, session: s, chars: text.length }));
   }
 
   // Create a session. With `workspace`, a real terminal is placed there so it
@@ -1316,8 +1373,41 @@ setInterval(() => {
   tick().catch((e) => console.error("recorder:", e?.message ?? e));
 }, POLL_MS);
 
+// An error nobody can read is not an error, it is "Failed to fetch".
+//
+// Every success returns through withCookie(), which sets the CORS headers.
+// Every failure returned a bare fail(), which did not — so a phone talking to a
+// *second* machine could read a 200 and nothing else: the browser blocked the
+// body, fetch rejected with a TypeError, and api.js turns TypeError into
+// "can't reach the desktop — is Tailscale on?". A revoked device, a session
+// that had gone, the unlock rate-limiter counting down — all of them reported
+// the tailnet as down, which sends you to fix the one thing that is working.
+// Reproduced in Chromium across two origins, and only ever on the machine that
+// did not serve the page, which is why it survived this long.
+//
+// Wrapped here rather than fixed in fail(): there are fifty call sites and the
+// next route added would forget again. An origin that is not allowed still gets
+// nothing — corsHeaders returns an empty set for it, and that is the one case
+// where an unreadable answer is the right answer. 101 is left alone: a
+// WebSocket upgrade's headers are not ours to touch.
+async function serve(req: Request): Promise<Response> {
+  // The origin is read BEFORE handle(), and that ordering is the whole trick.
+  // A WebSocket upgrade consumes the request, so touching req.headers after
+  // handle() has returned throws "TypeError: Request closed" — the throw eats
+  // the upgrade response, Deno logs "Upgrade response was not returned from
+  // callback", and every terminal in the app fails to connect while the service
+  // still reports itself active. Cost an hour and a half of dead terminals to
+  // learn, because nothing between here and the phone says the socket died.
+  const origin = req.headers.get("origin");
+  const res = await handle(req);
+  if (res.status === 101 || !origin) return res;
+  if (res.headers.has("access-control-allow-origin")) return res;
+  for (const [k, v] of Object.entries(corsHeaders(origin))) res.headers.set(k, v);
+  return res;
+}
+
 console.log(`deskpilot ${BUILD} listening on http://${HOST}:${PORT}`);
 if (HOST !== "127.0.0.1") {
   console.log("WARNING: bound beyond localhost — make sure you are behind Tailscale");
 }
-Deno.serve({ hostname: HOST, port: PORT }, handle);
+Deno.serve({ hostname: HOST, port: PORT }, serve);

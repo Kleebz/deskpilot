@@ -114,6 +114,147 @@ const MEASURE = `(() => {
   return out;
 })()`;
 
+// The copy sheet and the paste drawer only exist after a tap, so MEASURE above
+// — which reads whatever the app renders on load — never sees either. Both are
+// full-width, so the narrowest phone is the only case worth repeating, and both
+// need a session with a mounted terminal: on a host with none there is nothing
+// to copy, and that is reported rather than failed.
+const OPEN_CHECK = `(root, label) => {
+  const problems = [];
+  const rb = root.getBoundingClientRect();
+  if (Math.round(rb.width) !== innerWidth) {
+    problems.push(label + " is " + Math.round(rb.width) + "px, viewport is " + innerWidth + "px");
+  }
+  root.querySelectorAll("*").forEach((el) => {
+    let clip = el.parentElement;
+    while (clip && clip !== root && getComputedStyle(clip).overflow === "visible") clip = clip.parentElement;
+    if (clip !== root) return;
+    const b = el.getBoundingClientRect();
+    if (b.width === 0 && b.height === 0) return;
+    if (b.right > rb.right + 1 || b.left < rb.left - 1) {
+      problems.push(el.tagName.toLowerCase() + "." + (el.className || "-") + " escapes " + label);
+    }
+  });
+  // xterm's own helper textarea is offscreen input plumbing, not a target.
+  root.querySelectorAll("button, input, select, textarea:not(.xterm-helper-textarea)").forEach((el) => {
+    const b = el.getBoundingClientRect();
+    if (b.height === 0) return;
+    if (b.height < 44) {
+      problems.push(el.tagName.toLowerCase() + ' "' + (el.textContent || "").trim().slice(0, 16) + '" is ' + Math.round(b.height) + "px tall");
+    }
+  });
+  return problems;
+}`;
+
+async function openStates(cdp: Cdp, base: string, token: string): Promise<number> {
+  const width = 320;
+  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
+  const run = async (expression: string) => {
+    const r = await cdp.send("Runtime.evaluate", {
+      expression, returnByValue: true, awaitPromise: true,
+    }, sessionId);
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.text);
+    return r.result?.value;
+  };
+
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width, height: HEIGHT, deviceScaleFactor: DPR, mobile: true,
+  }, sessionId);
+  await cdp.send("Page.enable", {}, sessionId);
+  // Reading the clipboard back is the only way to know `copy all` did anything.
+  await cdp.send("Browser.grantPermissions", {
+    origin: base, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+  });
+  await cdp.send("Page.navigate", { url: `${base}/?token=${token}` }, sessionId);
+
+  let ready = false;
+  for (let i = 0; i < 40 && !ready; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    ready = await run(`!!document.querySelector(".rail > section")`) === true;
+  }
+  if (!ready) {
+    console.log(`\x1b[31m✗\x1b[0m ${width}px — the app never rendered a rail`);
+    await cdp.send("Target.closeTarget", { targetId });
+    return 1;
+  }
+
+  // Swipe to the first screen holding a session: only the pane you are on
+  // mounts a terminal, and the terminal is what the copy sheet reads.
+  const pane = await run(`(() => {
+    const rail = document.querySelector(".rail");
+    const panes = [...document.querySelectorAll(".rail > section")];
+    const i = panes.findIndex((p) => p.classList.contains("composing"));
+    if (i < 0) return -1;
+    rail.scrollTo({ left: i * rail.clientWidth });
+    rail.dispatchEvent(new Event("scroll"));
+    return i;
+  })()`);
+  if (pane < 0) {
+    console.log(`\x1b[2m·\x1b[0m copy and paste not measured — no session to open one on`);
+    await cdp.send("Target.closeTarget", { targetId });
+    return 0;
+  }
+  await new Promise((r) => setTimeout(r, 3500));   // connect, then prime scrollback
+
+  let failures = 0;
+
+  await run(`[...document.querySelectorAll(".rail > section button")]
+    .find((b) => b.textContent.trim() === "copy")?.click()`);
+  await new Promise((r) => setTimeout(r, 600));
+  const sheet = await run(`(async () => {
+    const s = document.querySelector(".sheet");
+    if (!s) return { problems: ["the copy sheet did not open"] };
+    const pre = s.querySelector("pre");
+    const want = pre.textContent;
+    const problems = (${OPEN_CHECK})(s, "the copy sheet");
+    if (!want.trim()) problems.push("the sheet is empty — the terminal buffer read as nothing");
+    if (getComputedStyle(pre).webkitUserSelect === "none") {
+      problems.push("the text is not selectable, which is the point of the sheet");
+    }
+    [...s.querySelectorAll("button")].find((b) => b.textContent.trim() === "copy all").click();
+    await new Promise((r) => setTimeout(r, 500));
+    let got = "";
+    try { got = await navigator.clipboard.readText(); } catch (e) { problems.push("clipboard unreadable: " + e.message); }
+    if (got !== want) problems.push("clipboard holds " + got.length + " chars, the sheet shows " + want.length);
+    const lines = want.split("\\n");
+    return { problems, chars: want.length, lines: lines.length, longest: Math.max(...lines.map((l) => l.length)) };
+  })()`);
+  if (sheet.problems.length) {
+    failures++;
+    console.log(`\x1b[31m✗\x1b[0m ${width}px copy sheet`);
+    for (const p of sheet.problems) console.log(`    ${p}`);
+  } else {
+    console.log(`\x1b[32m✓\x1b[0m ${width}px copy sheet  (${sheet.lines} lines, ${sheet.chars} chars on the clipboard, longest line ${sheet.longest})`);
+  }
+
+  await run(`[...document.querySelectorAll(".sheet button")]
+    .find((b) => b.textContent.trim() === "close")?.click()`);
+  await new Promise((r) => setTimeout(r, 300));
+
+  await run(`[...document.querySelectorAll(".rail > section button")]
+    .find((b) => b.textContent.trim() === "paste")?.click()`);
+  await new Promise((r) => setTimeout(r, 600));
+  const drawer = await run(`(() => {
+    const pane = [...document.querySelectorAll(".rail > section")].find((p) => p.querySelector(".paste"));
+    if (!pane) return { problems: ["the paste drawer did not open"] };
+    const problems = (${OPEN_CHECK})(pane, "the pane");
+    if (!pane.querySelector(".paste textarea")) problems.push("the drawer has nowhere to paste into");
+    const input = pane.querySelector(".composer form input");
+    return { problems, inputWidth: Math.round(input.getBoundingClientRect().width) };
+  })()`);
+  if (drawer.problems.length) {
+    failures++;
+    console.log(`\x1b[31m✗\x1b[0m ${width}px paste drawer`);
+    for (const p of drawer.problems) console.log(`    ${p}`);
+  } else {
+    console.log(`\x1b[32m✓\x1b[0m ${width}px paste drawer  (composer input still ${drawer.inputWidth}px wide)`);
+  }
+
+  await cdp.send("Target.closeTarget", { targetId });
+  return failures;
+}
+
 async function main() {
   const args = new Map<string, string>();
   for (let i = 0; i < Deno.args.length; i += 2) {
@@ -199,6 +340,8 @@ async function main() {
 
     await cdp.send("Target.closeTarget", { targetId });
   }
+
+  failures += await openStates(cdp, base, token);
 
   cdp.close();
   chrome.kill();

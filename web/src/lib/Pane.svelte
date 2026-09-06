@@ -4,6 +4,8 @@
   import { hosts } from "./hosts.svelte.js";
   import NewSession from "./NewSession.svelte";
   import Term from "./Term.svelte";
+  import Copy from "./Copy.svelte";
+  import { canRead, readText } from "./clipboard.js";
   import { vis } from "./visible.svelte.js";
 
   let { ws, session, windows, orphans, allNames, workspaces, active, onstatus, onchanged } = $props();
@@ -70,6 +72,55 @@
       await post("/send", { session: session.session, text });
       onstatus(`→ ${session.session}`);
     } catch (e) { onstatus(e.message, true); input = text; }
+  }
+
+  // ---- clipboard ----
+  //
+  // Copying opens a sheet rather than putting the whole screen on the clipboard.
+  // The useful copy on a phone is nearly always *part* of a reply — one command,
+  // one path, one block — and no button can offer that. Native text selection
+  // can, which is the entire reason the sheet renders plain text.
+  let termRef = $state(null);
+  let copying = $state(null);
+
+  function copy() {
+    const text = termRef?.bufferText() ?? "";
+    if (!text.trim()) return onstatus("nothing on screen to copy", true);
+    copying = text;
+  }
+
+  // Pasting is its own drawer because the composer is one line and this is
+  // usually not: a block pasted into the composer would be sent as text, and
+  // every newline in it is an Enter — a thirty-line snippet arriving as thirty
+  // submitted prompts. /api/paste hands it to tmux as a paste instead.
+  let pasting = $state(false);
+  let clip = $state("");
+
+  async function openPaste() {
+    if (pasting) { pasting = false; return; }
+    pasting = true;
+    // Called in the same tick as the tap, because reading the clipboard needs
+    // that gesture. Where it is not allowed at all — any insecure context, so
+    // every host that has not run use-https.sh — this returns null and the
+    // textarea is somewhere to long-press → Paste, which always works.
+    //
+    // Only overwritten when there is something to overwrite it with: on a host
+    // that cannot read the clipboard, closing the drawer and opening it again
+    // would otherwise wipe text that was pasted in by hand and not yet sent.
+    const c = await readText();
+    if (c) clip = c;
+  }
+
+  async function paste() {
+    if (!clip || !session) return;
+    const text = clip;
+    lastChange = Date.now();
+    try {
+      await post("/paste", { session: session.session, text });
+      onstatus(`pasted ${text.split("\n").length} lines`);
+      pasting = false;
+      clip = "";
+    } catch (e) { onstatus(e.message, true); }
   }
 
   async function key(k) {
@@ -143,6 +194,11 @@
            terminal, which looks like an empty control rather than the way to
            reach the window list — and moving that very terminal is one of the
            things you most want from a phone. -->
+      <!-- Only on the pane you are looking at: the terminal it reads is the one
+           thing the other panes deliberately do not mount. -->
+      {#if active}
+        <button class="sm ghost" onclick={copy}>copy</button>
+      {/if}
       <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {windows.length} window{windows.length === 1 ? "" : "s"}
       </button>
@@ -172,7 +228,8 @@
            got the new machine's name in the bar over the old machine's
            terminal. Silent, and exactly the wrong kind of wrong. -->
       {#key `${hosts.current}:${session.session}`}
-        <Term session={session.session} {fontPx} {alive} busy={working} onactivity={activity} />
+        <Term bind:this={termRef}
+              session={session.session} {fontPx} {alive} busy={working} onactivity={activity} />
       {/key}
     {:else}
       <div class="idle"></div>
@@ -184,10 +241,27 @@
           bind:value={input}
           placeholder={hints[hintIdx % hints.length]}
           autocomplete="off" autocapitalize="off" autocorrect="off" />
+        <button class="sm ghost pastetoggle" class:on={pasting} type="button"
+                onclick={openPaste}>paste</button>
         <button class="sm ghost keytoggle" class:on={showKeys} type="button"
                 aria-label="keys" onclick={() => (showKeys = !showKeys)}>⌨</button>
         <button>send</button>
       </form>
+      {#if pasting}
+        <div class="paste">
+          <textarea bind:value={clip} rows="3"
+                    placeholder={canRead()
+                      ? "nothing on the clipboard — long-press → Paste"
+                      : "long-press → Paste"}></textarea>
+          <div class="prow">
+            <span class="why">
+              goes in unsent, so you can add to it before you send.
+            </span>
+            <button class="sm" type="button" onclick={() => (pasting = false)}>cancel</button>
+            <button class="sm" type="button" disabled={!clip} onclick={paste}>paste</button>
+          </div>
+        </div>
+      {/if}
       {#if showKeys}
         <div class="keys">
           {#each KEYS as [label, k]}
@@ -196,6 +270,9 @@
         </div>
       {/if}
     </div>
+    {#if copying !== null}
+      <Copy session={session.session} text={copying} onclose={() => (copying = null)} />
+    {/if}
   {:else}
     <div class="scroll">
       <h2 class="first">screen {ws}</h2>
@@ -323,6 +400,25 @@
     mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
   .keys::-webkit-scrollbar { display: none; }
+  .pastetoggle { flex: none; }
+  .pastetoggle.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+  .paste { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+  /* textarea is not covered by the global input rules, and inherits a serif
+     font and a 2px inset border from the UA stylesheet if left alone. */
+  .paste textarea {
+    font: inherit; font-size: 12px; width: 100%; min-width: 0; resize: vertical;
+    background: var(--card); color: var(--fg);
+    border: 1px solid var(--card-line); border-radius: var(--radius);
+    padding: .45rem .5rem;
+  }
+  .paste textarea:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--ok) 60%, transparent);
+    box-shadow: var(--glow);
+  }
+  .prow { display: flex; align-items: center; gap: .35rem; min-width: 0; }
+  .prow .why { flex: 1; min-width: 0; border: 0; padding: 0; }
+  .prow button { flex: none; }
   .keys button {
     flex: 0 0 auto; min-width: 3rem; font-size: 14px; padding: .3rem .5rem;
     background: var(--card);

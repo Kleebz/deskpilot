@@ -17,6 +17,33 @@ That must be a 200 before going further. If the repo has to stay private, the
 alternative is hosting release artifacts somewhere public and pointing `source=`
 there instead.
 
+**As of v0.1.2 this prerequisite is satisfied** — the repo is public and the
+release assets return 200.
+
+**Submission is still blocked, for a different reason.** AUR account registration
+is currently disabled upstream, in response to the volume of automated scraping
+traffic the site has been taking. Nobody without an existing account can submit
+anything, and there is no date on it. So the "Once" section below cannot be
+started yet, and this is not something to keep re-checking on a schedule — it is
+an upstream policy that will lift when it lifts.
+
+What this means in practice: **the release install path is the primary one, not a
+stopgap.** `install.sh` and `deskpilot update` are how everybody gets this, Arch
+users included, until the above changes.
+
+Arch users are not stuck, only manual: the `PKGBUILD` attached to every release
+builds and installs with `makepkg -si`, which is the same package that would be
+in the AUR. Note that this route makes pacman the owner of
+`/usr/bin/deskpilot` **today** — so the package-manager guard in `deskpilot
+update` and `install.sh` is not future-proofing for an AUR that has not landed,
+it is load-bearing for anyone using `makepkg` right now.
+
+If the block ever needs routing around rather than waiting out, the option that
+does not involve the AUR at all is self-hosting a signed pacman repository that
+users add to `pacman.conf`. That is real work — hosting, a signing key, and a
+key users have to trust — and it is not worth it for one package unless the wait
+turns out to be permanent.
+
 ## Once
 
 1. Make an account at <https://aur.archlinux.org/register>.

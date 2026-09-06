@@ -55,6 +55,16 @@ Every one of these was a real bug here, and every one failed **silently**:
   when its children overflow they escape *both* sides — a badge ended up 16px left of the
   button holding it, outside the pane. Set `justify-content: flex-start` explicitly.
 - **API responses must be `no-store`** or the browser caches a stale session list.
+- **Anything wrapping the request handler must read `req` BEFORE awaiting it.** A
+  WebSocket upgrade consumes the request, so `req.headers.get(...)` afterwards throws
+  `Request closed`, which eats the upgrade response — every terminal fails to connect
+  while `systemctl` still says the service is active. Only the WS path breaks, so an HTTP
+  smoke test passes and `check.sh` passes.
+- **An error response with no CORS headers is unreadable cross-origin**, so the browser
+  rejects the fetch and `api.js` reports it as `Unreachable` — every failure on a *second*
+  machine read as "can't reach the desktop — is Tailscale on?". CORS is applied at the
+  `Deno.serve` boundary now; do not re-add it per route, and do not assume a route is
+  fine because it works on the machine serving the page.
 - **Anything gated on page visibility is untestable in a headless browser**, which
   reports `document.hidden: true`. Initial loads must never be gated on it.
 - **Assigning `term.options.fontSize` resizes the glyphs but not the cell grid.** The

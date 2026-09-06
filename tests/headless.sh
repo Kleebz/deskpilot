@@ -184,6 +184,31 @@ case "$SESSIONS" in
   *) fail "workspace should be null with no compositor" "$SESSIONS" ;;
 esac
 
+# The terminal is the only thing here that is not HTTP, and it breaks on its own.
+# A wrapper that touches the request after the handler has consumed it loses the
+# upgrade response: every terminal in the app stops connecting, and the service
+# still reports itself active. Every assertion above this line passed for ninety
+# minutes while that was true, which is exactly why this one exists.
+#
+# curl is enough, and needs nothing the rest of this file does not already have.
+# It performs the handshake and prints the status line: a healthy server answers
+# 101, a broken one answers nothing at all. The token goes in the query string
+# rather than a header because that is what the browser does — a WebSocket
+# cannot carry an Authorization header, so it is the only path the app uses.
+echo
+echo "==> the terminal socket, which nothing else here opens"
+WS=$(curl -s -i -m 5 -N \
+  -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==" \
+  "http://127.0.0.1:$PORT/api/term?session=headless&cols=80&rows=24&token=$TOKEN" \
+  2>/dev/null | head -1 | tr -d '\r')
+case "$WS" in
+  *101*) pass "/api/term upgrades — $WS" ;;
+  "")    fail "/api/term answered nothing — the upgrade response was lost" \
+              "the wrapper around the handler probably read the request after awaiting it" ;;
+  *)     fail "/api/term did not upgrade" "$WS" ;;
+esac
+
 # Writing is the one that a compiled binary can get wrong invisibly: the
 # --allow-write path is fixed when the binary is built, so a different $HOME
 # means the granted path and the used path are not the same directory.

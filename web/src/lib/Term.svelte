@@ -45,6 +45,38 @@
     if (cols !== term.cols) term.resize(cols, term.rows);
   }
 
+  // The text behind the picture, for copying.
+  //
+  // xterm renders to a canvas, so there is nothing in the DOM for a phone's
+  // selection handles to grab and `getSelection()` over the terminal returns
+  // nothing at all. The buffer is the honest source, and it is already here —
+  // asking the server for a fresh capture instead would round-trip for text
+  // this process is holding, and could come back subtly different from what is
+  // on screen, which is exactly the wrong property for a copy.
+  //
+  // Wrapped rows are rejoined into the logical line they came from: a phone is
+  // 40-odd columns wide, so almost every real line is two or three rows here,
+  // and pasting those into anything else would arrive pre-broken. Only the
+  // final row of a line is right-trimmed — trimming a continued row would eat a
+  // space that is genuinely part of the text.
+  export function bufferText() {
+    const buf = term?.buffer?.active;
+    if (!buf) return "";
+    const out = [];
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (!line) continue;
+      const continued = buf.getLine(i + 1)?.isWrapped ?? false;
+      const s = line.translateToString(!continued);
+      if (line.isWrapped && out.length) out[out.length - 1] += s;
+      else out.push(s);
+    }
+    // The buffer is padded to the window height, so a short session is mostly
+    // blank rows below the cursor.
+    while (out.length && out[out.length - 1] === "") out.pop();
+    return out.join("\n");
+  }
+
   // Data arriving is the signal that something is happening on the other end.
   // It replaces diffing successive captures: no polling, no protocol to speak,
   // and it is exactly as agent-agnostic — bytes are bytes.
