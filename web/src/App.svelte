@@ -20,6 +20,13 @@
   let lastSeen = $state(null);
   let tokenInput = $state("");
   let rail = $state(null);
+  // Which machine the data on screen came from. Anything left over from the
+  // previous one has to go the moment you switch: without this, selecting a
+  // machine that was off kept the old machine's sessions on screen verbatim —
+  // same list, same "6 on screen" count — under the new machine's name and an
+  // offline banner. Nothing on that screen told you whose work you were
+  // looking at, and every row on it was a lie.
+  let shownHost = hosts.current;
   // Rail position 0 is the sessions index, which is where the app opens.
   // Starting this at 1 lit the wrong dot until the first swipe.
   let activeWs = $state(0);
@@ -39,8 +46,8 @@
   }
 
   async function refresh() {
+    const here = currentHost().origin;
     try {
-      const here = currentHost().origin;
       const [s, w, l, c] = await Promise.all([
         api("/sessions"),
         // A machine with no compositor answers these with nothing useful, so
@@ -49,6 +56,11 @@
         api("/desk/locked").catch(() => ({ locked: false })),
         api("/capabilities").catch(() => null),
       ]);
+      // A reply from the machine you just left must not land on the machine
+      // you just arrived at. This is not an exotic race: switching is one tap
+      // and these are four requests with an eight second deadline, so the
+      // window is open for most of a switch to anything slow.
+      if (currentHost().origin !== here) return;
       sessions = s; windows = w; locked = l.locked;
       if (c) setCaps(here, c);
       needToken = false;
@@ -60,6 +72,9 @@
       if (locked) onstatus("locked");
       else if (bad) onstatus("");   // recovered from an error
     } catch (e) {
+      // Likewise for failures: a timeout from the machine you left would
+      // otherwise put "offline" over the machine you are now on.
+      if (currentHost().origin !== here) return;
       if (e.status === 401) { needToken = true; onstatus("token required", true); }
       else if (e.unreachable) { offline = true; onstatus("offline", true); }
       else onstatus(e.message, true);
@@ -97,7 +112,16 @@
     void vis.wokeAt;
     // Reading the selected machine here is what makes switching refetch at
     // once rather than waiting out the poll interval.
-    void hosts.current;
+    const here = hosts.current;
+    if (here !== shownHost) {
+      shownHost = here;
+      // Empty is honest; the previous machine's list is not. The index says
+      // "no sessions" for the moment it takes the new machine to answer, and
+      // keeps saying it if the machine never does.
+      sessions = []; windows = []; locked = false;
+      offline = false; lastSeen = null;
+      onstatus("");
+    }
     refresh();
     pollOthers();
     if (!vis.visible) return;
@@ -288,6 +312,13 @@
   @media (max-height: 480px) {
     header { padding: .25rem .5rem; }
     .brand { display: none; }
+    /* The strip did not slim with the header, so on a 430px-tall landscape
+       phone it and the header together took 108px — a quarter of the screen —
+       before a single line of transcript. 38px is the floor the panes already
+       settled on for landscape; this follows that rather than inventing a
+       second answer to the same question. */
+    .machines { padding: .1rem .5rem; }
+    .machine { min-height: 38px; }
   }
   .brand {
     flex: none; font-weight: 600; letter-spacing: .06em;

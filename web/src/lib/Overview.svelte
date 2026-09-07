@@ -1,5 +1,5 @@
 <script>
-  import { api, post, waitFor, tilde } from "./api.js";
+  import { api, post, waitFor, tilde, enroll } from "./api.js";
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
   import Notify from "./Notify.svelte";
@@ -10,12 +10,20 @@
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
   // Adding a machine takes the pairing URL that machine's own pair.sh prints —
-  // the same thing its QR encodes. That means one paste and no new mechanism to
-  // learn, and it works for a headless box over SSH where there is no screen to
-  // scan. Eventually this is a short code approved with a passkey; the shape of
-  // the flow is the same either way.
+  // the same thing its QR encodes. One paste, no new mechanism to learn, and it
+  // works for a headless box over SSH where there is no screen to scan.
+  //
+  // That link carries a one-time *code*, and this used to demand a raw token.
+  // So the flow the hint text describes could not work: pair.sh prints a token
+  // only in its fallback, for a machine whose service was not answering — which
+  // is the one machine you cannot pair. Worse, the fallback token is the shared
+  // credential that cannot be revoked on its own, so the only paste that ever
+  // succeeded was the one that should not have.
   let adding = $state(false);
   let pasted = $state("");
+  // A code is single-use: a double tap would spend it and report the second
+  // attempt as invalid.
+  let addingNow = $state(false);
 
   // Which session is being renamed, and to what. A session is named after the
   // directory it started in, so "deskpilot" tells you where it is and nothing
@@ -30,14 +38,37 @@
   let legacy = $state(false);
   let pairCode = $state("");
 
-  async function loadDevices() {
+  async function loadDevices(here) {
     try {
       const d = await api("/devices");
+      // The list belongs to one machine. Arriving after a switch, it belongs
+      // to the wrong one.
+      if (hosts.current !== here) return;
       devices = d.devices;
       legacy = d.legacy;
     } catch { /* not fatal — the rest of the screen still works */ }
   }
-  $effect(() => { loadDevices(); });
+
+  // Read the machine *synchronously*, or this effect tracks nothing at all:
+  // api() only resolves which host it is talking to after its first await, so
+  // `$effect(() => { loadDevices(); })` had no dependency on the selection and
+  // never re-ran. Measured: zero /devices requests across a switch, leaving
+  // one machine's paired devices — and its pairing code — on screen under
+  // another machine's name, with a revoke button that posted the first
+  // machine's device ids to the second.
+  $effect(() => {
+    const here = hosts.current;
+    devices = [];
+    legacy = false;
+    // A code is a credential for the machine that minted it. Carried across a
+    // switch it reads as an invitation to the machine you are now looking at,
+    // which is the one thing it is not.
+    pairCode = "";
+    // A rename in progress names a session on the machine you were on; saving
+    // it after a switch renames whatever happens to share that name here.
+    renaming = "";
+    loadDevices(here);
+  });
 
   async function pairAnother() {
     try {
@@ -50,7 +81,7 @@
     try {
       const r = await post("/devices/revoke", { id: d.id });
       onstatus(r.self ? "revoked this device — reload to re-pair" : `revoked ${d.name}`);
-      loadDevices();
+      loadDevices(hosts.current);
     } catch (e) { onstatus(e.message, true); }
   }
 
@@ -100,14 +131,38 @@
     }
   }
 
-  function addMachine(ev) {
+  async function addMachine(ev) {
     ev.preventDefault();
+    if (addingNow) return;
     let url;
     try { url = new URL(pasted.trim()); }
     catch { onstatus("that does not look like a pairing link", true); return; }
+
+    const code = url.searchParams.get("code");
     const token = url.searchParams.get("token");
-    if (!token) { onstatus("no token in that link", true); return; }
-    addHost({ origin: url.origin, token, name: url.hostname });
+    if (!code && !token) { onstatus("no pairing code in that link", true); return; }
+
+    const host = { origin: url.origin, token: "", name: url.hostname };
+    addingNow = true;
+    try {
+      if (code) {
+        // The normal case. Exchanged on that machine for a credential
+        // belonging to this phone alone, which is what makes a lost phone
+        // survivable — enroll() records the machine once it has one.
+        await enroll(code, host);
+      } else {
+        // pair.sh's fallback, printed when the machine's service was down.
+        // Shared and unrevocable, but refusing it would mean refusing the only
+        // link that machine can currently produce.
+        addHost({ origin: url.origin, token, name: url.hostname });
+      }
+    } catch (e) {
+      onstatus(e.unreachable ? `can't reach ${url.hostname}` : e.message, true);
+      return;
+    } finally {
+      addingNow = false;
+    }
+
     pasted = "";
     adding = false;
     onstatus(`added ${url.hostname}`);
@@ -288,11 +343,13 @@
       <input
         bind:value={pasted} placeholder="paste the pairing link"
         autocapitalize="off" autocorrect="off" spellcheck="false" />
-      <button disabled={!pasted.trim()}>add</button>
+      <button disabled={!pasted.trim() || addingNow}>{addingNow ? "pairing…" : "add"}</button>
     </form>
     <div class="hint dim">
       Run <code>shell/pair.sh</code> on the other machine — over SSH is fine, it needs
-      no screen — and paste the link it prints. The token is stored on this phone only.
+      no screen — and paste the link it prints. Its code is exchanged for a credential
+      belonging to this phone alone, which you can revoke from that machine without
+      disturbing anything else.
     </div>
   {:else}
     <button class="addm" onclick={() => (adding = true)}>+ add a machine</button>

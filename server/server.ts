@@ -385,6 +385,32 @@ async function serveStatic(path: string): Promise<Response> {
   }
 }
 
+// The manifest names the installed app, and every machine served an identical
+// one — so three installs put three home-screen icons called "deskpilot" on a
+// phone with nothing to tell them apart. Tapping the wrong one lands on the
+// offline page and reads as an outage rather than as the wrong icon.
+//
+// The name is the machine's own, the same one the app prints on its chips.
+async function serveManifest(): Promise<Response> {
+  const res = await serveStatic("/manifest.webmanifest");
+  if (!res.ok) return res;
+  try {
+    const m = JSON.parse(await res.text());
+    m.name = `deskpilot — ${NAME}`;
+    // short_name is what a launcher actually prints under the icon, and the
+    // only part with room to tell one install from another. The machine's name
+    // alone, therefore, not a prefix that is the same everywhere.
+    m.short_name = NAME;
+    return new Response(JSON.stringify(m, null, 2), {
+      headers: { "content-type": "application/manifest+json", "cache-control": "no-store" },
+    });
+  } catch {
+    // Unparseable is not worth failing an install over; the static one names
+    // the app correctly, it just names every machine the same.
+    return await serveStatic("/manifest.webmanifest");
+  }
+}
+
 async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -408,7 +434,9 @@ async function handle(req: Request): Promise<Response> {
   // answering 404 to those made the manifest icons look missing even though GET
   // served them fine.
   if ((req.method === "GET" || req.method === "HEAD") && !path.startsWith("/api/")) {
-    const res = await serveStatic(path);
+    const res = path === "/manifest.webmanifest"
+      ? await serveManifest()
+      : await serveStatic(path);
     if (req.method === "HEAD") {
       return new Response(null, { status: res.status, headers: res.headers });
     }

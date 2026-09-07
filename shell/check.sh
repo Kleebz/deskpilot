@@ -170,12 +170,15 @@ else
   warn "deno not found" "cannot run the test suite"
 fi
 
-# Not run here: it starts a browser and talks to the live service, which is a
-# different kind of slow and flaky from a unit test. Named so it is findable.
-say_layout() {
-  printf '  \033[2m·\033[0m %s\n' "phone layout: deno run -A tests/layout.ts"
+# Not run here: they start a browser and talk to the live service, which is a
+# different kind of slow and flaky from a unit test. Named so they are findable.
+# recovery.ts restarts the service, which is why it is not run as part of a
+# check whose whole job is to leave things as it found them.
+say_manual() {
+  printf '  \033[2m·\033[0m %s\n' "phone layout:  deno run -A tests/layout.ts"
+  printf '  \033[2m·\033[0m %s\n' "recovery:      deno run -A tests/recovery.ts  (restarts the service)"
 }
-say_layout
+say_manual
 
 head_ "Reachability"
 if command -v tailscale >/dev/null && systemctl is-active --quiet tailscaled 2>/dev/null; then

@@ -26,6 +26,19 @@
     color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
     border-radius: 10px;
   }
+  /* The other machines, when there are any. Same target size as everything
+     else on a phone — this is the one thing on the page you might actually
+     want to tap. */
+  #others ul { list-style: none; margin: .4rem 0 0; padding: 0; }
+  #others li { margin: 0 0 .4rem; }
+  #others a {
+    display: flex; align-items: center; min-height: 44px;
+    padding: .4rem .8rem; border-radius: 10px; text-decoration: none;
+    color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
+    word-break: break-all;
+  }
+  #others .where { color: var(--dim); font-size: 12px; margin-left: auto; padding-left: .6rem; }
 </style>
 
 <h1>Can't reach your desktop</h1>
@@ -35,7 +48,9 @@
   desktop is unreachable rather than broken.
 </p>
 
-<p><b>Almost always Tailscale.</b> Check, in order:</p>
+<div id="others"></div>
+
+<p id="lede"><b>Almost always Tailscale.</b> Check, in order:</p>
 <ol>
   <li>Open <b>Tailscale</b> and confirm it is connected</li>
   <li>Android may have stopped it in the background — set it to <b>always-on VPN</b>
@@ -47,6 +62,50 @@
 <button onclick="location.reload()">try again</button>
 
 <script>
+  // The keyring is same-origin, so this page can still read it even though
+  // nothing answered on the network. If other machines are paired, this is the
+  // only screen that can say so — and it is exactly the screen you land on
+  // after tapping the wrong one of several identical home-screen icons.
+  //
+  // The links carry no token. Each machine's own page holds its own
+  // credential, and putting one in a URL writes it into browser history.
+  try {
+    var paired = JSON.parse(localStorage.getItem("dp_hosts") || "[]");
+    var others = paired.filter(function (h) {
+      return h && h.origin && h.origin !== location.origin;
+    });
+    if (others.length) {
+      var box = document.getElementById("others");
+      var p = document.createElement("p");
+      p.innerHTML = "<b>Your other machines.</b> This one is not answering; " +
+        "one of these may be:";
+      box.appendChild(p);
+      var ul = document.createElement("ul");
+      others.forEach(function (h) {
+        var li = document.createElement("li");
+        var a = document.createElement("a");
+        a.href = h.origin + "/";
+        var name = document.createElement("span");
+        name.textContent = h.name || h.origin;
+        var where = document.createElement("span");
+        where.className = "where";
+        where.textContent = "open";
+        a.appendChild(name);
+        a.appendChild(where);
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      // With another machine listed, "almost always Tailscale" is probably the
+      // wrong advice: if the tunnel were down, none of them would answer.
+      var lede = document.getElementById("lede");
+      if (lede) {
+        lede.innerHTML = "<b>If none of them open</b>, it is probably Tailscale. " +
+          "Check, in order:";
+      }
+    }
+  } catch (e) { /* no keyring, or storage unavailable — the advice below stands */ }
+
   // Retry on its own the moment connectivity returns, so this page does not
   // become something to sit and stare at.
   addEventListener("online", () => location.reload());

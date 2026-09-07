@@ -5,12 +5,33 @@
   import "@xterm/xterm/css/xterm.css";
   import { token } from "./api.js";
   import { currentHost } from "./hosts.svelte.js";
+  import { vis } from "./visible.svelte.js";
 
   let { session, fontPx = 10, alive = false, busy = false, onactivity } = $props();
 
   let host = $state(null);
   let term, fit, ws;
   let state = $state("connecting");
+
+  // Reconnecting without being asked.
+  //
+  // The server closes an idle terminal after 60 seconds — idleTimeout on the
+  // upgrade — and a phone in another app answers no pings, so anything longer
+  // than a glance comes back to a dead pane. Tapping "reconnect" was a step on
+  // every single return to the app.
+  //
+  // Bounded, because a machine that is off must not be dialled forever: after
+  // a few tries the button comes back and the pane says disconnected, which by
+  // then is the honest answer.
+  // Five tries over about fifteen seconds. Short enough that a machine which
+  // is genuinely off stops being dialled and says so; long enough to cover the
+  // cases that actually happen — a service restart, a tailnet reconnecting
+  // after the desktop wakes — where giving up in four seconds would put the
+  // button back just before it would have worked.
+  const MAX_RETRIES = 5;
+  const backoff = (n) => Math.min(8000, 500 * 2 ** (n - 1));
+  let retries = 0;
+  let retryTimer;
 
   // The palette the rest of the app uses, so a terminal does not arrive looking
   // like a different program. Values are the desktop's Cyberpunk Cyan theme.
@@ -91,8 +112,35 @@
     onactivity?.();
   }
 
+  // Let a socket go without its own handlers firing. Closing one that still
+  // has onclose attached lands in dropped() and schedules a reconnect against
+  // the very socket being replaced.
+  function dropSocket() {
+    clearTimeout(retryTimer);
+    if (!ws) return;
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    try { ws.close(); } catch { /* already gone */ }
+    ws = undefined;
+  }
+
+  function dropped() {
+    state = "closed";
+    clearTimeout(retryTimer);
+    if (!vis.visible || !term || retries >= MAX_RETRIES) return;
+    retries++;
+    retryTimer = setTimeout(connect, backoff(retries));
+  }
+
+  // An explicit tap is a fresh start, not the next step of a backoff that has
+  // already given up.
+  function reconnect() {
+    retries = 0;
+    connect();
+  }
+
   function connect() {
     if (!term) return;
+    dropSocket();
     state = "connecting";
     quietUntil = performance.now() + 1200;
     // The socket goes to whichever machine is selected, which is why the token
@@ -109,7 +157,7 @@
     if (tok) q.set("token", tok);
     ws = new WebSocket(`${proto}://${base.host}/api/term?${q}`);
 
-    ws.onopen = () => (state = "live");
+    ws.onopen = () => { retries = 0; state = "live"; };
     ws.onmessage = (e) => {
       let m;
       try { m = JSON.parse(e.data); } catch { return; }
@@ -126,13 +174,25 @@
         state = "closed";
       }
     };
-    ws.onclose = () => (state = "closed");
-    ws.onerror = () => (state = "closed");
+    ws.onclose = dropped;
+    ws.onerror = dropped;
   }
 
+  // Coming back to the app. A close that arrived while the page was suspended
+  // never reached dropped(), so the socket can already be gone with nothing
+  // having noticed. Only vis is read reactively here — ws, term and retries are
+  // plain variables, so this fires on waking and on nothing else. Reading
+  // `state` instead would re-run the effect on every close it caused, which is
+  // a reconnect loop against a machine that is off.
+  $effect(() => {
+    void vis.wokeAt;
+    if (!vis.visible || !term) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    reconnect();
+  });
+
   function teardown() {
-    try { ws?.close(); } catch { /* already gone */ }
-    ws = undefined;
+    dropSocket();
     try { term?.dispose(); } catch { /* already gone */ }
     term = undefined;
     fit = undefined;
@@ -312,7 +372,7 @@
     <div class="state">
       {state === "connecting" ? "connecting…" : "disconnected"}
       {#if state === "closed"}
-        <button class="sm" onclick={connect}>reconnect</button>
+        <button class="sm" onclick={reconnect}>reconnect</button>
       {/if}
     </div>
   {/if}

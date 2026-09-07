@@ -25,8 +25,13 @@ export let token = readToken();
 //
 // Everything else in this file waits on `ready`, so no request can go out
 // holding the wrong credential — or none — while the exchange is in flight.
-export async function enroll(code) {
-  const res = await fetch("/api/devices/enroll", {
+export async function enroll(code, host) {
+  // Against the selected machine, not the one that served the page: the token
+  // gate appears whenever the *selected* machine answers 401, which on a phone
+  // with several paired is usually one of the others.
+  const h = host ?? currentHost();
+  const same = h.origin === location.origin;
+  const res = await fetch(`${same ? "" : h.origin}/api/devices/enroll`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     // Named after the browser rather than left blank: a list of four entries
@@ -35,7 +40,12 @@ export async function enroll(code) {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? "pairing failed");
-  if (body.token) { token = body.token; localStorage.setItem(KEY, body.token); }
+  if (body.token) {
+    addHost({ origin: h.origin, token: body.token, name: h.name });
+    // The legacy same-origin token only ever covered this machine, so only
+    // this machine's credential may overwrite it.
+    if (same) { token = body.token; localStorage.setItem(KEY, body.token); }
+  }
   return body;
 }
 
@@ -44,7 +54,10 @@ async function enrollFromCode() {
   const code = params.get("code");
   if (!code) return;
   history.replaceState(null, "", location.pathname);
-  try { await enroll(code); } catch { /* falls back to what is stored */ }
+  // A code in *this page's* URL came from this machine's pair.sh, whichever
+  // machine a previous visit happened to leave selected.
+  const self = { origin: location.origin, token: "", name: location.hostname };
+  try { await enroll(code, self); } catch { /* falls back to what is stored */ }
 }
 
 function deviceName() {
@@ -57,11 +70,19 @@ function deviceName() {
 export const ready = enrollFromCode();
 
 export function setToken(t) {
-  token = t;
-  localStorage.setItem(KEY, t);
   // Keep the keyring in step, so the machine that served this page is a
-  // first-class entry rather than a special case.
-  addHost({ origin: location.origin, token: t, name: location.hostname });
+  // first-class entry rather than a special case — but against the machine
+  // that is *selected*. Writing location.origin here meant that typing another
+  // machine's token into the gate overwrote this machine's working credential
+  // with one for a different box, and then switched you back here, because
+  // addHost selects whatever it adds. Two machines, one of them broken, and
+  // the obvious recovery broke the other one.
+  const h = currentHost();
+  addHost({ origin: h.origin, token: t, name: h.name });
+  if (h.origin === location.origin) {
+    token = t;
+    localStorage.setItem(KEY, t);
+  }
 }
 
 // A dropped tailnet does not refuse connections, it swallows packets — so

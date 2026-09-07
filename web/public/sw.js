@@ -10,7 +10,10 @@
 // which says nothing about the actual cause. Serving our own page instead lets
 // it name the likely culprit. It contains no live data, so it cannot go stale.
 
-const SHELL = "deskpilot-offline-v1";
+// Bumped whenever offline.html changes. The install handler only re-runs when
+// this file's bytes differ, so editing the cached page alone would leave every
+// already-installed phone serving the old one forever.
+const SHELL = "deskpilot-offline-v2";
 const OFFLINE = "/offline.html";
 
 self.addEventListener("install", (event) => {
