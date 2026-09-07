@@ -228,6 +228,18 @@ function originAllowed(origin: string | null): boolean {
   return ORIGINS.includes(origin);
 }
 
+// The credential a device falls back on when localStorage is gone. It must be
+// *that device's* credential and nothing else — see the rolling refresh below
+// for what planting the shared token here cost.
+//
+// 400 days rather than 365: Chrome caps cookie lifetime at 400 and silently
+// truncates anything longer, so this asks for exactly what the ceiling is.
+const cookieFor = (tok: string) =>
+  `dp=${tok}; Path=/; Max-Age=34560000; SameSite=Strict; HttpOnly`;
+
+// Both credential kinds are hex, so anything else did not come from us.
+const COOKIE_SAFE = /^[A-Za-z0-9._-]{1,256}$/;
+
 function corsHeaders(origin: string | null): Record<string, string> {
   if (!origin || !originAllowed(origin)) return {};
   return {
@@ -464,7 +476,13 @@ async function handle(req: Request): Promise<Response> {
     const made = await devices.enroll(code, name);
     if (!made) return fail("that code is not valid, or has already been used", 403);
     console.log(`enrolled: ${made.device.name} (${made.device.id})`);
-    return json({ token: made.token, id: made.device.id, name: made.device.name });
+    // Carrying the new credential, or the next localStorage eviction drops this
+    // device back onto whatever the cookie held — which used to be the shared
+    // token, silently undoing the pairing that just happened.
+    const res = json({ token: made.token, id: made.device.id, name: made.device.name });
+    res.headers.append("set-cookie", cookieFor(made.token));
+    for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
+    return res;
   }
 
   // ---- auth ----
@@ -497,17 +515,27 @@ async function handle(req: Request): Promise<Response> {
   // pair.sh on the machine you are away from. A rolling window means the
   // credential only ages while you are not using it.
   //
-  // 400 days rather than 365: Chrome caps cookie lifetime at 400 and silently
-  // truncates anything longer, so this asks for exactly what the ceiling is.
-  //
   // Only on the session poll, not on every response. The app makes ~50 requests
   // a minute, and re-emitting the token in a header that often is needless
   // repetition of the one value here worth protecting. /api/sessions is polled
   // for as long as the app is open, which is the same liveness signal at a
   // fraction of the exposure.
+  //
+  // The cookie carries whatever credential just authenticated — NOT the
+  // machine's shared token, which is what it used to carry unconditionally.
+  //
+  // That was a hole straight through the per-device work. Every device, one
+  // that had just enrolled with its own credential included, was handed the
+  // master key and had it refreshed for 400 days. So revoking a lost phone did
+  // not cut it off: measured, its own token answered 401 afterwards and its
+  // cookie alone answered 200. `given` is the raw value the caller presented
+  // and it has already been checked, so re-emitting it plants exactly the
+  // credential that can be taken away again.
+  //
+  // Devices that already hold their own token heal on their next session poll.
   const rolling = !cookie || path === "/api/sessions";
-  const setCookie = rolling
-    ? `dp=${TOKEN}; Path=/; Max-Age=34560000; SameSite=Strict; HttpOnly`
+  const setCookie = rolling && given && COOKIE_SAFE.test(given)
+    ? cookieFor(given)
     : undefined;
   const withCookie = (r: Response) => {
     if (setCookie) r.headers.append("set-cookie", setCookie);

@@ -218,7 +218,12 @@ CODE=$(post devices/code '{}' | sed -n 's/.*"code":"\([^"]*\)".*/\1/p')
 if [ -z "$CODE" ]; then
   fail "could not mint a pairing code" "$(post devices/code '{}')"
 else
-  ENROLLED=$(post devices/enroll "{\"code\":\"$CODE\",\"name\":\"sandbox\"}")
+  # Enrolled with curl rather than the post() helper so the cookie the server
+  # hands back can be kept — it is the whole subject of the next check.
+  JAR="$BOX/cookies"
+  ENROLLED=$(curl -s -m 6 -c "$JAR" -X POST -H 'content-type: application/json' \
+    -d "{\"code\":\"$CODE\",\"name\":\"sandbox\"}" \
+    "http://127.0.0.1:$PORT/api/devices/enroll")
   case "$ENROLLED" in
     *'"token"'*) pass "enrolled a device" ;;
     *) fail "enrolment failed" "$ENROLLED" ;;
@@ -228,6 +233,54 @@ else
   else
     fail "devices.json was not written" \
          "the baked --allow-write path does not match \$HOME"
+  fi
+
+  # Revoking has to actually revoke.
+  #
+  # The cookie is what a device falls back on when localStorage is evicted, and
+  # it was set to the machine's *shared* token for every device — including one
+  # that had just enrolled with its own. So revoking a lost phone did not lock
+  # it out: measured, its own token answered 401 and its cookie answered 200,
+  # with a 400-day rolling window refreshing it on every session poll.
+  #
+  # Nothing caught it because every check here was about what the device list
+  # said, and none about what a removed device could still do.
+  DTOK=$(echo "$ENROLLED" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  DID=$(echo "$ENROLLED" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+
+  # The cookie has to exist and has to work before any of this means anything.
+  # Without these two, the checks below pass on a build that sets no cookie at
+  # all: an empty jar contains no shared token, and an empty jar is refused for
+  # having no credential rather than for the device being gone. Both green, both
+  # measuring nothing. (Confirmed against a binary built before the fix.)
+  if ! grep -q "[[:space:]]dp[[:space:]]" "$JAR" 2>/dev/null; then
+    fail "enrolling handed back no cookie at all" \
+         "the fallback credential is what survives a localStorage eviction"
+  elif grep -q "$TOKEN" "$JAR" 2>/dev/null; then
+    fail "a new device's cookie holds the machine's shared token" \
+         "revoking that device will not cut it off"
+  else
+    pass "a new device's cookie carries its own credential"
+  fi
+  LIVE=$(curl -s -m 6 -o /dev/null -w '%{http_code}' -b "$JAR" \
+    "http://127.0.0.1:$PORT/api/sessions")
+  if [ "$LIVE" = 200 ]; then
+    pass "that cookie authenticates on its own"
+  else
+    fail "the cookie does not work before revocation ($LIVE)" \
+         "so proving it stops working afterwards would prove nothing"
+  fi
+
+  post devices/revoke "{\"id\":\"$DID\"}" >/dev/null
+  BYTOKEN=$(curl -s -m 6 -o /dev/null -w '%{http_code}' \
+    -H "authorization: Bearer $DTOK" "http://127.0.0.1:$PORT/api/sessions")
+  BYCOOKIE=$(curl -s -m 6 -o /dev/null -w '%{http_code}' -b "$JAR" \
+    "http://127.0.0.1:$PORT/api/sessions")
+  if [ "$BYTOKEN" = 401 ] && [ "$BYCOOKIE" = 401 ]; then
+    pass "a revoked device is locked out by token and by cookie"
+  else
+    fail "a revoked device still gets in" \
+         "its token answered $BYTOKEN, its cookie answered $BYCOOKIE — both must be 401"
   fi
 fi
 

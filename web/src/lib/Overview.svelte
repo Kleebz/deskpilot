@@ -65,6 +65,28 @@
   const pairUrl = $derived(pairCode ? `${currentHost().origin}/?code=${pairCode}` : "");
   const pairQr = $derived(pairUrl ? renderSVG(pairUrl, { border: 1 }) : "");
 
+  // A device on the shared credential already holds full access to this
+  // machine, so minting a code and spending it on itself grants nothing it
+  // could not already do — it only trades a credential that cannot be taken
+  // away for one that can. Both calls are already available to it: /devices/code
+  // is authenticated and this device is authenticated. So there is no reason to
+  // make someone carry a code from one half of a screen to the other.
+  let upgrading = $state(false);
+  async function claimOwnCredential() {
+    if (upgrading) return;
+    upgrading = true;
+    try {
+      const { code } = await post("/devices/code", {});
+      await enroll(code, currentHost());
+      onstatus("this device now has its own credential");
+      loadDevices(hosts.current);
+    } catch (e) {
+      onstatus(e.message, true);
+    } finally {
+      upgrading = false;
+    }
+  }
+
   async function claimOwn(ev) {
     ev.preventDefault();
     const code = ownCode.trim();
@@ -363,6 +385,18 @@
 </script>
 
 <section>
+  {#if legacy}
+    <div class="legacybar">
+      <span>
+        This device shares the machine's key, so it cannot be revoked on its own.
+        Losing the phone would mean re-pairing everything else.
+      </span>
+      <button class="sm" onclick={claimOwnCredential} disabled={upgrading}>
+        {upgrading ? "…" : "give it its own"}
+      </button>
+    </div>
+  {/if}
+
   <h2 class="first">
     sessions
     {#if sessions.length}
@@ -429,12 +463,7 @@
 
   <div class="mblock">
   <h2>devices · {devices.length}</h2>
-  {#if legacy}
-    <div class="why">
-      This device is on the old shared credential, which cannot be revoked by
-      itself. Pair it again below to give it its own.
-    </div>
-  {/if}
+
   {#each devices as d (d.id)}
     <div class="row">
       <button class="go" onclick={() => {}} disabled>
@@ -464,8 +493,10 @@
   {/if}
 
   {#if legacy || pairCode}
-    <!-- Somewhere to type a code on a device that is already in. This is what
-         "pair it again below" needs in order to be true. -->
+    <!-- Somewhere to type a code on a device that is already in: the gate that
+         accepts one renders only while you are *not* authenticated, so a paired
+         phone had nowhere at all. Still worth having beside the one-tap button
+         above, for a code that came from somewhere else. -->
     <form class="unlock claim" onsubmit={claimOwn}>
       <input
         bind:value={ownCode} placeholder="code, to re-pair this device"
@@ -739,6 +770,19 @@
 
   .clearall { align-self: flex-start; margin: .1rem 0 .35rem; }
 
+  /* At the top of the index rather than down in the devices list, because it
+     is a fact about the phone in your hand and nobody scrolls to find one.
+     Warning-coloured but not red: nothing is broken, something is weaker than
+     it should be. */
+  .legacybar {
+    display: flex; align-items: center; gap: .5rem; min-width: 0;
+    margin: 0 0 .6rem; padding: .5rem .6rem; border-radius: var(--radius);
+    font-size: 11.5px; line-height: 1.45; color: var(--fg);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+    background: color-mix(in srgb, var(--warn) 9%, transparent);
+  }
+  .legacybar span { min-width: 0; }
+  .legacybar button { flex: none; }
   .why {
     font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
     border-left: 2px solid var(--line); padding-left: .5rem;
