@@ -342,8 +342,18 @@ This is a service that runs commands on your machine, so the posture is worth st
 plainly rather than burying.
 
 - **Every device gets its own credential.** Pairing hands over a single-use code, not the
-  machine's key. Revoke a lost phone from the app and nothing else is disturbed. Tokens
-  are stored hashed — the state file is not a set of working credentials.
+  machine's key. Revoke a lost phone from the app and nothing else is disturbed — that
+  covers the cookie the app falls back on as well as the token it normally sends, which is
+  what makes revoking mean anything. Tokens are stored hashed — the state file is not a
+  set of working credentials.
+- **The machine's shared token can be replaced.** It predates per-device credentials and
+  is still what an old pairing holds, and `pair.sh` prints it into a URL and a QR whenever
+  the service is not answering — so it leaks the way a URL leaks, into history or a
+  screenshot or a photograph of a terminal. Revoking a device does nothing about a copy of
+  it. `deskpilot rotate`, or `shell/rotate.sh` from a checkout, mints a new one: devices
+  holding their own credential keep working, anything still on the shared token has to
+  pair again, and the command says how many of each there are before it touches
+  anything.
 - **Remote unlock is off** unless you set `DESKPILOT_UNLOCK=1`. It types your password
   into the lock screen through PAM and needs `ydotool`'s udev rule, so having the tool
   installed is not the same as consenting to it being reachable. Attempts are rate

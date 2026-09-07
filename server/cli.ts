@@ -81,6 +81,23 @@ WantedBy=default.target
   return path;
 }
 
+// How many devices hold a credential of their own, and would therefore survive
+// the machine's token changing. null when the server cannot be reached, which
+// is a different answer from zero and must not be reported as one.
+async function enrolledCount(port: string, token: string): Promise<number | null> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/devices`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!r.ok) return null;
+    const body = await r.json();
+    return Array.isArray(body.devices) ? body.devices.length : null;
+  } catch {
+    return null;
+  }
+}
+
 async function pairingCode(port: string, token: string): Promise<string | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/devices/code`, {
@@ -153,8 +170,13 @@ function help() {
   deskpilot            run the server
   deskpilot setup      create a token, write the service, say what to run next
   deskpilot pair       print a one-time pairing code for another device
+  deskpilot rotate     replace this machine's shared token
   deskpilot update     replace this binary with the latest release
   deskpilot version    print the version
+
+${dim("  rotate is what to run if the shared token has been seen by anyone — it")}
+${dim("  is printed in QR codes and pairing links, so it leaks the way a URL")}
+${dim("  leaks. Devices holding their own credential are unaffected.")}
 
 ${dim("  update takes --check to look without installing, a version to pin to,")}
 ${dim("  and needs root to write /usr/bin. It steps aside if a package manager")}
@@ -259,6 +281,103 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
 
   ${dim("Good for ten minutes, one device. That device gets its own credential,")}
   ${dim("revocable on its own from the app.")}
+`);
+      return 0;
+    }
+
+    case "rotate": {
+      // The one credential nothing could take back.
+      //
+      // Every device used to be handed this token and it is still what any
+      // device paired before per-device credentials holds. pair.sh prints it
+      // into a URL and a QR when the service is not answering, so it leaks the
+      // way a URL leaks — into history, into a screenshot, into a photograph of
+      // a terminal — and until now there was no way to make a leaked one stop
+      // working.
+      //
+      // The server cannot do this itself: running from source its --allow-write
+      // is scoped to the state directory, and the token lives under ~/.config.
+      let current = "";
+      try {
+        current = Deno.readTextFileSync(TOKEN_FILE).trim();
+      } catch {
+        console.error(`no token at ${TOKEN_FILE} — nothing to rotate`);
+        return 1;
+      }
+
+      const args = Deno.args.slice(1);
+      const yes = args.includes("--yes") || args.includes("-y");
+      const enrolled = await enrolledCount(port, current);
+
+      console.log(`
+${bold("Rotating the shared token for this machine.")}
+
+  ${dim(TOKEN_FILE)}
+`);
+      if (enrolled === null) {
+        console.log(
+          `  ${bold("!")} The server is not answering, so I cannot say how many devices
+` +
+          `    hold their own credential. Those survive; anything still on the
+` +
+          `    shared token will be locked out and has to pair again.
+`,
+        );
+      } else if (enrolled === 0) {
+        console.log(
+          `  ${bold("!")} No device holds its own credential, so ${bold("every paired device")}
+` +
+          `    ${bold("will be locked out")} and has to pair again from this machine.
+`,
+        );
+      } else {
+        console.log(
+          `  ${enrolled} device${enrolled === 1 ? "" : "s"} hold${enrolled === 1 ? "s" : ""} its own credential and will keep working.
+` +
+          `  Anything still on the shared token will be locked out and has to
+` +
+          `  pair again — the app's devices list is what says which is which.
+`,
+        );
+      }
+
+      if (!yes) {
+        if (!Deno.stdin.isTerminal()) {
+          console.error("not a terminal, and this locks devices out — re-run with --yes");
+          return 1;
+        }
+        const ok = prompt("  Rotate it? [y/N]")?.trim().toLowerCase();
+        if (ok !== "y" && ok !== "yes") {
+          console.log("  left alone");
+          return 1;
+        }
+      }
+
+      // Written beside the destination and renamed, so an interruption cannot
+      // leave a half-written token — which would lock out everything, including
+      // whatever you would use to fix it.
+      const next = randomHex(32);
+      const tmp = `${TOKEN_FILE}.new`;
+      try {
+        Deno.mkdirSync(CONF_DIR, { recursive: true });
+        Deno.writeTextFileSync(tmp, next + "\n", { mode: 0o600 });
+        Deno.renameSync(tmp, TOKEN_FILE);
+      } catch (e) {
+        try { Deno.removeSync(tmp); } catch { /* nothing staged */ }
+        console.error(`could not write ${TOKEN_FILE}: ${e instanceof Error ? e.message : e}`);
+        return 1;
+      }
+
+      console.log(`
+  ${bold("rotated")}
+
+${bold("The old token keeps working until the service restarts:")}
+
+  systemctl --user restart deskpilot
+
+${dim("Your tmux sessions survive that. Devices with their own credential")}
+${dim("reconnect on their own; anything else gets the pairing screen and needs")}
+${dim("a fresh code from  deskpilot pair.")}
 `);
       return 0;
     }

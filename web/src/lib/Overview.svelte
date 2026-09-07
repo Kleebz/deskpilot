@@ -65,6 +65,25 @@
   const pairUrl = $derived(pairCode ? `${currentHost().origin}/?code=${pairCode}` : "");
   const pairQr = $derived(pairUrl ? renderSVG(pairUrl, { border: 1 }) : "");
 
+  // A QR is only worth scanning if the address inside it is one the other
+  // device can reach. Opened at localhost — exactly what you do sitting at the
+  // machine, and what the desktop browser gives you — every code it draws
+  // points somewhere a phone cannot go, and the failure looks like a bad scan
+  // rather than the wrong address. A LAN address is not warned about: it works
+  // from the same network, which is a documented way to run this.
+  // Parsed rather than pattern-matched: the first attempt anchored on
+  // `127\.` followed by a delimiter, which cannot match 127.0.0.1 because the
+  // next character is a digit. It failed silently, which is the whole failure
+  // mode this warning exists to prevent.
+  const loopback = $derived((() => {
+    try {
+      const h = new URL(currentHost().origin).hostname.replace(/^\[|\]$/g, "");
+      return h === "localhost" || h === "::1" || /^127\./.test(h);
+    } catch {
+      return false;
+    }
+  })());
+
   // A device on the shared credential already holds full access to this
   // machine, so minting a code and spending it on itself grants nothing it
   // could not already do — it only trades a credential that cannot be taken
@@ -479,6 +498,14 @@
     <!-- The QR is the point: it carries the address and the code together, so
          the other device scans once instead of being told a code and left to
          work out where to type it. -->
+    {#if loopback}
+      <div class="why warn">
+        This is a loopback address, so the QR below points somewhere only this
+        machine can reach — a phone scanning it will fail to connect. Open the
+        app at the address you actually reach it by (<code>tailscale status</code>
+        will say) and pair from there instead.
+      </div>
+    {/if}
     <div class="qr">{@html pairQr}</div>
     <div class="code">{pairCode}</div>
     <div class="pairurl dim">{pairUrl}</div>
@@ -782,6 +809,12 @@
     background: color-mix(in srgb, var(--warn) 9%, transparent);
   }
   .legacybar span { min-width: 0; }
+  /* Same shape as the other explanatory notes, but this one is telling you
+     that the thing right below it will not work. */
+  .why.warn {
+    border-left-color: var(--warn); color: var(--fg);
+    margin-bottom: .5rem;
+  }
   .legacybar button { flex: none; }
   .why {
     font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
