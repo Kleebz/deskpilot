@@ -13,14 +13,23 @@
   // the same thing its QR encodes. One paste, no new mechanism to learn, and it
   // works for a headless box over SSH where there is no screen to scan.
   //
-  // That link carries a one-time *code*, and this used to demand a raw token.
-  // So the flow the hint text describes could not work: pair.sh prints a token
-  // only in its fallback, for a machine whose service was not answering — which
-  // is the one machine you cannot pair. Worse, the fallback token is the shared
-  // credential that cannot be revoked on its own, so the only paste that ever
-  // succeeded was the one that should not have.
+  // Two ways in, because the two installs hand you different things.
+  //
+  // `shell/pair.sh` prints a whole link and a QR, so a checkout can paste one
+  // field. The packaged binary's `deskpilot pair` prints only the code: it runs
+  // under --allow-run=tmux,ps,hyprctl,desk.sh, so it cannot ask tailscale what
+  // this machine's address is, and widening that allowlist to save a paste is
+  // not a trade worth making. The address is the half the *phone* knows anyway.
+  //
+  // So: an address, and a code beside it that a pasted link fills in for you.
+  // This used to be one field demanding a raw ?token=, which pair.sh prints
+  // only in its fallback — for a machine whose service is down, which is the
+  // one machine you cannot pair — and which is the shared, unrevocable
+  // credential devices.ts was written to retire. The only paste that worked
+  // was the one that should not have.
   let adding = $state(false);
   let pasted = $state("");
+  let pastedCode = $state("");
   // A code is single-use: a double tap would spend it and report the second
   // attempt as invalid.
   let addingNow = $state(false);
@@ -135,12 +144,31 @@
     ev.preventDefault();
     if (addingNow) return;
     let url;
-    try { url = new URL(pasted.trim()); }
-    catch { onstatus("that does not look like a pairing link", true); return; }
+    const raw = pasted.trim();
+    try {
+      // Nobody types the scheme, and the two documented ways to reach a machine
+      // want different ones: Tailscale Serve answers https on 443 with no port,
+      // and the LAN fallback is plain http on the app's own port. So an address
+      // naming a port — or a bare IP, or localhost — is the second case, and
+      // guessing https there fails in the one way that looks like the machine
+      // is down rather than like a typo.
+      const scheme = /:\d+/.test(raw) || /^(localhost|\d+\.\d+\.\d+\.\d+)/i.test(raw)
+        ? "http"
+        : "https";
+      url = new URL(/^https?:\/\//i.test(raw) ? raw : `${scheme}://${raw}`);
+    } catch {
+      onstatus("that does not look like an address", true);
+      return;
+    }
 
-    const code = url.searchParams.get("code");
+    // A code in the address wins: pasting a whole link should not also require
+    // retyping the code out of it.
+    const code = url.searchParams.get("code") || pastedCode.trim();
     const token = url.searchParams.get("token");
-    if (!code && !token) { onstatus("no pairing code in that link", true); return; }
+    if (!code && !token) {
+      onstatus("enter the code that `deskpilot pair` printed", true);
+      return;
+    }
 
     const host = { origin: url.origin, token: "", name: url.hostname };
     addingNow = true;
@@ -164,6 +192,7 @@
     }
 
     pasted = "";
+    pastedCode = "";
     adding = false;
     onstatus(`added ${url.hostname}`);
     onchanged();
@@ -341,15 +370,21 @@
   {#if adding}
     <form class="unlock" onsubmit={addMachine}>
       <input
-        bind:value={pasted} placeholder="paste the pairing link"
+        bind:value={pasted} placeholder="address, e.g. box.tailnet.ts.net"
         autocapitalize="off" autocorrect="off" spellcheck="false" />
+    </form>
+    <form class="unlock" onsubmit={addMachine}>
+      <input
+        class="code-in" bind:value={pastedCode} placeholder="code"
+        autocapitalize="characters" autocorrect="off" spellcheck="false" />
       <button disabled={!pasted.trim() || addingNow}>{addingNow ? "pairing…" : "add"}</button>
     </form>
     <div class="hint dim">
-      Run <code>shell/pair.sh</code> on the other machine — over SSH is fine, it needs
-      no screen — and paste the link it prints. Its code is exchanged for a credential
-      belonging to this phone alone, which you can revoke from that machine without
-      disturbing anything else.
+      Run <code>deskpilot pair</code> on the other machine — over SSH is fine, it needs
+      no screen — and enter its address and the code it prints. A link from
+      <code>shell/pair.sh</code> can go in the address on its own; it carries the code.
+      Either way the code is exchanged for a credential belonging to this phone alone,
+      revocable from that machine without disturbing anything else.
     </div>
   {:else}
     <button class="addm" onclick={() => (adding = true)}>+ add a machine</button>
@@ -670,5 +705,11 @@
   .lbl { font-size: .65rem; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
   .unlock { display: flex; gap: .4rem; min-width: 0; }
   .unlock input { flex: 1; min-width: 0; }
+  /* The alphabet is uppercase, so show it that way whatever the phone's
+     keyboard did. No flex rule here on purpose: `.unlock input` outranks a
+     bare class, so one was already being ignored, and the code shares its row
+     with the add button rather than with the address — there is nothing to
+     ration. */
+  .unlock input.code-in { text-transform: uppercase; }
   .foot { margin-top: auto; }
 </style>

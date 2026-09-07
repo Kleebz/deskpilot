@@ -65,8 +65,9 @@ second compositor is somebody's afternoon rather than a rewrite.
 ## Install
 
 Every release ships a single binary — the server and the web UI in one file, so the
-target needs neither Deno nor npm. There is also a [source
-build](#building-from-source) if you would rather compile it yourself.
+target needs neither Deno nor npm. Released builds are **x86_64 only**; on anything else
+the installer stops and tells you to build from source, which works fine. There is also a
+[source build](#building-from-source) if you would rather compile it yourself.
 
 The quick way, which verifies the published checksum before installing anything:
 
@@ -187,6 +188,11 @@ That prints an eight-character code, good for ten minutes and one device:
   K7MQ3FDN
 ```
 
+**From a source checkout, use `shell/pair.sh` instead.** Nothing installs a `deskpilot`
+command on your PATH when you run from the repo — the service runs `deno` against the
+directory — so `deskpilot pair` will not be found there. `pair.sh` prints the same code,
+plus a QR and a full link that pairs in one scan.
+
 On the phone, open the machine's address in a browser — `https://yourbox.tailnet.ts.net` —
 and enter the code.
 
@@ -216,12 +222,17 @@ though the layout is built for a phone.
 That device now has **its own credential**, not a copy of the machine's key. Lose the
 phone and you revoke that one device from the app; everything else stays paired.
 
-**Adding more devices** is the same: run `deskpilot pair` again for each.
+**Adding more devices** is the same: run `deskpilot pair` — or `shell/pair.sh` from a
+checkout — again for each.
 
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
 `deskpilot pair` there, then in the app open the index, tap **add a machine**, and give it
-that machine's address and code. A strip appears at the top once you have two, one tap to
-switch, with a dot on any machine that needs you.
+that machine's address and the code. A link from `shell/pair.sh` goes in the address on its
+own — it already carries the code. The address is the half `deskpilot pair` cannot tell
+you: it runs under an allowlist of four subprocesses and cannot ask Tailscale what this
+machine is called, and widening that to save a paste is not a trade worth making. A strip
+appears at the top once you have two, one tap to switch, with a dot on any machine that
+needs you.
 
 **If nothing appears in the app**, the usual cause is that agents started at your desk are
 running outside tmux, where nothing can reach them. The app says so on the empty screen
@@ -248,8 +259,9 @@ your traffic was rejected twice.
 so a restart leaves every session attached and running — verified when the service
 crash-looped for thirty seconds and everything was still there afterwards.
 
-Whichever way you installed, `deskpilot version` says what you are running, and the app
-shows it per machine in the **machines** list — which is the one that matters once a phone
+On a release or package install, `deskpilot version` says what you are running; from a
+checkout there is no such command, and `shell/check.sh` reports the running version
+instead. The app shows it per machine in the **machines** list — which is the one that matters once a phone
 holds more than one, since the question stops being "what am I running" and becomes "which
 of these is behind".
 
@@ -356,6 +368,7 @@ The short version:
 ```
 deno test --allow-read --allow-write --allow-env tests/   # unit tests
 deno run -A tests/layout.ts                               # phone layout, headless chromium
+deno run -A tests/recovery.ts                             # reconnects, offline page (restarts the service)
 tests/headless.sh dist/deskpilot                          # a host with no desktop
 shell/check.sh                                            # every environment assumption
 shell/build.sh                                            # the single binary
