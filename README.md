@@ -166,10 +166,12 @@ work with no prior state.
 ## Connecting a phone
 
 deskpilot listens on loopback and expects something in front of it, so the phone has an
-address to reach. Today that is [Tailscale](https://tailscale.com):
+address to reach. **This step is not optional** — until something fronts it there is no
+address for a phone to open at all. Today that is [Tailscale](https://tailscale.com):
 
 ```
-shell/use-https.sh
+shell/use-https.sh          # from a checkout
+tailscale serve --bg --yes 8790   # or by hand, on a release install
 ```
 
 That puts Tailscale Serve in front, which gives a real certificate — needed for the app to
@@ -222,8 +224,15 @@ though the layout is built for a phone.
 That device now has **its own credential**, not a copy of the machine's key. Lose the
 phone and you revoke that one device from the app; everything else stays paired.
 
-**Adding more devices** is the same: run `deskpilot pair` — or `shell/pair.sh` from a
-checkout — again for each.
+**Adding more devices** is easiest from a device that is already paired: open the app,
+**sessions index -> devices -> pair another device**, and scan the QR with the new one. It
+carries the address *and* the code, so there is nothing to type — the app knows its own
+address, which is the half `deskpilot pair` cannot tell you. From the machine,
+`deskpilot pair` works too, and `shell/pair.sh` from a checkout prints its own QR.
+
+That panel is also where a device still on the old shared token upgrades itself: it says
+so in the list, and the code field beside it swaps the shared credential for one of its
+own without re-pairing anything else.
 
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
 `deskpilot pair` there, then in the app open the index, tap **add a machine**, and give it

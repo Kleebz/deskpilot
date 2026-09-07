@@ -201,6 +201,18 @@ ${bold("Start it:")}
   systemctl --user daemon-reload
   systemctl --user enable --now deskpilot
 
+${bold("Give it an address your phone can reach:")}
+
+  # install Tailscale for your distro, then:
+  tailscale up
+  tailscale serve --bg --yes ${port}
+
+${dim("This step is not optional and nothing else can do it for you. deskpilot")}
+${dim("listens on loopback, so until something fronts it there is no address for")}
+${dim("a phone to open. Serve also gives it a real certificate, which is what")}
+${dim("makes the app installable and what web push needs — enable HTTPS")}
+${dim("Certificates once at login.tailscale.com/admin/dns.")}
+
 ${bold("Then pair a phone:")}
 
   deskpilot pair
@@ -228,10 +240,23 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
         );
         return 1;
       }
+      // The address is deliberately not guessed here. This binary runs under
+      // --allow-run=tmux,ps,hyprctl,desk.sh with no --allow-sys, so it can
+      // neither ask Tailscale what this machine is called nor read its own
+      // interfaces, and widening that to print a nicer line is a bad trade.
+      // `tailscale status` is one command away for whoever is at the keyboard,
+      // and the app — which knows its own origin — draws the QR.
       console.log(`
   ${bold(code)}
 
-  Open this machine's address on the phone and enter that code.
+  On the phone, open this machine's address and enter that code.
+  ${dim("The address is whatever you pointed Tailscale Serve at, usually")}
+  ${dim("https://<machine>.<tailnet>.ts.net — `tailscale status` will say.")}
+
+  ${bold("Easier, if a device is already paired:")} open the app there,
+  ${dim("sessions index -> devices -> pair another device, and scan the QR. It")}
+  ${dim("carries the address and the code together, so there is nothing to type.")}
+
   ${dim("Good for ten minutes, one device. That device gets its own credential,")}
   ${dim("revocable on its own from the app.")}
 `);

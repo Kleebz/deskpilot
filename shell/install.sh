@@ -152,6 +152,11 @@ else
   say "Next:"
   say "  deskpilot setup"
   say "  systemctl --user daemon-reload && systemctl --user enable --now deskpilot"
+  echo
+  say "Then give it an address your phone can reach — deskpilot listens on"
+  say "loopback, so until something fronts it there is nothing to open:"
+  say "  tailscale up && tailscale serve --bg --yes 8790"
+  echo
   say "  deskpilot pair"
   echo
   say "Remote unlock stays off until you set DESKPILOT_UNLOCK=1."

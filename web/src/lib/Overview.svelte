@@ -1,11 +1,14 @@
 <script>
   import { api, post, waitFor, tilde, enroll } from "./api.js";
+  import { renderSVG } from "uqr";
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
   import Notify from "./Notify.svelte";
   import Usage from "./Usage.svelte";
 
-  import { hosts, switchTo, addHost, removeHost, needsYou, capsFor } from "./hosts.svelte.js";
+  import {
+    hosts, currentHost, switchTo, addHost, removeHost, needsYou, capsFor,
+  } from "./hosts.svelte.js";
 
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
@@ -46,6 +49,39 @@
   let devices = $state([]);
   let legacy = $state(false);
   let pairCode = $state("");
+  // Entering a code on a device that is already in. The gate in App.svelte only
+  // renders when you are *not* authenticated, so a phone already paired had
+  // nowhere to type one — while the notice above it said "pair it again below"
+  // to trade the shared token for its own. It was telling you to do something
+  // the app gave you no way to do.
+  let ownCode = $state("");
+  let claiming = $state(false);
+
+  // The address and the code in one scan, which is the whole difficulty with
+  // pairing by hand: you need both, and a code alone does not say where to type
+  // it. currentHost().origin rather than location.origin — the code was minted
+  // on the machine that is *selected*, which is not necessarily the one serving
+  // this page.
+  const pairUrl = $derived(pairCode ? `${currentHost().origin}/?code=${pairCode}` : "");
+  const pairQr = $derived(pairUrl ? renderSVG(pairUrl, { border: 1 }) : "");
+
+  async function claimOwn(ev) {
+    ev.preventDefault();
+    const code = ownCode.trim();
+    if (!code || claiming) return;
+    claiming = true;
+    try {
+      await enroll(code, currentHost());
+      ownCode = "";
+      pairCode = "";
+      onstatus("this device now has its own credential");
+      loadDevices(hosts.current);
+    } catch (e) {
+      onstatus(e.message, true);
+    } finally {
+      claiming = false;
+    }
+  }
 
   async function loadDevices(here) {
     try {
@@ -411,13 +447,31 @@
   {/each}
 
   {#if pairCode}
+    <!-- The QR is the point: it carries the address and the code together, so
+         the other device scans once instead of being told a code and left to
+         work out where to type it. -->
+    <div class="qr">{@html pairQr}</div>
     <div class="code">{pairCode}</div>
+    <div class="pairurl dim">{pairUrl}</div>
     <div class="hint dim">
-      Open this machine's address on the other device and enter the code, or run
-      <code>shell/pair.sh</code> there for a QR. Good for ten minutes, one device.
+      Scan it with the other device, then add the page to its home screen. Good for
+      ten minutes, one device. No app to download first — it is a web page.
+      <br /><br />
+      Can't scan? Open <b>{currentHost().origin}</b> there and enter <b>{pairCode}</b>.
     </div>
   {:else}
     <button class="addm" onclick={pairAnother}>+ pair another device</button>
+  {/if}
+
+  {#if legacy || pairCode}
+    <!-- Somewhere to type a code on a device that is already in. This is what
+         "pair it again below" needs in order to be true. -->
+    <form class="unlock claim" onsubmit={claimOwn}>
+      <input
+        bind:value={ownCode} placeholder="code, to re-pair this device"
+        autocapitalize="characters" autocorrect="off" spellcheck="false" />
+      <button disabled={!ownCode.trim() || claiming}>{claiming ? "…" : "use"}</button>
+    </form>
   {/if}
   </div>
 
@@ -703,6 +757,16 @@
   .pick { display: flex; align-items: center; gap: .45rem; min-width: 0; }
   .pick select { flex: 1; min-width: 0; }
   .lbl { font-size: .65rem; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
+  /* White quiet zone regardless of theme: a phone camera reading a cyan-on-dark
+     QR is not something to leave to chance. */
+  .qr {
+    background: #fff; padding: .5rem; border-radius: var(--radius);
+    margin: .5rem 0 .6rem; width: fit-content; max-width: 100%;
+  }
+  .qr :global(svg) { display: block; width: 190px; height: 190px; max-width: 100%; }
+  .pairurl { font-size: 11px; word-break: break-all; margin-bottom: .4rem; }
+  .claim { margin-top: .5rem; }
+  .claim input { text-transform: uppercase; }
   .unlock { display: flex; gap: .4rem; min-width: 0; }
   .unlock input { flex: 1; min-width: 0; }
   /* The alphabet is uppercase, so show it that way whatever the phone's
