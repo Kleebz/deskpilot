@@ -99,6 +99,26 @@ fi
 echo
 echo "  $URL"
 echo
+# Said before the "scan it" line, because it is the step that has to happen
+# first. A device that is not on the tailnet cannot resolve this name, so the
+# scan lands on the browser's own "can't be reached" page — and on a device that
+# has never loaded the app there is no service worker yet, so our own offline
+# page cannot explain it either. It reads as broken pairing rather than a
+# missing VPN.
+# 100.64.0.0/10 is the CGNAT range Tailscale assigns from, and pick_host above
+# prefers exactly that address when Serve is not fronting the app — so matching
+# only on .ts.net would tell the most common fallback to check the wrong thing.
+if [[ "$BASE" == *.ts.net* ]] ||
+   [[ "$BASE" =~ //100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
+  echo "First: get the phone onto your tailnet — install Tailscale there and sign in."
+  echo "       Until then this address does not resolve for it."
+  echo
+else
+  echo "First: the phone has to be on this network — the address above is a local"
+  echo "       one and does not resolve from anywhere else."
+  echo
+fi
+
 if [ -n "$CODE" ]; then
   echo "Code: $CODE   (good for 10 minutes, one device)"
   echo

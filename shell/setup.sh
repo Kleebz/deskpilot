@@ -159,6 +159,9 @@ Left to you — nothing can do these for you:
      Needs HTTPS Certificates enabled once at login.tailscale.com/admin/dns.
 
   2. Pair the phone
+     Install Tailscale on the phone and sign in FIRST — step 1 gives this machine
+     a tailnet address, and a phone not on the tailnet cannot resolve it. A scan
+     before that lands on "can't be reached" and looks like broken pairing.
        shell/pair.sh
      Scan the QR, then add to home screen. Use Chrome on Android, not Brave.
 

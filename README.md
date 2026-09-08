@@ -178,6 +178,13 @@ That puts Tailscale Serve in front, which gives a real certificate — needed fo
 be installable — and keeps the port closed on every interface. On the same network you can
 skip it and use the machine's LAN address, but you will not get the PWA.
 
+**The phone needs Tailscale too, and signed in before you scan anything.** The address
+above is a tailnet name; a device that is not on the tailnet cannot resolve it, so a scan
+lands on the browser's own "can't be reached" page. On a device that has never loaded the
+app there is no service worker yet either, so deskpilot's own offline page cannot explain
+it — it reads as broken pairing rather than a missing VPN. Install Tailscale on the phone,
+sign in, then pair.
+
 Then, on the machine:
 
 ```

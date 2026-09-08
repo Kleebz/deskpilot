@@ -75,6 +75,24 @@
   // `127\.` followed by a delimiter, which cannot match 127.0.0.1 because the
   // next character is a digit. It failed silently, which is the whole failure
   // mode this warning exists to prevent.
+  // What the *other* device has to do before a scan can work. It is reachable
+  // the way this page is reachable, and the two ways differ: a tailnet name
+  // resolves only for machines signed into that tailnet, while a LAN address
+  // only needs the same network. Saying the wrong one sends someone to install
+  // a VPN they do not need, or leaves them without the one they do.
+  //
+  // A raw Tailscale IP counts as tailnet too. 100.64.0.0/10 is the CGNAT range
+  // Tailscale assigns from, and pair.sh hands out exactly that address when
+  // Serve is not configured — so matching only on .ts.net told a whole
+  // documented path to check the wrong thing.
+  const reachVia = $derived((() => {
+    let host = "";
+    try { host = new URL(currentHost().origin).hostname; } catch { return "lan"; }
+    if (/\.ts\.net$/i.test(host)) return "tailnet";
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return "tailnet";
+    return "lan";
+  })());
+
   const loopback = $derived((() => {
     try {
       const h = new URL(currentHost().origin).hostname.replace(/^\[|\]$/g, "");
@@ -511,7 +529,18 @@
     <div class="pairurl dim">{pairUrl}</div>
     <div class="hint dim">
       Scan it with the other device, then add the page to its home screen. Good for
-      ten minutes, one device. No app to download first — it is a web page.
+      ten minutes, one device.
+      <br /><br />
+      {#if reachVia === "tailnet"}
+        <b>Get that device onto your tailnet first</b> — install Tailscale there and sign
+        in. Until you do, this address does not resolve for it and the scan lands on the
+        browser's own "can't be reached" page, which says nothing about why. deskpilot
+        itself needs nothing installed; it is a web page.
+      {:else}
+        <b>That device has to be on this network</b> — this address is a local one and
+        does not resolve from anywhere else. deskpilot itself needs nothing installed; it
+        is a web page.
+      {/if}
       <br /><br />
       Can't scan? Open <b>{currentHost().origin}</b> there and enter <b>{pairCode}</b>.
     </div>
