@@ -44,7 +44,10 @@ const MACHINES = (base: string, token: string) => [
   { origin: base, token, name: "desktop" },
   { origin: "https://framework.tail1234.ts.net", token: "x".repeat(64), name: "framework" },
   { origin: "https://mac-mini.tail1234.ts.net", token: "x".repeat(64), name: "mac-mini" },
-  { origin: "https://build-server-rack.tail1234.ts.net", token: "x".repeat(64), name: "build-server-rack" },
+  // Deliberately long and unbreakable. CI runs on a host called
+  // `runnervmejwal`, and a name with no hyphen in it can only ellipsize —
+  // which the check below used to call a failure.
+  { origin: "https://buildserverrack.tail1234.ts.net", token: "x".repeat(64), name: "buildserverrackalpha" },
 ];
 
 type Cdp = {
@@ -176,9 +179,16 @@ const MEASURE = (floor: number, machines: number) => `(() => {
   }
 
   // The index lists every machine with a name, an origin and a version on one
-  // row. The name is the part that must survive.
+  // row, and the risk is the name being squeezed out by the two beside it.
+  //
+  // Not "must never ellipsize". A long hostname truncating is the design, and
+  // asserting otherwise failed on a CI runner named runnervmejwal while saying
+  // nothing at all about the layout. What matters is how much room the name is
+  // left with. (No backticks in here: this whole block is a template literal,
+  // and one in a comment ends it.)
   document.querySelectorAll(".mblock .row .nm").forEach((nm) => {
-    if (nm.scrollWidth > nm.clientWidth + 1) say('index row "' + nm.textContent.trim() + '" clips the machine name');
+    const w = Math.round(nm.getBoundingClientRect().width);
+    if (w < 60) say('index row "' + nm.textContent.trim() + '" is left only ' + w + "px of name");
   });
 
   out.counted = {
@@ -379,8 +389,16 @@ async function switchClears(cdp: Cdp, base: string, token: string): Promise<numb
   const ROWS = `document.querySelectorAll(".rail > section")[0]
     .querySelectorAll(":scope > .row").length`;
   const before = await run(ROWS);
+  if (!before) {
+    // Nothing to leave behind, so nothing to prove. A fresh CI runner has no
+    // tmux sessions at all, and the copy-sheet check above skips for exactly
+    // this reason rather than calling it a failure — this one used to fail,
+    // and reported a missing fixture as a broken app.
+    console.log(`\x1b[2m·\x1b[0m switching machines not measured — no sessions to leave behind`);
+    await cdp.send("Target.closeTarget", { targetId });
+    return 0;
+  }
   const problems: string[] = [];
-  if (!before) problems.push("no sessions on the first machine, so there is nothing to leave behind");
 
   await run(`window.__calls=[];` +
     `[...document.querySelectorAll("nav.machines button")].find((b)=>b.textContent.includes("mac-mini")).click();true`);
