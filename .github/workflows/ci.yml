@@ -14,7 +14,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
@@ -31,11 +31,11 @@ jobs:
   binary:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -63,7 +63,7 @@ jobs:
           for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null http://127.0.0.1:8790/ && break; done
           deno run -A tests/layout.ts --url http://127.0.0.1:8790
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deskpilot-binary
           path: dist/
