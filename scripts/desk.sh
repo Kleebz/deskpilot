@@ -6,6 +6,7 @@
 #   desk.sh state [ws]      window state, one line each (all, or one workspace)
 #   desk.sh json [ws]       same, as JSON
 #   desk.sh capabilities    what this host can do, as JSON (works with no WM)
+#   desk.sh addr [port]     the URL a phone can open this machine at, if any
 #   desk.sh locked          "locked" or "unlocked"; exit 0 if locked
 #   desk.sh shot [out] [ws] screenshot, refuses when locked
 #   desk.sh shot-window <addr> [out]   crop to one window at readable quality
@@ -81,6 +82,57 @@ lock_state() {
 
 known_unlocked() { [ "$(lock_state)" = unlocked ]; }
 known_locked()   { [ "$(lock_state)" = locked ]; }
+
+# `addr` answers the one question pairing cannot proceed without: what address
+# does a phone type. It lives here, beside `capabilities`, because it has the
+# same requirement — pairing a headless box over SSH is the normal case, so it
+# must not need a compositor.
+#
+# It exists because the packaged binary cannot work this out for itself. That
+# binary runs under --allow-run=tmux,ps,hyprctl,desk.sh with no --allow-sys, so
+# it can neither ask Tailscale what this machine is called nor read its own
+# interfaces — and `deskpilot pair` consequently printed a code with no address
+# and no QR, telling the operator to go and run `tailscale status` themselves.
+# That is a dead end at exactly the moment nothing is paired yet and the app
+# cannot draw the QR either. desk.sh is already on that allowlist, so putting
+# the answer here costs no new permission at all.
+#
+# Every candidate is FETCHED before it is offered, rather than inferred from
+# having an address. The server binds loopback by default, so owning a tailnet
+# IP says nothing about whether anything is listening on it: without `tailscale
+# serve` in front there is no reachable address, and printing one regardless
+# yields a QR that leads to a connection refused — which reads as broken
+# pairing. When nothing answers, the honest output is no output and exit 1, and
+# the caller says what to start.
+if [ "${1:-}" = addr ]; then
+  addr_port=${2:-${DESKPILOT_PORT:-8790}}
+
+  # No curl is not evidence of an unreachable address, so it means "offer the
+  # best guess" rather than "reject everything".
+  answers() {
+    command -v curl >/dev/null 2>&1 || return 0
+    curl -s -m 5 -o /dev/null "$1/"
+  }
+
+  if command -v tailscale >/dev/null 2>&1; then
+    # Serve first: port 443 with no port to type, and the only origin a browser
+    # treats as secure — which is what makes the app installable and what web
+    # push needs. A LAN address works until you leave the building.
+    served=$(tailscale serve status 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+' | head -1)
+    if [ -n "$served" ] && answers "$served"; then echo "$served"; exit 0; fi
+    tsip=$(tailscale ip -4 2>/dev/null | head -1)
+    if [ -n "$tsip" ] && answers "http://$tsip:$addr_port"; then
+      echo "http://$tsip:$addr_port"; exit 0
+    fi
+  fi
+
+  lan=$(ip -4 -o addr show scope global 2>/dev/null | awk '{split($4,a,"/"); print a[1]; exit}')
+  if [ -n "$lan" ] && answers "http://$lan:$addr_port"; then
+    echo "http://$lan:$addr_port"; exit 0
+  fi
+
+  exit 1
+fi
 
 # `capabilities` has to answer on a host with no compositor at all — that is
 # the entire point of asking — so it is handled before the check that would

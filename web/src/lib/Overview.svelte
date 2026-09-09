@@ -12,17 +12,16 @@
 
   let { sessions, workspaces, locked, onstatus, onchanged, onjump } = $props();
 
-  // Adding a machine takes the pairing URL that machine's own pair.sh prints —
-  // the same thing its QR encodes. One paste, no new mechanism to learn, and it
-  // works for a headless box over SSH where there is no screen to scan.
+  // Adding a machine takes the pairing link that machine printed — the same
+  // thing its QR encodes. One paste, no new mechanism to learn, and it works
+  // for a headless box over SSH where there is no screen to scan.
   //
-  // Two ways in, because the two installs hand you different things.
-  //
-  // `shell/pair.sh` prints a whole link and a QR, so a checkout can paste one
-  // field. The packaged binary's `deskpilot pair` prints only the code: it runs
-  // under --allow-run=tmux,ps,hyprctl,desk.sh, so it cannot ask tailscale what
-  // this machine's address is, and widening that allowlist to save a paste is
-  // not a trade worth making. The address is the half the *phone* knows anyway.
+  // Both `shell/pair.sh` and `deskpilot pair` print a whole link, so either can
+  // be pasted into one field. The binary could not always do that: it runs
+  // under --allow-run=tmux,ps,hyprctl,desk.sh and cannot ask tailscale what
+  // this machine is called, so it printed a bare code and left the address to
+  // whoever was reading. desk.sh is on that allowlist and now answers `addr`,
+  // which is the same answer at no new permission.
   //
   // So: an address, and a code beside it that a pasted link fills in for you.
   // This used to be one field demanding a raw ?token=, which pair.sh prints
@@ -488,8 +487,8 @@
     </form>
     <div class="hint dim">
       Run <code>deskpilot pair</code> on the other machine — over SSH is fine, it needs
-      no screen — and enter its address and the code it prints. A link from
-      <code>shell/pair.sh</code> can go in the address on its own; it carries the code.
+      no screen — and paste the link it prints straight into the address. It carries
+      the code, so the code field fills itself in; typing both separately works too.
       Either way the code is exchanged for a credential belonging to this phone alone,
       revocable from that machine without disturbing anything else.
     </div>

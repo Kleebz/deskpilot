@@ -191,19 +191,29 @@ Then, on the machine:
 deskpilot pair
 ```
 
-That prints an eight-character code, good for ten minutes and one device:
+That prints a QR, the address it points at, and an eight-character code good for ten
+minutes and one device:
 
 ```
-  K7MQ3FDN
+  [QR]
+
+  https://yourbox.tailnet.ts.net/?code=K7MQ3FDN
+
+  K7MQ3FDN   (good for ten minutes, one device)
 ```
+
+Scan it with the phone's camera and pairing is done — the QR carries the address and the
+code together, so there is nothing to type. If you would rather type, open the address in
+the phone's browser and enter the code.
+
+If it says **nothing answered on an address a phone could reach**, that is Tailscale Serve
+not running rather than a pairing problem: deskpilot listens on loopback, so until
+something fronts it there is no address to print. Run `tailscale serve --bg --yes 8790`
+and try again.
 
 **From a source checkout, use `shell/pair.sh` instead.** Nothing installs a `deskpilot`
 command on your PATH when you run from the repo — the service runs `deno` against the
-directory — so `deskpilot pair` will not be found there. `pair.sh` prints the same code,
-plus a QR and a full link that pairs in one scan.
-
-On the phone, open the machine's address in a browser — `https://yourbox.tailnet.ts.net` —
-and enter the code.
+directory — so `deskpilot pair` will not be found there. `pair.sh` prints the same thing.
 
 ### Installing it on the phone
 
@@ -231,22 +241,19 @@ though the layout is built for a phone.
 That device now has **its own credential**, not a copy of the machine's key. Lose the
 phone and you revoke that one device from the app; everything else stays paired.
 
-**Adding more devices** is easiest from a device that is already paired: open the app,
-**sessions index -> devices -> pair another device**, and scan the QR with the new one. It
-carries the address *and* the code, so there is nothing to type — the app knows its own
-address, which is the half `deskpilot pair` cannot tell you. From the machine,
-`deskpilot pair` works too, and `shell/pair.sh` from a checkout prints its own QR.
+**Adding more devices** works either way. From the machine, `deskpilot pair` prints a QR
+carrying the address and the code together. From a device already paired, open the app,
+**sessions index -> devices -> pair another device**, and scan that QR with the new one —
+which saves walking back to the desk.
 
 That panel is also where a device still on the old shared token upgrades itself: it says
 so in the list, and the code field beside it swaps the shared credential for one of its
 own without re-pairing anything else.
 
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
-`deskpilot pair` there, then in the app open the index, tap **add a machine**, and give it
-that machine's address and the code. A link from `shell/pair.sh` goes in the address on its
-own — it already carries the code. The address is the half `deskpilot pair` cannot tell
-you: it runs under an allowlist of four subprocesses and cannot ask Tailscale what this
-machine is called, and widening that to save a paste is not a trade worth making. A strip
+`deskpilot pair` there, and paste the link it prints into the app: open the index, tap
+**add a machine**, and put the whole link in the address field — it carries the code, so
+the code field fills itself in. Typing the address and the code separately works too. A strip
 appears at the top once you have two, one tap to switch, with a dot on any machine that
 needs you.
 

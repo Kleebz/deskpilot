@@ -1067,3 +1067,83 @@ The version had been reported in `/api/capabilities` since it was introduced, ex
 is now on each row of the machines list, pushed right like `.age` and shedding its commit
 suffix below 431px, because on a phone the comparison is `0.1.2` against `0.1.3` and the
 sha only matters to someone running from a checkout.
+
+## `deskpilot pair` had a code and no address
+
+Pairing a second machine failed on the one thing the flow could not do without. The
+packaged binary printed this:
+
+```
+  K7MQ3FDN
+
+  On the phone, open this machine's address and enter that code.
+  The address is whatever you pointed Tailscale Serve at, usually
+  https://<machine>.<tailnet>.ts.net — `tailscale status` will say.
+```
+
+A code, no address, no QR, and an instruction to go and find out. That is a dead end at
+exactly the moment nothing is paired yet, so the app cannot draw the QR either and there is
+no address on screen anywhere. `shell/pair.sh` had printed a QR and a full link the whole
+time, so the failure was invisible from a checkout — which is where it was always tested.
+
+The reason for the omission was real. The binary runs under
+`--allow-run=tmux,ps,hyprctl,desk.sh` with no `--allow-sys`, so it can neither ask Tailscale
+what the machine is called nor read its own interfaces, and widening that allowlist — shared
+with the server, whose entire job is executing things — to print a nicer line is the trade
+this project keeps refusing.
+
+**desk.sh was already on the allowlist.** `desk.sh addr` answers the question at no new
+permission at all, which is the same shape as every other thing the server cannot do for
+itself. It sits beside `capabilities`, before the check that demands a compositor, because
+pairing a headless box over SSH is the normal case.
+
+**It fetches rather than infers.** Owning a tailnet IP says nothing about whether anything
+is listening on it: the server binds loopback, so without `tailscale serve` in front there
+is no reachable address, and offering one anyway produces a QR that leads to a refused
+connection — which reads as broken pairing rather than a missing Serve. Each candidate is
+curled before it is offered, and when none answer the output is nothing and exit 1, so the
+caller can say what to start instead of printing a URL that does not work.
+
+That last case is now the most useful thing `pair` prints:
+
+```
+  ! Nothing answered on an address a phone could reach.
+
+  deskpilot listens on loopback, so something has to front it:
+
+      tailscale serve --bg --yes 8790
+```
+
+`shell/check.sh` asks the same question, and warns separately when the only answer is plain
+http — not a secure context, so the app will not offer to install and push cannot work.
+
+### One renderer, and the second dependency
+
+There were three QR paths: `renderSVG` in the web UI, `qrencode` in pair.sh, and
+`npm:qrcode-terminal` as its fallback. `deskpilot pair` had none. They are now one —
+`server/qr.ts`, built on `uqr`, which the web UI already used — so a package and a checkout
+draw the same code rather than two that differ in polarity or quiet zone.
+
+`uqr` is the second external dependency in the project and it is here for the first one's
+reason: the alternative was `qrencode` on the `--allow-run` allowlist. Reed-Solomon, mask
+evaluation and version selection is several hundred lines whose bugs are invisible until a
+phone will not scan.
+
+Two details are not cosmetic, and both are asserted in `tests/qr_test.ts`:
+
+- **Half blocks, not full.** One text row per module makes the code 40 lines tall and pushes
+  the address and the code off a standard terminal — reproducing the original failure in a
+  new way. `▀` with the foreground painting the upper module and the background the lower
+  halves it to 19.
+- **Explicit black and white, and four modules of quiet zone.** A QR is dark-on-light and an
+  inverted one is a coin toss for a phone camera. The terminal's own background abuts the
+  edge and reads as module data, so two modules of border scanned on a light terminal and
+  not on a dark one.
+
+The rendered text is read back into a matrix and compared against the encoder, which catches
+an off-by-one in the half-block packing; end to end it was decoded with `zbarimg` and
+round-tripped exactly.
+
+`scriptsDir()` moved to `server/scripts.ts` so `cli.ts` could use it — `server.ts` already
+imports `cli.ts`, so importing back would be a cycle, and a second copy is precisely the
+drift its own comments were written about.

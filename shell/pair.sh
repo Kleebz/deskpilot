@@ -5,10 +5,10 @@
 #   shell/pair.sh              pick the best address automatically
 #   shell/pair.sh 100.x.y.z    force a specific host
 #
-# The QR encodes the URL *with the token*, and the page stores it and strips it
-# from the URL immediately, so nothing lingers in phone history. Typing a
-# 64-character hex token on glass is the alternative; this exists so you never
-# have to.
+# The QR encodes the address and a one-time code together, and the page strips
+# the code from the URL as soon as it has exchanged it, so nothing lingers in
+# phone history. Typing an address and a code on glass is the alternative; this
+# exists so you never have to.
 #
 # Re-run this whenever the address changes — moving from LAN to Tailscale gives
 # the machine a different IP, and a token saved against the old host does not
@@ -23,31 +23,29 @@ PORT="${DESKPILOT_PORT:-8790}"
 [ -f "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — run install-service.sh first" >&2; exit 1; }
 TOKEN=$(tr -d '\n' < "$TOKEN_FILE")
 
-pick_host() {
-  [ $# -gt 0 ] && { printf '%s' "$1"; return; }
-  # Prefer the tailnet: if it is up, that is the address that works from
-  # anywhere, and the LAN one silently stops working the moment you leave.
-  if command -v tailscale >/dev/null; then
-    ts=$(tailscale ip -4 2>/dev/null | head -1 || true)
-    [ -n "$ts" ] && { printf '%s' "$ts"; return; }
-  fi
-  ip -4 -o addr show scope global 2>/dev/null \
-    | awk '{split($4,a,"/"); print a[1]; exit}'
-}
-
-HOST=$(pick_host "$@")
-[ -n "$HOST" ] || { echo "could not determine an address; pass one explicitly" >&2; exit 1; }
-
-# Prefer the HTTPS name when Tailscale Serve is fronting the app: it is on 443
-# with no port, and it is the only origin browsers treat as secure — which is
-# what makes the app installable.
-BASE="http://${HOST}:${PORT}"
-if command -v tailscale >/dev/null; then
-  SERVED=$(tailscale serve status 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+' | head -1)
-  if [ -n "$SERVED" ] && curl -s -m 8 -o /dev/null "$SERVED/"; then
-    BASE="$SERVED"
-  fi
+# The address comes from desk.sh, which is also what the packaged binary's
+# `deskpilot pair` asks — two copies of this logic had already been written and
+# only one of them checked that the address answers. An argument still wins, so
+# forcing a specific host stays possible.
+if [ $# -gt 0 ]; then
+  case "$1" in
+    http://*|https://*) BASE="$1" ;;
+    *)                  BASE="http://$1:${PORT}" ;;
+  esac
+else
+  BASE=$("$REPO/scripts/desk.sh" addr "$PORT" 2>/dev/null || true)
 fi
+
+if [ -z "${BASE:-}" ]; then
+  echo "no address answered on this machine." >&2
+  echo "deskpilot listens on loopback, so something has to front it:" >&2
+  echo >&2
+  echo "    tailscale serve --bg --yes ${PORT}" >&2
+  echo >&2
+  echo "then re-run this. Or pass an address explicitly: $0 <host>" >&2
+  exit 1
+fi
+
 # Ask the server for a one-time enrolment code rather than handing over the
 # machine's own token. The token cannot be revoked without re-pairing every
 # device; a code mints a credential belonging to this device alone, so losing a
@@ -84,13 +82,12 @@ echo
 if command -v qrencode >/dev/null; then
   qrencode -t ANSIUTF8 -m 1 "$URL"
 elif command -v deno >/dev/null; then
-  # No system package needed; deno caches the module after the first run.
-  TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-  cat > "$TMP/qr.ts" <<'EOF'
-import QR from "npm:qrcode-terminal@0.12.0";
-QR.generate(Deno.args[0], { small: true }, (s: string) => console.log(s));
-EOF
-  deno run --quiet --allow-net --allow-env --allow-read "$TMP/qr.ts" "$URL" 2>/dev/null \
+  # The same renderer the packaged binary uses, so a checkout and a package
+  # draw the same code rather than two that differ in polarity or quiet zone.
+  # The URL goes through the environment rather than argv: it carries a
+  # single-use code, and argv is world-readable in /proc.
+  DP_QR_URL="$URL" deno run --quiet --allow-env=DP_QR_URL \
+    "$REPO/shell/qr.ts" 2>/dev/null \
     || echo "(could not render a QR — use the URL below)"
 else
   echo "(install qrencode for a QR code, or use the URL below)"
@@ -105,8 +102,8 @@ echo
 # has never loaded the app there is no service worker yet, so our own offline
 # page cannot explain it either. It reads as broken pairing rather than a
 # missing VPN.
-# 100.64.0.0/10 is the CGNAT range Tailscale assigns from, and pick_host above
-# prefers exactly that address when Serve is not fronting the app — so matching
+# 100.64.0.0/10 is the CGNAT range Tailscale assigns from, and `desk.sh addr`
+# offers exactly that address when Serve is not fronting the app — so matching
 # only on .ts.net would tell the most common fallback to check the wrong thing.
 if [[ "$BASE" == *.ts.net* ]] ||
    [[ "$BASE" =~ //100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then

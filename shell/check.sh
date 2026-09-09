@@ -89,6 +89,30 @@ case "$lock_now" in
         "no compositor lock helper and no '$LOCKPROC' process — captures and unlock both refuse" ;;
 esac
 
+head_ "Reachable address"
+# The one thing pairing cannot proceed without, and the one that used to fail
+# with no message at all: `deskpilot pair` printed a code, no address and no QR,
+# and left the operator to work out that Tailscale Serve was not running.
+#
+# desk.sh fetches each candidate rather than inferring one from an interface
+# existing, because the server binds loopback — owning a tailnet IP says nothing
+# about whether anything is listening on it.
+pair_addr=$("$REPO/scripts/desk.sh" addr 2>/dev/null)
+case "$pair_addr" in
+  https://*)
+    ok "a phone can reach this machine at $pair_addr" ;;
+  http://*)
+    warn "reachable only over plain http ($pair_addr)" \
+         "not a secure context, so the app will not offer to install and push
+          cannot work. 'tailscale serve --bg --yes $PORT' fronts it with a real
+          certificate — enable HTTPS Certificates at login.tailscale.com/admin/dns" ;;
+  *)
+    bad "no address a phone could reach" \
+        "deskpilot listens on loopback, so something has to front it:
+         tailscale serve --bg --yes $PORT
+         until then 'deskpilot pair' has no address to print and no QR to draw" ;;
+esac
+
 head_ "tmux"
 # deskpilot needs no tmux configuration — verified against each non-default
 # setting this machine happened to have. detach-on-destroy is handled by setting

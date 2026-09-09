@@ -19,6 +19,8 @@
 // systemctl out of `setup`. DecompressionStream is built in; only the tar half
 // needs anything. Pinned, because an unpinned range makes a build unrepeatable.
 import { UntarStream } from "jsr:@std/tar@^0.1.10/untar-stream";
+import { qrTerminal } from "./qr.ts";
+import { scriptsDir } from "./scripts.ts";
 
 const REPO = "Kleebz/deskpilot";
 const HOME = Deno.env.get("HOME") ?? "";
@@ -98,6 +100,33 @@ async function enrolledCount(port: string, token: string): Promise<number | null
   }
 }
 
+// The address a phone can open this machine at, or null when there is not one.
+//
+// Asked of desk.sh rather than worked out here, because this binary runs under
+// --allow-run=tmux,ps,hyprctl,desk.sh with no --allow-sys: it can neither ask
+// Tailscale what this machine is called nor read its own interfaces. desk.sh is
+// already on that allowlist, so the answer costs no new permission — and it
+// checks the address actually answers rather than inferring one from an
+// interface existing, which matters because the server binds loopback and a
+// tailnet IP with nothing fronting it is a QR that leads to a refused
+// connection.
+async function machineAddress(port: string): Promise<string | null> {
+  try {
+    const r = await new Deno.Command(`${scriptsDir()}/desk.sh`, {
+      args: ["addr", port],
+      stdout: "piped",
+      stderr: "null",
+    }).output();
+    if (!r.success) return null;
+    const out = new TextDecoder().decode(r.stdout).trim();
+    return /^https?:\/\/[^\s]+$/.test(out) ? out : null;
+  } catch {
+    // No desk.sh, or a build whose allowlist does not cover it. Pairing still
+    // works with the code alone; it just cannot draw the QR.
+    return null;
+  }
+}
+
 async function pairingCode(port: string, token: string): Promise<string | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/devices/code`, {
@@ -169,7 +198,7 @@ function help() {
 
   deskpilot            run the server
   deskpilot setup      create a token, write the service, say what to run next
-  deskpilot pair       print a one-time pairing code for another device
+  deskpilot pair       print a QR and a code that pair another device
   deskpilot rotate     replace this machine's shared token
   deskpilot update     replace this binary with the latest release
   deskpilot version    print the version
@@ -239,6 +268,11 @@ ${bold("Then pair a phone:")}
 
   deskpilot pair
 
+${dim("That prints a QR carrying the address and a one-time code together, so")}
+${dim("there is nothing to type. It needs the step above to have worked — until")}
+${dim("something fronts the server there is no address to put in it, and pair")}
+${dim("says so rather than printing one that does not answer.")}
+
 ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=1.")}
 `);
       // Deliberately not run here: systemctl would have to join the subprocess
@@ -262,26 +296,59 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
         );
         return 1;
       }
-      // The address is deliberately not guessed here. This binary runs under
-      // --allow-run=tmux,ps,hyprctl,desk.sh with no --allow-sys, so it can
-      // neither ask Tailscale what this machine is called nor read its own
-      // interfaces, and widening that to print a nicer line is a bad trade.
-      // `tailscale status` is one command away for whoever is at the keyboard,
-      // and the app — which knows its own origin — draws the QR.
-      console.log(`
+      const addr = await machineAddress(port);
+
+      if (!addr) {
+        // The honest answer, and the one that used to be missing. This printed
+        // a code and told the operator to go and run `tailscale status`
+        // themselves — a dead end at exactly the moment nothing is paired yet,
+        // so the app cannot draw the QR either and there is no address on
+        // screen anywhere. If desk.sh could not find an address that answers,
+        // it is almost always because nothing is fronting the server: it binds
+        // loopback, so until Serve is up there is no address to print.
+        console.log(`
   ${bold(code)}
 
-  On the phone, open this machine's address and enter that code.
-  ${dim("The address is whatever you pointed Tailscale Serve at, usually")}
-  ${dim("https://<machine>.<tailnet>.ts.net — `tailscale status` will say.")}
+  ${bold("! Nothing answered on an address a phone could reach.")}
 
-  ${bold("Easier, if a device is already paired:")} open the app there,
-  ${dim("sessions index -> devices -> pair another device, and scan the QR. It")}
-  ${dim("carries the address and the code together, so there is nothing to type.")}
+  deskpilot listens on loopback, so something has to front it:
 
-  ${dim("Good for ten minutes, one device. That device gets its own credential,")}
-  ${dim("revocable on its own from the app.")}
+      tailscale serve --bg --yes ${port}
+
+  ${dim("Then run `deskpilot pair` again and it will print a QR to scan.")}
+  ${dim("If you front it some other way, open that address on the phone and")}
+  ${dim("enter the code above. Good for ten minutes, one device.")}
 `);
+        return 0;
+      }
+
+      const url = `${addr}/?code=${code}`;
+      // QR first, text last: the address and the code are what you read, and
+      // on a short terminal whatever is printed first is what scrolls away.
+      console.log();
+      console.log(qrTerminal(url));
+      console.log(`
+  ${bold(url)}
+
+  ${bold(code)}   ${dim("(good for ten minutes, one device)")}
+
+  Scan it with the phone's camera, or open ${bold(addr)} there
+  and enter the code. The scan carries both, so there is nothing to type.
+`);
+      // Said after the QR and before anything else, because it is the step
+      // that has to happen first and the one that has no error message: a
+      // device not on the tailnet cannot resolve this name, so the scan lands
+      // on the browser's own "can't be reached" page. With no app installed
+      // yet there is no service worker either, so our own offline page cannot
+      // explain it. It reads as broken pairing rather than a missing VPN.
+      if (/^https:\/\/[^/]+\.ts\.net/i.test(addr) || /^https?:\/\/100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)) {
+        console.log(`  ${bold("First:")} get the phone onto your tailnet — install Tailscale there and`);
+        console.log(`  sign in. Until then this address does not resolve for it.\n`);
+      } else {
+        console.log(`  ${bold("First:")} the phone has to be on this network — the address above is a`);
+        console.log(`  local one and does not resolve from anywhere else.\n`);
+      }
+      console.log(`  ${dim("That device gets its own credential, revocable on its own from the app.")}\n`);
       return 0;
     }
 

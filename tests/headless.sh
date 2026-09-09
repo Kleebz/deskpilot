@@ -213,6 +213,29 @@ esac
 # --allow-write path is fixed when the binary is built, so a different $HOME
 # means the granted path and the used path are not the same directory.
 echo
+echo "==> pairing, when nothing is fronting the server"
+# What this replaced printed a code, no address, no QR, and an instruction to go
+# and run `tailscale status` — a dead end at the one moment nothing is paired
+# yet, so the app cannot draw the QR either and there is no address anywhere on
+# screen. The binary cannot ask Tailscale what this machine is called, so with
+# no reachable address the only useful thing it can print is what to start.
+#
+# This host is that case by construction: the sandbox's PATH has no tailscale
+# and no ip, and the runner has nothing fronting the server either.
+PAIRED=$(box "$BOXROOT/deskpilot" pair 2>&1)
+case "$PAIRED" in
+  *"tailscale serve"*) pass "pair says what to start when no address answers" ;;
+  *) fail "pair offered no way forward with no address" "$PAIRED" ;;
+esac
+# The code is still worth printing: whoever is fronting it some other way can
+# use it. Losing that would make the message a dead end of a different kind.
+case "$PAIRED" in
+  *[0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z]*)
+    pass "pair still prints the code" ;;
+  *) fail "pair printed no code" "$PAIRED" ;;
+esac
+
+echo
 echo "==> writing its own state under a \$HOME the binary was not built with"
 CODE=$(post devices/code '{}' | sed -n 's/.*"code":"\([^"]*\)".*/\1/p')
 if [ -z "$CODE" ]; then
