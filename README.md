@@ -447,6 +447,24 @@ Judge phone layout by measurement, never by eye or a desktop screenshot — both
 repeatedly here. `tests/layout.ts` drives real Chromium at 320/360/390/430 and asserts the
 viewport is the size it asked for *before* trusting anything else.
 
+### Releasing
+
+The version is one hand-edited constant, `VERSION` in `server/version.ts`, and the tag is
+what names the tarball and the `pkgver`. They are two different sources for the same
+number, so the order matters:
+
+```
+# bump VERSION in server/version.ts, then
+git commit -am "Release 0.1.3"
+git tag v0.1.3 && git push origin main v0.1.3
+```
+
+The release workflow refuses to build if the tag and the constant disagree. That check
+exists because the failure is otherwise silent and lands on the user: `update` compares
+the running version against the one in the release filename by string equality, so an
+artifact tagged `0.1.3` containing a binary that says `0.1.2` tells every install there is
+an update, forever, and taking it changes nothing.
+
 ## Status
 
 Early. It has run daily on one Arch/Hyprland machine since August 2026, and CI exercises

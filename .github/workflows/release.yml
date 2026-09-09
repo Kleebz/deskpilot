@@ -17,6 +17,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Refuse to ship a tag that disagrees with version.ts
+        # The tag names the tarball and the pkgver; server/version.ts is what the
+        # binary reports. Nothing derived one from the other, so tagging without
+        # bumping the constant shipped an artifact called 0.1.3 containing a
+        # binary that said 0.1.2 — and `update` compares those two by string
+        # equality, so every install would read "0.1.3 available", take it, still
+        # say 0.1.2, and be told again. A permanent update prompt that updating
+        # never clears, on the one path that has no git to diagnose it with.
+        #
+        # First step on purpose: this costs a second, and the build it guards
+        # costs minutes.
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          SAID=$(sed -n 's/^export const VERSION = "\(.*\)";$/\1/p' server/version.ts)
+          [ -n "$SAID" ] || { echo "could not read VERSION out of server/version.ts"; exit 1; }
+          if [ "$VER" != "$SAID" ]; then
+            echo "::error::tag $GITHUB_REF_NAME says $VER, server/version.ts says $SAID"
+            echo "Bump server/version.ts to $VER, commit it, and move the tag onto that commit."
+            exit 1
+          fi
+          echo "tag and version.ts agree on $VER"
+
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
