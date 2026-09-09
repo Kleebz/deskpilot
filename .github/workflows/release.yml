@@ -70,7 +70,7 @@ jobs:
           mkdir -p "$STAGE/scripts" "$STAGE/docs"
           cp scripts/desk.sh scripts/sessions.sh "$STAGE/scripts/"
           cp README.md LICENSE deskpilot.conf.example "$STAGE/"
-          cp docs/decisions.md "$STAGE/docs/"
+          cp docs/decisions.md docs/agent-install.md "$STAGE/docs/"
           TAR="deskpilot-$VER-x86_64.tar.gz"
           tar -czf "$TAR" -C "$STAGE" .
           sha256sum "$TAR" > "$TAR.sha256"

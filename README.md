@@ -22,6 +22,44 @@ nothing leaves your machine except the notifications you asked for.
 └───────────────────────────────┘
 ```
 
+## Quick start
+
+Four steps on the desktop, then scan a QR with your phone. Each is expanded below.
+
+```bash
+# 1 — install (verifies the published checksum first; read it, it installs as root)
+curl -fsSL https://github.com/Kleebz/deskpilot/releases/latest/download/install.sh -o install.sh
+less install.sh && sh install.sh
+
+# 2 — start
+deskpilot setup
+systemctl --user daemon-reload && systemctl --user enable --now deskpilot
+
+# 3 — give it an address your phone can reach. NOT optional.
+tailscale up                       # opens a browser to sign in
+tailscale serve --bg --yes 8790
+
+# 4 — pair
+deskpilot pair
+```
+
+Step 4 prints a QR carrying the address and a one-time code together. Scan it, add the
+page to your home screen, and you are done — it is a web app, so there is nothing to
+download.
+
+**Step 3 is where installs go wrong.** deskpilot listens on loopback on purpose, so until
+something fronts it there is no address for a phone to open at all. Two things people
+miss: HTTPS certificates have to be switched on once for your tailnet at
+[login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns), and **the phone
+needs Tailscale too, signed in** — the address is a tailnet name, so a phone that is not
+on the tailnet cannot resolve it and the scan lands on "can't be reached". If anything is
+missing, `deskpilot pair` says so instead of printing a QR that leads nowhere.
+
+Running from a source checkout instead? `shell/setup.sh` and `shell/pair.sh` replace
+steps 1–2 and step 4 — see [building from source](#building-from-source).
+
+Want an agent to do it? See [installing with an agent](#installing-with-an-agent).
+
 ## What it is not
 
 Not a remote desktop. Streaming pixels to a phone is expensive and unreadable; a screen of
@@ -120,6 +158,25 @@ registration is disabled upstream at the moment, in response to the volume of au
 scraping the site has been absorbing, with no date on it. The package above is the same
 one that would be published there, so nothing is missing except the one-command install.
 
+### Installing with an agent
+
+If you are already driving this machine through Claude Code or a similar agent, hand it
+this and let it work:
+
+> Install deskpilot on this machine by following
+> `https://raw.githubusercontent.com/Kleebz/deskpilot/main/docs/agent-install.md`
+> exactly. Stop and ask me at each step it marks HUMAN.
+
+[`docs/agent-install.md`](docs/agent-install.md) is written for an agent rather than a
+person: ordered steps, a verification command after each one, and what the specific
+failure looks like when that check is the thing that catches it. Most of those checks
+exist because the failure is otherwise silent — the install looks finished and the phone
+cannot connect, with nothing anywhere saying why.
+
+It also marks the three things an agent cannot do for you — `sudo`, the Tailscale browser
+login and the admin-console setting it needs, and scanning the QR — so it stops and asks
+rather than guessing or quietly skipping them.
+
 ## Building from source
 
 You need `deno`, `node` and `npm` — none of which the released binary requires, which is
@@ -177,6 +234,11 @@ tailscale serve --bg --yes 8790   # or by hand, on a release install
 That puts Tailscale Serve in front, which gives a real certificate — needed for the app to
 be installable — and keeps the port closed on every interface. On the same network you can
 skip it and use the machine's LAN address, but you will not get the PWA.
+
+**Serve needs HTTPS certificates enabled once for your tailnet**, at
+[login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns) — the **Enable
+HTTPS** button. It is a per-tailnet setting, not per-machine, so it may already be on. If
+it is not, `tailscale serve` has no certificate to use and says so.
 
 **The phone needs Tailscale too, and signed in before you scan anything.** The address
 above is a tailnet name; a device that is not on the tailnet cannot resolve it, so a scan

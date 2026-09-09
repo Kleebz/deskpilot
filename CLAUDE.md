@@ -23,7 +23,8 @@ server/        Deno HTTP wrapper over scripts/ and tmux. Thin by design.
 web/           Svelte + Vite UI. `npm run build` before it will serve.
 shell/         installers, all idempotent and safe to re-run
 skills/        thin Claude Code pointer at scripts/ — the only Claude-specific part
-docs/          decisions.md is the important one
+docs/          decisions.md is the important one; agent-install.md is the
+               install runbook a user's agent is pointed at
 ```
 
 The server calls the same scripts an agent would. That is deliberate: **window
