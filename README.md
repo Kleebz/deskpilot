@@ -343,6 +343,49 @@ window and screenshot controls disappearing — the app reports the machine as h
 compositor. `install.sh` and the package both replace the pair; a hand-unpacked tarball is
 the case to watch. `shell/check.sh` will say so.
 
+## Uninstalling
+
+```
+curl -fsSL https://github.com/Kleebz/deskpilot/releases/latest/download/uninstall.sh | sh -s -- --yes
+```
+
+By default it removes the program and **leaves your data alone** — the token, the config
+and the recorded transcripts stay, so reinstalling puts you back where you were with every
+paired device still paired. `--purge` removes those too, which is the start-over button.
+
+It stops and disables the service before deleting the unit, because a running service
+whose unit file has vanished stays running and un-stoppable by name until the next logout.
+`--yes` is required when piping into `sh`: there is no terminal to confirm on, and a
+`read` in that position either eats the rest of the script or sees EOF and reads as a
+silent yes.
+
+**Your tmux sessions survive it.** `KillMode=process` means stopping the service leaves
+the tmux server and everything in it alive — the same property that makes updates safe.
+The uninstaller says so rather than implying it closed them.
+
+It steps aside if a package manager owns the install, for the mirror of the reason
+`update` does: deleting a pacman-owned file leaves pacman believing it owns something that
+is gone, and the next `-Syu` quietly puts it back. Use `sudo pacman -Rns deskpilot`, then
+re-run this with `--purge` if you also want the token and transcripts gone.
+
+Re-running it is safe, and is the fix for the half-finished case — if the sudo step failed
+the first time, the second run asks for nothing it does not need.
+
+**From a source checkout**, there is nothing to uninstall from `/usr`; drop the service and
+the data yourself:
+
+```
+systemctl --user disable --now deskpilot
+rm -rf ~/.config/systemd/user/deskpilot.service{,.d} ~/.config/deskpilot ~/.local/state/deskpilot
+systemctl --user daemon-reload
+```
+
+Four things are deliberately left behind, because each is shared with something else and
+removing it would be a surprise: the rules merged into `~/.claude/settings.json`,
+`tailscale serve` (`tailscale serve reset`), `/etc/modules-load.d/uinput.conf` and your
+`input` group membership, and your tmux sessions. The uninstaller names the ones it finds
+rather than undoing them.
+
 ## Security
 
 This is a service that runs commands on your machine, so the posture is worth stating

@@ -74,5 +74,6 @@ jobs:
             ${{ steps.pack.outputs.tar }}.sha256
             deskpilot-checksums.txt
             shell/install.sh
+            shell/uninstall.sh
             PKGBUILD
           generate_release_notes: true
