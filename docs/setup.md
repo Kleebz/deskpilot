@@ -37,21 +37,33 @@ $REPO/shell/check.sh
 
 Checks every assumption — tools, compositor, the systemd user environment, lock
 program, terminal, uinput permissions, shell integration, service state, reachability —
-and prints the fix beside anything missing. Essential failures exit non-zero; optional
-things only warn.
+and prints the fix beside anything missing. Three verdicts, not two: essential failures
+exit non-zero, optional things warn, and a tier this host simply does not have — no
+compositor, so no lock, no window terminal, no Wayland environment — is a dim note that
+counts toward neither.
 
 Run it now, and again whenever something behaves oddly. Most failures in this project
 have been silent, and this is what makes them visible.
 
-**Assumptions worth knowing**, all overridable in the config below:
+**Assumptions worth knowing**, all overridable in the config below. Every one of them
+belongs to the desk tier except the shell, and **none of them is required** — a host with
+no compositor serves sessions, terminals, pairing and notifications, reports the rest
+unavailable, and passes `check.sh` with those rows shown as notes rather than failures.
+`tmux` is the only hard dependency.
 
-| | |
-|---|---|
-| Compositor | **Hyprland** — `hyprctl` and numbered workspaces are load-bearing |
-| Lock | `hyprlock`, detected by process name |
-| Terminal | `alacritty`, must accept `-e CMD` |
-| Shell | bash or zsh for the wrapper |
-| Session env | systemd user manager must have `WAYLAND_DISPLAY` (uwsm does this) |
+| | | Needed for |
+|---|---|---|
+| Compositor | **Hyprland 0.56.2+** — `hyprctl` and numbered workspaces are load-bearing | windows only |
+| Lock | `hyprlock`, or a compositor lock helper | screenshots and unlock |
+| Terminal | `alacritty`, must accept `-e CMD` | opening a session *in a window* |
+| Shell | bash or zsh for the wrapper | the desk-side tmux wrapper |
+| Session env | systemd user manager must have `WAYLAND_DISPLAY` (uwsm does this) | `hyprctl` and `grim` inside the service |
+
+If a compositor *is* present, these stop being optional in one direction: a lock state
+that cannot be read is a hard failure rather than a warning, because captures and unlock
+both refuse and the refusal used to be silent — that is exactly what happened when
+Omarchy replaced hyprlock. Absent a compositor there is nothing to lock and nothing to
+capture, so it is a note.
 
 Copy the config if you need to change any of them:
 

@@ -1200,3 +1200,42 @@ trying to achieve and stopped one short of.
 The devices list stays, and revoke with it: taking a lost phone's credential away from the
 phone still in your hand is exactly the thing you cannot do from a terminal you cannot
 reach. Both blocks moved below the sessions and detached lists.
+
+## `check.sh` failed four times over on a configuration the project supports
+
+"The README says it requires Hyprland" — it does not, and never did: *tmux. That is the
+whole hard requirement.* `packaging/PKGBUILD` agrees (`depends=('tmux')`, hyprland in
+`optdepends`), `desk.sh` answers `capabilities` and `addr` before the check that demands a
+compositor, and `tests/headless.sh` proves the whole portable half on a sandboxed host
+with no `hyprctl`, no `grim` and no Wayland socket — gated in CI and in the release.
+
+What said otherwise was the tool that exists to tell you what is wrong. On a headless host
+`shell/check.sh` emitted four `bad` verdicts and exited 1:
+
+| | why it fired | why it was wrong |
+|---|---|---|
+| no Hyprland instance found | no `HYPRLAND_INSTANCE_SIGNATURE` | the desk tier is negotiated away, not broken |
+| systemd user manager lacks `WAYLAND_DISPLAY` | nothing to import | only `hyprctl` and `grim` want it |
+| cannot determine lock state | no lock helper | nothing to lock, and no captures to guard |
+| `alacritty` not found | not installed | only used to open a session *in a window* |
+
+Its own header promises "optional items never fail the run". Four of them did, so the one
+thing that could have corrected the impression confirmed it instead.
+
+**A third verdict.** `bad` fails the run and `warn` implies something to fix; neither fits
+"this host does not have that tier and does not need it". `note()` prints a dim `·` and
+counts toward neither total. `DESK=yes|no` is resolved once in the compositor block and
+the other three follow it rather than each re-deriving the answer — the drift that put
+`capabilities` and `lock_state` out of step with each other once already.
+
+**The loud verdict stays exactly where it was earned.** A compositor that is present but
+whose lock state cannot be read is still a hard failure, because captures and unlock both
+refuse and the refusal is silent — which is precisely what happened when Omarchy replaced
+hyprlock and a warning was quiet enough to hide it for days. Absent a compositor there is
+nothing to lock, so it is a note. Verified in all three states: headless exits 0, a healthy
+Hyprland host is unchanged, and a compositor with `omarchy-hyprland-session-locked` stubbed
+to fail still exits 1.
+
+`DESKPILOT_TERMINAL` is reached for in exactly two places in `server.ts`, both under
+`ws != null`. A headless host never places a session on a workspace, so the emulator is
+never invoked there and its absence is not a fault.

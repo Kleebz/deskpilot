@@ -28,6 +28,10 @@ warns=0
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31m✗\033[0m %s\n     → %s\n' "$1" "$2"; fails=$((fails+1)); }
 warn() { printf '  \033[33m!\033[0m %s\n     → %s\n' "$1" "$2"; warns=$((warns+1)); }
+# Neither a pass nor a problem: a tier this host does not have. `bad` would fail
+# the run over a supported configuration and `warn` implies there is something
+# to fix. Counts toward neither total.
+note() { printf '  \033[2m·\033[0m %s\n' "$1"; [ -n "${2:-}" ] && printf '     \033[2m→ %s\033[0m\n' "$2"; return 0; }
 head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 head_ "Build"
@@ -50,22 +54,44 @@ done
 command -v deno >/dev/null && ok "deno" || bad "deno missing" "needed by the server: install deno"
 command -v npm  >/dev/null && ok "npm"  || warn "npm missing" "needed only to build the web UI"
 
-head_ "Compositor"
+head_ "Compositor (optional — the desk tier)"
+# A headless host is a supported configuration, not a broken one: the server
+# negotiates the desk tier away and the app hides it, and tests/headless.sh
+# proves it on every commit and refuses to ship a release that fails it. This
+# used to call `bad`, which made check.sh exit 1 on a machine where everything
+# it supports was working — contradicting this file's own promise that optional
+# items never fail the run, and reading as "Hyprland is required" when the
+# README, the PKGBUILD and desk.sh all say tmux is the only hard requirement.
+#
+# Three checks below belong to this tier and follow this one answer rather than
+# each re-deriving it: lock detection, the terminal emulator, and screenshots.
+DESK=no
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+  DESK=yes
   ok "Hyprland instance in this shell"
 elif [ -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr" ]; then
+  DESK=yes
   warn "no HYPRLAND_INSTANCE_SIGNATURE here, but an instance exists" \
        "fine — the scripts recover it themselves"
 else
-  bad "no Hyprland instance found" \
-      "deskpilot's desktop half is Hyprland-specific (hyprctl, workspaces)"
+  note "no Hyprland instance — running headless" \
+       "sessions, terminals, pairing and notifications all work. Windows,
+          screenshots and unlock are reported unavailable and hidden in the app."
 fi
 if command -v hyprctl >/dev/null && hyprctl version >/dev/null 2>&1; then
   ok "hyprctl responds ($(hyprctl version 2>/dev/null | head -1 | cut -d' ' -f1-2))"
 fi
 
 head_ "Session environment"
-if systemctl --user show-environment 2>/dev/null | grep -q WAYLAND_DISPLAY; then
+# What this is for is the desk tier: the failure it catches is the service
+# starting fine and then hyprctl and grim failing inside it, which is the
+# silent-failure shape this whole file exists to surface. With no compositor
+# there is no Wayland environment to import and nothing that would use it, so
+# demanding one there was the fourth way a headless host was called broken.
+if [ "$DESK" = no ]; then
+  note "no Wayland environment to import" \
+       "only hyprctl and grim need it, and neither is in play here"
+elif systemctl --user show-environment 2>/dev/null | grep -q WAYLAND_DISPLAY; then
   ok "systemd user manager has the Wayland environment"
 else
   bad "systemd user manager lacks WAYLAND_DISPLAY" \
@@ -80,14 +106,23 @@ head_ "Lock detection"
 # Omarchy dropped hyprlock, and a warning was quiet enough that unlock and the
 # capture guard stayed broken for days. A detector that cannot answer is a
 # failure, not a warning: captures refuse and unlock refuses.
-lock_now=$("$REPO/scripts/desk.sh" locked 2>/dev/null)
-case "$lock_now" in
-  locked|unlocked)
-    ok "lock state readable (currently $lock_now)" ;;
-  *)
-    bad "cannot determine lock state" \
-        "no compositor lock helper and no '$LOCKPROC' process — captures and unlock both refuse" ;;
-esac
+#
+# Only meaningful where there is a screen to lock. On a headless host nothing
+# can lock it, captures do not exist to be guarded, and this failed the run for
+# the absence of a thing that host is not supposed to have.
+if [ "$DESK" = no ]; then
+  note "nothing to lock without a compositor" \
+       "captures and unlock are reported unavailable rather than refused"
+else
+  lock_now=$("$REPO/scripts/desk.sh" locked 2>/dev/null)
+  case "$lock_now" in
+    locked|unlocked)
+      ok "lock state readable (currently $lock_now)" ;;
+    *)
+      bad "cannot determine lock state" \
+          "no compositor lock helper and no '$LOCKPROC' process — captures and unlock both refuse" ;;
+  esac
+fi
 
 head_ "Reachable address"
 # The one thing pairing cannot proceed without, and the one that used to fail
@@ -132,7 +167,14 @@ else
 fi
 
 head_ "Terminal"
-if command -v "$TERMINAL" >/dev/null; then ok "$TERMINAL"
+# Spawned only when a session is placed on a workspace — server.ts reaches for
+# it under `ws != null` and nowhere else. A headless host never places one, so
+# a missing emulator there is not a fault, and failing on it was the third way
+# this file called a supported configuration broken.
+if [ "$DESK" = no ]; then
+  note "$TERMINAL not needed while headless" \
+       "it is only used to open a session in a window, and there are none"
+elif command -v "$TERMINAL" >/dev/null; then ok "$TERMINAL"
 else bad "$TERMINAL not found" "set DESKPILOT_TERMINAL in the config to one you have"; fi
 
 head_ "Input (optional — needed for remote unlock and typing)"

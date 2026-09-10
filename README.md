@@ -81,14 +81,18 @@ Everything desktop-shaped is optional and negotiated: the server reports what it
 and the app hides the rest. A headless box serves sessions and terminals and honestly says
 it has no windows — that path is tested on every commit, not assumed.
 
-| For | You need |
-|---|---|
-| sessions, terminals, notifications | `tmux` |
-| window listing, moving, tiling | Hyprland **0.56.2+** |
-| screenshots | `grim` |
-| remote unlock and input | `ydotool` — **any Linux**, no compositor needed |
+Read the table as "what each feature costs", not as a list of things to install. Only the
+first row is required; a machine with none of the rest is a supported configuration that
+`shell/check.sh` passes and `tests/headless.sh` exercises on every commit.
 
-Note what is *not* in that list: unlock and input injection. `ydotool` writes to
+| For | You need | Required? |
+|---|---|---|
+| sessions, terminals, pairing, notifications | `tmux` | **yes — the only one** |
+| window listing, moving, tiling | Hyprland **0.56.2+** | no |
+| screenshots | `grim`, and a readable lock state | no |
+| remote unlock and input | `ydotool` — **any Linux**, no compositor needed | no |
+
+Note which row needs no compositor at all: unlock and input injection. `ydotool` writes to
 `/dev/uinput`, which is the kernel — it is why this reaches a lock screen at all, since it
 sits below the Wayland layer that refuses virtual keyboards. It works on GNOME, KDE, Sway
 or a bare TTY, and needs no compositor support. Only windows and screenshots are
@@ -101,6 +105,12 @@ detects it and reports the desk tier as unavailable rather than appearing to wor
 The desk half is Hyprland-only today. It is one shell script, `scripts/desk.sh`, kept
 readable and shipped beside the binary rather than compiled into it, precisely so that a
 second compositor is somebody's afternoon rather than a rewrite.
+
+**Running headless is a first-class case, not a degraded one.** `tests/headless.sh`
+sandboxes a host with no compositor, no `hyprctl`, no `grim` and no Wayland socket, and
+asserts that the server starts, lists tmux sessions with `workspace: null`, upgrades the
+terminal WebSocket, pairs a device and reports `compositor: none` instead of erroring. CI
+runs it on every commit and the release workflow refuses to ship a binary that fails it.
 
 ## Install
 
