@@ -207,6 +207,13 @@ tailnet IP says nothing about whether anything is listening on it.
   fixing before continuing.
 - **Prints nothing** — Serve is not fronting the port. Do not continue; pairing has no
   address to hand out.
+- **Says `unknown command: addr`** — this binary predates the command. `addr` landed
+  after **0.1.3**, so every release before it has a `desk.sh` without one, and this
+  runbook lives on `main` where it exists. Not a failed step and not a reason to stop.
+  Read the address off `tailscale serve status` instead — the `https://…ts.net` line at
+  the top of its output is the same URL — and let step 4 be the real check: `deskpilot
+  pair` makes the same test before printing anything, so a missing address still cannot
+  produce a QR that leads nowhere.
 
 A LAN address without Tailscale does work on the same network, at the cost of the
 installable app and of working from anywhere. Only take that path if the person asks for
@@ -258,7 +265,8 @@ Tell them, briefly:
 From a source checkout, finish with `shell/check.sh`. It verifies every environment
 assumption in one pass and is the fastest way to find out that something silent has
 broken. It is not shipped in a release tarball — on a binary install, step 2's
-capabilities JSON plus step 3's `desk.sh addr` cover the same ground.
+capabilities JSON plus step 3's `desk.sh addr` cover the same ground, or `tailscale serve
+status` where the binary is old enough to lack `addr`.
 
 ---
 
@@ -267,6 +275,7 @@ capabilities JSON plus step 3's `desk.sh addr` cover the same ground.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `deskpilot pair` prints a code but no QR or address | nothing is fronting the port | step 3 |
+| `desk.sh addr` says `unknown command: addr` | the installed binary is older than the command, which landed after 0.1.3 | read the URL from `tailscale serve status`; `deskpilot pair` re-checks it anyway |
 | `tailscale up` or `serve` refuses with `Access denied` (`serve config denied` from `serve`) | they change daemon state; only root may, unless this user is the operator | run with `sudo`, or `sudo tailscale set --operator=$USER` once |
 | Phone shows "can't be reached" after scanning | the phone is not on the tailnet | install Tailscale on the phone and sign in |
 | No install prompt on the phone | the address is plain http, not a secure context | `tailscale serve --bg --yes 8790` |
