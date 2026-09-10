@@ -213,20 +213,56 @@ esac
 # --allow-write path is fixed when the binary is built, so a different $HOME
 # means the granted path and the used path are not the same directory.
 echo
-echo "==> pairing, when nothing is fronting the server"
+echo "==> pairing, when it cannot print a QR"
 # What this replaced printed a code, no address, no QR, and an instruction to go
 # and run `tailscale status` — a dead end at the one moment nothing is paired
 # yet, so the app cannot draw the QR either and there is no address anywhere on
 # screen. The binary cannot ask Tailscale what this machine is called, so with
 # no reachable address the only useful thing it can print is what to start.
 #
-# This host is that case by construction: the sandbox's PATH has no tailscale
-# and no ip, and the runner has nothing fronting the server either.
+# TWO failures hide behind "pair printed no QR", and this used to assert only
+# one of them — which is how the wrong diagnosis survived. The sandbox has no
+# desk.sh at the baked path, so it was exercising "cannot run desk.sh" while
+# asserting the message for "nothing is fronting the server", and a binary run
+# against a machine that never installed the scripts told its operator to
+# restart a Tailscale Serve that was already working.
+#
+# Which case this host is depends on whether the scripts are installed, so ask
+# rather than assume. bwrap cannot supply the missing one: /usr is bound
+# read-only and the mountpoint's parents cannot be created inside it.
+BAKED=/usr/share/deskpilot/scripts/desk.sh
 PAIRED=$(box "$BOXROOT/deskpilot" pair 2>&1)
-case "$PAIRED" in
-  *"tailscale serve"*) pass "pair says what to start when no address answers" ;;
-  *) fail "pair offered no way forward with no address" "$PAIRED" ;;
-esac
+if [ -x "$BAKED" ]; then
+  # desk.sh ran and found nothing answering: the sandbox PATH has no tailscale
+  # and no ip, and the runner has nothing fronting the server either.
+  case "$PAIRED" in
+    *"tailscale serve"*) pass "pair says what to start when no address answers" ;;
+    *) fail "pair offered no way forward with no address" "$PAIRED" ;;
+  esac
+  case "$PAIRED" in
+    *"could not run desk.sh"*)
+      fail "pair blamed a missing desk.sh when desk.sh is installed" "$PAIRED" ;;
+    *) pass "pair did not blame the script it can reach" ;;
+  esac
+else
+  # A compiled binary may only exec the path its allowlist was built for, so
+  # this is a real install state and not an artefact of the sandbox.
+  case "$PAIRED" in
+    *"could not run desk.sh"*) pass "pair says it could not run desk.sh" ;;
+    *) fail "pair did not say why it had no address" "$PAIRED" ;;
+  esac
+  case "$PAIRED" in
+    *"$BAKED"*) pass "pair names the path it looked at" ;;
+    *) fail "pair did not say where it looked for desk.sh" "$PAIRED" ;;
+  esac
+  # The exact regression: no address because no script must never be reported
+  # as no address because no Serve.
+  case "$PAIRED" in
+    *"tailscale serve --bg"*)
+      fail "pair told them to restart Serve over a missing desk.sh" "$PAIRED" ;;
+    *) pass "pair did not blame Tailscale for a missing script" ;;
+  esac
+fi
 # The code is still worth printing: whoever is fronting it some other way can
 # use it. Losing that would make the message a dead end of a different kind.
 case "$PAIRED" in
