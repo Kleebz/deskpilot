@@ -26,6 +26,11 @@ nothing leaves your machine except the notifications you asked for.
 
 Four steps on the desktop, then scan a QR with your phone. Each is expanded below.
 
+`deskpilot` is a command, and step 1 is what puts it on your PATH. **Running from a
+source checkout instead?** Skip to [building from source](#building-from-source) —
+`shell/setup.sh` replaces steps 1–2 and installs a `deskpilot` shim, after which steps
+3–4 are word for word the same.
+
 ```bash
 # 1 — install (verifies the published checksum first; read it, it installs as root)
 curl -fsSL https://github.com/Kleebz/deskpilot/releases/latest/download/install.sh -o install.sh
@@ -54,9 +59,6 @@ miss: HTTPS certificates have to be switched on once for your tailnet at
 needs Tailscale too, signed in** — the address is a tailnet name, so a phone that is not
 on the tailnet cannot resolve it and the scan lands on "can't be reached". If anything is
 missing, `deskpilot pair` says so instead of printing a QR that leads nowhere.
-
-Running from a source checkout instead? `shell/setup.sh` and `shell/pair.sh` replace
-steps 1–2 and step 4 — see [building from source](#building-from-source).
 
 Want an agent to do it? See [installing with an agent](#installing-with-an-agent).
 
@@ -198,7 +200,9 @@ intend to change anything:
 shell/setup.sh
 ```
 
-It builds the UI, installs a user service pointing at this directory, and runs the checks.
+It builds the UI, installs a `deskpilot` shim at `~/.local/bin/deskpilot`, installs a user
+service pointing at this directory, and runs the checks. The shim is why every command in
+this README reads the same on a checkout as on a release install.
 It asks before touching your shell profile or `~/.claude/settings.json`, and `--yes`,
 `--no-shell` and `--no-claude` answer for it. Because the service points at the checkout,
 **moving or deleting the directory breaks it** — re-run `shell/setup.sh` after a move.
@@ -268,14 +272,21 @@ Scan it with the phone's camera and pairing is done — the QR carries the addre
 code together, so there is nothing to type. If you would rather type, open the address in
 the phone's browser and enter the code.
 
-If it says **nothing answered on an address a phone could reach**, that is Tailscale Serve
-not running rather than a pairing problem: deskpilot listens on loopback, so until
-something fronts it there is no address to print. Run `tailscale serve --bg --yes 8790`
-and try again.
+Two things it can say instead of printing a QR, and they are not the same problem:
 
-**From a source checkout, use `shell/pair.sh` instead.** Nothing installs a `deskpilot`
-command on your PATH when you run from the repo — the service runs `deno` against the
-directory — so `deskpilot pair` will not be found there. `pair.sh` prints the same thing.
+- **nothing answered on an address a phone could reach** — Tailscale Serve is not
+  running. deskpilot listens on loopback, so until something fronts it there is no
+  address to print. Run `tailscale serve --bg --yes 8790` and try again.
+- **I could not run desk.sh** — the binary cannot find the script it asks for the
+  address, and it prints the path it looked at. A compiled binary's `--allow-run`
+  allowlist is fixed at build time, so it may only execute that one copy; install it
+  there. This says nothing about whether Serve is working, and restarting Serve will
+  not fix it.
+
+**From a source checkout this is the same command.** `shell/setup.sh` installs a
+`deskpilot` shim at `~/.local/bin/deskpilot` that dispatches to `shell/`, so `pair`,
+`setup`, `rotate`, `update` and `check` all work by the documented name. `shell/pair.sh`
+still works directly if `~/.local/bin` is not on your PATH.
 
 ### Installing it on the phone
 
@@ -303,18 +314,21 @@ though the layout is built for a phone.
 That device now has **its own credential**, not a copy of the machine's key. Lose the
 phone and you revoke that one device from the app; everything else stays paired.
 
-**Adding more devices** works either way. From the machine, `deskpilot pair` prints a QR
-carrying the address and the code together. From a device already paired, open the app,
-**sessions index -> devices -> pair another device**, and scan that QR with the new one —
-which saves walking back to the desk.
+**Adding more devices** happens at the machine: `deskpilot pair` prints a QR carrying the
+address and the code together, and that is the only place a code is minted. The app used
+to mint one too and draw its own QR, which meant two pairing flows for one job and two
+near-identical panels above your sessions. There is one now.
 
-That panel is also where a device still on the old shared token upgrades itself: it says
-so in the list, and the code field beside it swaps the shared credential for one of its
-own without re-pairing anything else.
+The app's **devices** panel is what you cannot do from a terminal you cannot reach: it
+lists what is paired and revokes any of it, one device at a time, which is the thing that
+makes a lost phone survivable. It is also where a device still on the old shared token
+upgrades itself — it says so in the list, and one tap swaps the shared credential for one
+of its own without re-pairing anything else.
 
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
-`deskpilot pair` there, and paste the link it prints into the app: open the index, tap
-**add a machine**, and put the whole link in the address field — it carries the code, so
+`deskpilot pair` there, and paste the link it prints into the app: open the index, scroll
+past your sessions to **machines**, tap **add a machine**, and put the whole link in the
+address field — it carries the code, so
 the code field fills itself in. Typing the address and the code separately works too. A strip
 appears at the top once you have two, one tap to switch, with a dot on any machine that
 needs you.

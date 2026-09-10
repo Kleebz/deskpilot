@@ -110,20 +110,35 @@ async function enrolledCount(port: string, token: string): Promise<number | null
 // interface existing, which matters because the server binds loopback and a
 // tailnet IP with nothing fronting it is a QR that leads to a refused
 // connection.
-async function machineAddress(port: string): Promise<string | null> {
+// Two failures, and they used to be reported as one. "desk.sh found no address
+// that answers" means something has to front the server. "I could not run
+// desk.sh at all" means this binary is looking at a path where the script is
+// not installed — and saying `tailscale serve` to someone whose Serve is
+// already up, as this did, sends them to fix the one thing that is working.
+// A compiled binary's --allow-run allowlist is fixed at build time, so it can
+// only ever exec the baked path; a binary lifted out of dist/ and run against
+// a source checkout hits exactly this and has no way to recover from it.
+type Addr =
+  | { addr: string }
+  | { addr: null; why: "none" }
+  | { addr: null; why: "noscript"; path: string };
+
+async function machineAddress(port: string): Promise<Addr> {
+  const path = `${scriptsDir()}/desk.sh`;
   try {
-    const r = await new Deno.Command(`${scriptsDir()}/desk.sh`, {
+    const r = await new Deno.Command(path, {
       args: ["addr", port],
       stdout: "piped",
       stderr: "null",
     }).output();
-    if (!r.success) return null;
     const out = new TextDecoder().decode(r.stdout).trim();
-    return /^https?:\/\/[^\s]+$/.test(out) ? out : null;
+    if (r.success && /^https?:\/\/[^\s]+$/.test(out)) return { addr: out };
+    // desk.sh ran and exited 1: it fetched every candidate and none answered.
+    return { addr: null, why: "none" };
   } catch {
-    // No desk.sh, or a build whose allowlist does not cover it. Pairing still
-    // works with the code alone; it just cannot draw the QR.
-    return null;
+    // NotFound, NotCapable (outside the allowlist), or not executable. None of
+    // these say anything about whether an address exists.
+    return { addr: null, why: "noscript", path };
   }
 }
 
@@ -296,8 +311,32 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
         );
         return 1;
       }
-      const addr = await machineAddress(port);
+      const found = await machineAddress(port);
 
+      if (found.addr === null && found.why === "noscript") {
+        console.log(`
+  ${bold(code)}
+
+  ${bold("! I could not run desk.sh, so I cannot work out this machine's address.")}
+
+  ${dim("looked for it at")}  ${found.path}
+
+  That script is how this binary answers "what address does a phone type", and
+  a compiled binary may only execute the copy at the path it was built for.
+  Install it there:
+
+      sudo install -Dm755 scripts/desk.sh scripts/sessions.sh -t ${SCRIPTS_DIR}/
+
+  ${dim("Running from a source checkout instead? Use shell/pair.sh — it asks the")}
+  ${dim("repo's own desk.sh and has no allowlist to satisfy.")}
+
+  ${dim("The code above is good either way: open the app on the phone and enter")}
+  ${dim("it. Ten minutes, one device.")}
+`);
+        return 0;
+      }
+
+      const addr = found.addr;
       if (!addr) {
         // The honest answer, and the one that used to be missing. This printed
         // a code and told the operator to go and run `tailscale status`

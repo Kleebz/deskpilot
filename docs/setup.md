@@ -174,7 +174,7 @@ curl -s -o /dev/null -w '%{http_code}\n' localhost:8790/api/sessions   # 401, no
 **Pairing a phone:**
 
 ```bash
-$REPO/shell/pair.sh
+deskpilot pair          # shell/pair.sh also works directly
 ```
 
 Prints a QR encoding the URL *with* the token. Scan it and add the page to your home

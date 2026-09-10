@@ -1147,3 +1147,56 @@ round-tripped exactly.
 `scriptsDir()` moved to `server/scripts.ts` so `cli.ts` could use it — `server.ts` already
 imports `cli.ts`, so importing back would be a cycle, and a second copy is precisely the
 drift its own comments were written about.
+
+## Pairing had two flows, and the one people typed was the broken one
+
+`deskpilot pair` was reported as not showing a QR. It did show one — from a checkout,
+via `shell/pair.sh`, which is where it was always tested. Three separate faults met:
+
+**There was no `deskpilot` command on a source install.** The README's quick start said
+`deskpilot pair` unconditionally; a checkout got `shell/pair.sh` under a different name,
+and the correction was a footnote *after* the code block. So the documented first command
+was "command not found" on the one install that has to work before anything else does.
+`shell/setup.sh` now writes a dispatching shim at `~/.local/bin/deskpilot`, and warns when
+that is not on `PATH`. A shim over `shell/` rather than a symlink to one script, so a doc,
+a README and a runbook can say `deskpilot pair` without qualifying which install they mean.
+
+**A binary run against a checkout blamed Tailscale for its own missing script.**
+`machineAddress()` swallowed every failure into `null`, and `pair` reported `null` as
+"nothing answered on an address a phone could reach — run `tailscale serve`". A compiled
+binary's `--allow-run` allowlist is fixed at build time, so it may only exec the baked
+`/usr/share/deskpilot/scripts/desk.sh`; lift `dist/deskpilot` out onto a machine that
+never installed it and every `pair` sends you to restart a Serve that is already working.
+Verified here against a healthy `tailscale serve` fronting 8790. The two failures are now
+distinct, and the exec failure prints the path it looked at.
+
+This is the same class as the traps in CLAUDE.md: a bare `catch` turning "I could not ask"
+into "the answer is no". `enrolledCount` gets it right two functions above — `null` when
+the server cannot be reached, "which is a different answer from zero and must not be
+reported as one" — and this one did not.
+
+### The app minted codes too, and that was the actual complaint
+
+`sessions index -> devices -> + pair another device` drew a QR of its own, immediately
+below `machines -> + add a machine`. Two blocks, same `+ verb another noun` label, same
+weight, both sitting between the `sessions` heading and its own rows. They are inverses,
+not duplicates — one adds a desktop to this phone, the other invites a phone to this
+desktop — but nothing on the screen said so, and the screen you open to see what is
+running opened on pairing.
+
+Only one of them is load-bearing. **`+ add a machine` cannot be removed:** the machine
+keyring is `localStorage` (`dp_hosts`), which is per-origin, and an installed PWA is
+pinned to one origin. Scanning a second machine's QR lands on *that* machine's origin with
+its own empty keyring — a separate app instance the installed one never learns about. So
+pasting an address into the app you already have is the only path that adds a machine to it.
+
+**`+ pair another device` had no such justification.** `deskpilot pair` does the same job
+at the machine, better, and that is where people look for it. Its only unique case is
+inviting a second phone while away from the desk. It is gone, along with `renderSVG`, the
+loopback warning, the `reachVia` copy, and the `uqr` dependency in `web/` — the terminal
+renderer in `server/qr.ts` is the only QR path now, which is what the section above was
+trying to achieve and stopped one short of.
+
+The devices list stays, and revoke with it: taking a lost phone's credential away from the
+phone still in your hand is exactly the thing you cannot do from a terminal you cannot
+reach. Both blocks moved below the sessions and detached lists.

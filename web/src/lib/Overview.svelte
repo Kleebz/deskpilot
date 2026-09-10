@@ -1,6 +1,5 @@
 <script>
   import { api, post, waitFor, tilde, enroll } from "./api.js";
-  import { renderSVG } from "uqr";
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
   import Notify from "./Notify.svelte";
@@ -47,7 +46,6 @@
   // you which one you are holding.
   let devices = $state([]);
   let legacy = $state(false);
-  let pairCode = $state("");
   // Entering a code on a device that is already in. The gate in App.svelte only
   // renders when you are *not* authenticated, so a phone already paired had
   // nowhere to type one — while the notice above it said "pair it again below"
@@ -55,51 +53,6 @@
   // the app gave you no way to do.
   let ownCode = $state("");
   let claiming = $state(false);
-
-  // The address and the code in one scan, which is the whole difficulty with
-  // pairing by hand: you need both, and a code alone does not say where to type
-  // it. currentHost().origin rather than location.origin — the code was minted
-  // on the machine that is *selected*, which is not necessarily the one serving
-  // this page.
-  const pairUrl = $derived(pairCode ? `${currentHost().origin}/?code=${pairCode}` : "");
-  const pairQr = $derived(pairUrl ? renderSVG(pairUrl, { border: 1 }) : "");
-
-  // A QR is only worth scanning if the address inside it is one the other
-  // device can reach. Opened at localhost — exactly what you do sitting at the
-  // machine, and what the desktop browser gives you — every code it draws
-  // points somewhere a phone cannot go, and the failure looks like a bad scan
-  // rather than the wrong address. A LAN address is not warned about: it works
-  // from the same network, which is a documented way to run this.
-  // Parsed rather than pattern-matched: the first attempt anchored on
-  // `127\.` followed by a delimiter, which cannot match 127.0.0.1 because the
-  // next character is a digit. It failed silently, which is the whole failure
-  // mode this warning exists to prevent.
-  // What the *other* device has to do before a scan can work. It is reachable
-  // the way this page is reachable, and the two ways differ: a tailnet name
-  // resolves only for machines signed into that tailnet, while a LAN address
-  // only needs the same network. Saying the wrong one sends someone to install
-  // a VPN they do not need, or leaves them without the one they do.
-  //
-  // A raw Tailscale IP counts as tailnet too. 100.64.0.0/10 is the CGNAT range
-  // Tailscale assigns from, and pair.sh hands out exactly that address when
-  // Serve is not configured — so matching only on .ts.net told a whole
-  // documented path to check the wrong thing.
-  const reachVia = $derived((() => {
-    let host = "";
-    try { host = new URL(currentHost().origin).hostname; } catch { return "lan"; }
-    if (/\.ts\.net$/i.test(host)) return "tailnet";
-    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return "tailnet";
-    return "lan";
-  })());
-
-  const loopback = $derived((() => {
-    try {
-      const h = new URL(currentHost().origin).hostname.replace(/^\[|\]$/g, "");
-      return h === "localhost" || h === "::1" || /^127\./.test(h);
-    } catch {
-      return false;
-    }
-  })());
 
   // A device on the shared credential already holds full access to this
   // machine, so minting a code and spending it on itself grants nothing it
@@ -131,7 +84,6 @@
     try {
       await enroll(code, currentHost());
       ownCode = "";
-      pairCode = "";
       onstatus("this device now has its own credential");
       loadDevices(hosts.current);
     } catch (e) {
@@ -163,22 +115,11 @@
     const here = hosts.current;
     devices = [];
     legacy = false;
-    // A code is a credential for the machine that minted it. Carried across a
-    // switch it reads as an invitation to the machine you are now looking at,
-    // which is the one thing it is not.
-    pairCode = "";
     // A rename in progress names a session on the machine you were on; saving
     // it after a switch renames whatever happens to share that name here.
     renaming = "";
     loadDevices(here);
   });
-
-  async function pairAnother() {
-    try {
-      const { code } = await post("/devices/code", {});
-      pairCode = code;
-    } catch (e) { onstatus(e.message, true); }
-  }
 
   async function revokeDevice(d) {
     try {
@@ -442,125 +383,6 @@
     {/if}
   </h2>
 
-  <div class="mblock">
-  <h2>machines · {hosts.list.length}</h2>
-  <div class="machines">
-    {#each hosts.list as h (h.origin)}
-      <div class="row">
-        <button class="go" onclick={() => switchTo(h.origin)}>
-          <span class="badge" class:live={h.origin === hosts.current}>
-            {h.origin === hosts.current ? "here" : "go"}
-          </span>
-          <span class="nm">{h.name}</span>
-          {#if needsYou[h.origin]}<span class="st blocked">needs you</span>{/if}
-          <span class="path dim">{h.origin}</span>
-          {#if versionOf(h.origin)}
-            <!-- Split so the narrow case keeps the part that answers the
-                 question. "0.1.2 vs 0.1.3" is what you compare on a phone; the
-                 commit only matters to someone running from a checkout, and it
-                 is the first thing to go when the row runs out of room. -->
-            <span class="ver dim">
-              {versionOf(h.origin).split("+")[0]}<!--
-              -->{#if versionOf(h.origin).includes("+")}<span class="vsha"
-                >+{versionOf(h.origin).split("+")[1]}</span>{/if}
-            </span>
-          {/if}
-        </button>
-        {#if hosts.list.length > 1}
-          <button class="sm danger" onclick={() => forget(h.origin, h.name)}>forget</button>
-        {/if}
-      </div>
-    {/each}
-  </div>
-
-  {#if adding}
-    <form class="unlock" onsubmit={addMachine}>
-      <input
-        bind:value={pasted} placeholder="address, e.g. box.tailnet.ts.net"
-        autocapitalize="off" autocorrect="off" spellcheck="false" />
-    </form>
-    <form class="unlock" onsubmit={addMachine}>
-      <input
-        class="code-in" bind:value={pastedCode} placeholder="code"
-        autocapitalize="characters" autocorrect="off" spellcheck="false" />
-      <button disabled={!pasted.trim() || addingNow}>{addingNow ? "pairing…" : "add"}</button>
-    </form>
-    <div class="hint dim">
-      Run <code>deskpilot pair</code> on the other machine — over SSH is fine, it needs
-      no screen — and paste the link it prints straight into the address. It carries
-      the code, so the code field fills itself in; typing both separately works too.
-      Either way the code is exchanged for a credential belonging to this phone alone,
-      revocable from that machine without disturbing anything else.
-    </div>
-  {:else}
-    <button class="addm" onclick={() => (adding = true)}>+ add a machine</button>
-  {/if}
-  </div>
-
-  <div class="mblock">
-  <h2>devices · {devices.length}</h2>
-
-  {#each devices as d (d.id)}
-    <div class="row">
-      <button class="go" onclick={() => {}} disabled>
-        <span class="badge" class:live={d.current}>{d.current ? "this" : "•"}</span>
-        <span class="nm">{d.name}</span>
-        <span class="path dim">last used {ago(d.lastSeen)}</span>
-      </button>
-      <button class="sm danger" onclick={() => revokeDevice(d)}>revoke</button>
-    </div>
-  {/each}
-
-  {#if pairCode}
-    <!-- The QR is the point: it carries the address and the code together, so
-         the other device scans once instead of being told a code and left to
-         work out where to type it. -->
-    {#if loopback}
-      <div class="why warn">
-        This is a loopback address, so the QR below points somewhere only this
-        machine can reach — a phone scanning it will fail to connect. Open the
-        app at the address you actually reach it by (<code>tailscale status</code>
-        will say) and pair from there instead.
-      </div>
-    {/if}
-    <div class="qr">{@html pairQr}</div>
-    <div class="code">{pairCode}</div>
-    <div class="pairurl dim">{pairUrl}</div>
-    <div class="hint dim">
-      Scan it with the other device, then add the page to its home screen. Good for
-      ten minutes, one device.
-      <br /><br />
-      {#if reachVia === "tailnet"}
-        <b>Get that device onto your tailnet first</b> — install Tailscale there and sign
-        in. Until you do, this address does not resolve for it and the scan lands on the
-        browser's own "can't be reached" page, which says nothing about why. deskpilot
-        itself needs nothing installed; it is a web page.
-      {:else}
-        <b>That device has to be on this network</b> — this address is a local one and
-        does not resolve from anywhere else. deskpilot itself needs nothing installed; it
-        is a web page.
-      {/if}
-      <br /><br />
-      Can't scan? Open <b>{currentHost().origin}</b> there and enter <b>{pairCode}</b>.
-    </div>
-  {:else}
-    <button class="addm" onclick={pairAnother}>+ pair another device</button>
-  {/if}
-
-  {#if legacy || pairCode}
-    <!-- Somewhere to type a code on a device that is already in: the gate that
-         accepts one renders only while you are *not* authenticated, so a paired
-         phone had nowhere at all. Still worth having beside the one-tap button
-         above, for a code that came from somewhere else. -->
-    <form class="unlock claim" onsubmit={claimOwn}>
-      <input
-        bind:value={ownCode} placeholder="code, to re-pair this device"
-        autocapitalize="characters" autocorrect="off" spellcheck="false" />
-      <button disabled={!ownCode.trim() || claiming}>{claiming ? "…" : "use"}</button>
-    </form>
-  {/if}
-  </div>
-
   {#if caps.unsupported}
     <div class="why">
       This machine runs Hyprland {caps.compositorVersion}, and the window and
@@ -683,6 +505,95 @@
     {/each}
   {/if}
 
+  <div class="mblock">
+  <h2>machines · {hosts.list.length}</h2>
+  <div class="machines">
+    {#each hosts.list as h (h.origin)}
+      <div class="row">
+        <button class="go" onclick={() => switchTo(h.origin)}>
+          <span class="badge" class:live={h.origin === hosts.current}>
+            {h.origin === hosts.current ? "here" : "go"}
+          </span>
+          <span class="nm">{h.name}</span>
+          {#if needsYou[h.origin]}<span class="st blocked">needs you</span>{/if}
+          <span class="path dim">{h.origin}</span>
+          {#if versionOf(h.origin)}
+            <!-- Split so the narrow case keeps the part that answers the
+                 question. "0.1.2 vs 0.1.3" is what you compare on a phone; the
+                 commit only matters to someone running from a checkout, and it
+                 is the first thing to go when the row runs out of room. -->
+            <span class="ver dim">
+              {versionOf(h.origin).split("+")[0]}<!--
+              -->{#if versionOf(h.origin).includes("+")}<span class="vsha"
+                >+{versionOf(h.origin).split("+")[1]}</span>{/if}
+            </span>
+          {/if}
+        </button>
+        {#if hosts.list.length > 1}
+          <button class="sm danger" onclick={() => forget(h.origin, h.name)}>forget</button>
+        {/if}
+      </div>
+    {/each}
+  </div>
+
+  {#if adding}
+    <form class="unlock" onsubmit={addMachine}>
+      <input
+        bind:value={pasted} placeholder="address, e.g. box.tailnet.ts.net"
+        autocapitalize="off" autocorrect="off" spellcheck="false" />
+    </form>
+    <form class="unlock" onsubmit={addMachine}>
+      <input
+        class="code-in" bind:value={pastedCode} placeholder="code"
+        autocapitalize="characters" autocorrect="off" spellcheck="false" />
+      <button disabled={!pasted.trim() || addingNow}>{addingNow ? "pairing…" : "add"}</button>
+    </form>
+    <div class="hint dim">
+      Run <code>deskpilot pair</code> on the other machine — over SSH is fine, it needs
+      no screen — and paste the link it prints straight into the address. It carries
+      the code, so the code field fills itself in; typing both separately works too.
+      Either way the code is exchanged for a credential belonging to this phone alone,
+      revocable from that machine without disturbing anything else.
+    </div>
+  {:else}
+    <button class="addm" onclick={() => (adding = true)}>+ add a machine</button>
+  {/if}
+  </div>
+
+  <div class="mblock">
+  <h2>devices · {devices.length}</h2>
+
+  {#each devices as d (d.id)}
+    <div class="row">
+      <button class="go" onclick={() => {}} disabled>
+        <span class="badge" class:live={d.current}>{d.current ? "this" : "•"}</span>
+        <span class="nm">{d.name}</span>
+        <span class="path dim">last used {ago(d.lastSeen)}</span>
+      </button>
+      <button class="sm danger" onclick={() => revokeDevice(d)}>revoke</button>
+    </div>
+  {/each}
+
+  <div class="hint dim">
+    Run <code>deskpilot pair</code> on this machine to add another — it prints a QR
+    carrying the address and a one-time code together. Revoking here takes one
+    device's credential away and leaves the rest paired.
+  </div>
+
+  {#if legacy}
+    <!-- Somewhere to type a code on a device that is already in: the gate that
+         accepts one renders only while you are *not* authenticated, so a paired
+         phone had nowhere at all. Beside the one-tap button above, for a code
+         carried from `deskpilot pair` on the machine itself. -->
+    <form class="unlock claim" onsubmit={claimOwn}>
+      <input
+        bind:value={ownCode} placeholder="code, to re-pair this device"
+        autocapitalize="characters" autocorrect="off" spellcheck="false" />
+      <button disabled={!ownCode.trim() || claiming}>{claiming ? "…" : "use"}</button>
+    </form>
+  {/if}
+  </div>
+
   <div class="foot"></div>
   <Usage {onstatus} />
   <Notify {onstatus} />
@@ -714,11 +625,6 @@
   /* Sits under the row it belongs to rather than replacing it, so the name you
      are changing stays visible while you type the new one. */
   .rn { margin: .1rem 0 .5rem; }
-  /* Big and spaced: this gets read off one screen and typed on another. */
-  .code {
-    font-family: ui-monospace, monospace; font-size: 26px; letter-spacing: .18em;
-    text-align: center; color: var(--ok); padding: .7rem 0 .3rem;
-  }
   .cmd {
     font-family: ui-monospace, monospace; font-size: 12px; color: var(--ok);
     background: var(--card); border: 1px solid var(--card-line);
@@ -727,9 +633,10 @@
   }
   .badge.live { color: var(--ok); border-color: var(--ok); }
 
-  /* Machines are an axis above sessions, not another item in the same list, so
-     the block is set apart rather than left to run into the session rows
-     underneath it. */
+  /* Machines and devices are an axis, not another item in the session list, so
+     each block is set apart rather than left to run into the rows above it.
+     Both sit below the sessions: this screen is opened to see what is running,
+     and pairing is a thing you do once. */
   .mblock {
     border: 1px solid var(--card-line); border-radius: var(--radius);
     background: var(--panel); padding: .1rem .6rem .6rem;
@@ -837,12 +744,6 @@
     background: color-mix(in srgb, var(--warn) 9%, transparent);
   }
   .legacybar span { min-width: 0; }
-  /* Same shape as the other explanatory notes, but this one is telling you
-     that the thing right below it will not work. */
-  .why.warn {
-    border-left-color: var(--warn); color: var(--fg);
-    margin-bottom: .5rem;
-  }
   .legacybar button { flex: none; }
   .why {
     font-size: 11.5px; color: var(--dim); line-height: 1.5; min-width: 0;
@@ -862,14 +763,6 @@
   .pick { display: flex; align-items: center; gap: .45rem; min-width: 0; }
   .pick select { flex: 1; min-width: 0; }
   .lbl { font-size: .65rem; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
-  /* White quiet zone regardless of theme: a phone camera reading a cyan-on-dark
-     QR is not something to leave to chance. */
-  .qr {
-    background: #fff; padding: .5rem; border-radius: var(--radius);
-    margin: .5rem 0 .6rem; width: fit-content; max-width: 100%;
-  }
-  .qr :global(svg) { display: block; width: 190px; height: 190px; max-width: 100%; }
-  .pairurl { font-size: 11px; word-break: break-all; margin-bottom: .4rem; }
   .claim { margin-top: .5rem; }
   .claim input { text-transform: uppercase; }
   .unlock { display: flex; gap: .4rem; min-width: 0; }

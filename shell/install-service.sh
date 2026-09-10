@@ -71,7 +71,7 @@ Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
 EnvironmentFile=-$CONF
 
 # --allow-run is scoped to one script and three binaries. sessions.sh moved
-# in-process, which removed jq; `ps` replaced reading /proc, because Deno 2.9
+# in-process, which removed jq; ps(1) replaced reading /proc, because Deno 2.9
 # gates /proc behind --allow-all and taking that would defeat the point of
 # scoping anything. script(1) went when control mode removed the need for a pty.
 # This is why the server is Deno rather than Bun: adding a subprocess is a

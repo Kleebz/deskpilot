@@ -91,9 +91,9 @@ non-interactively.
 Two things to tell the person:
 
 - The service points at the checkout, so **moving or deleting the directory breaks it.**
-- There is no `deskpilot` command on `PATH` in this mode. Everywhere below that says
-  `deskpilot pair`, use `shell/pair.sh`; `deskpilot setup` is `shell/setup.sh`. Running
-  `deskpilot setup` from a checkout tells you this rather than doing the wrong thing.
+- `shell/setup.sh` installs a `deskpilot` shim at `~/.local/bin/deskpilot`, so every
+  command below reads the same here as on a release install. If `~/.local/bin` is not on
+  their `PATH`, setup says so — `shell/pair.sh` and the rest still work directly.
 
 **A source install is done after this step — skip to step 3.**
 
@@ -200,7 +200,7 @@ it explicitly.
 ## 4. Pair the phone
 
 ```bash
-deskpilot pair          # or shell/pair.sh from a checkout
+deskpilot pair
 ```
 
 This prints a QR, the address it encodes, and an eight-character code good for ten
@@ -249,7 +249,9 @@ capabilities JSON plus step 3's `desk.sh addr` cover the same ground.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `deskpilot pair` prints a code but no QR or address | nothing is fronting the port | step 3 |
+| `deskpilot pair` prints a code and says **nothing answered on an address a phone could reach** | nothing is fronting the port | step 3 |
+| `deskpilot pair` prints a code and says **I could not run desk.sh** | the binary's baked scripts path has no `desk.sh`; it prints where it looked | install `desk.sh` there — this is not a Tailscale problem |
+| `deskpilot: command not found` | `~/.local/bin` is not on `PATH` | add it, or call `shell/pair.sh` directly |
 | Phone shows "can't be reached" after scanning | the phone is not on the tailnet | install Tailscale on the phone and sign in |
 | No install prompt on the phone | the address is plain http, not a secure context | `tailscale serve --bg --yes 8790` |
 | Capabilities say `"compositor":"none"` on a Hyprland box | the user unit has no `WAYLAND_DISPLAY` | `systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE` |
