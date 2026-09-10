@@ -211,9 +211,10 @@ tailnet IP says nothing about whether anything is listening on it.
   after **0.1.3**, so every release before it has a `desk.sh` without one, and this
   runbook lives on `main` where it exists. Not a failed step and not a reason to stop.
   Read the address off `tailscale serve status` instead — the `https://…ts.net` line at
-  the top of its output is the same URL — and let step 4 be the real check: `deskpilot
-  pair` makes the same test before printing anything, so a missing address still cannot
-  produce a QR that leads nowhere.
+  the top of its output is the same URL. **Verify it yourself before step 4**, because on
+  these versions nothing downstream will: `deskpilot pair` predates the address too, and
+  prints a bare code with no QR, no URL and no reachability check. The safety net that
+  makes a dead QR impossible is on `main` only, so here you are the net.
 
 A LAN address without Tailscale does work on the same network, at the cost of the
 installable app and of working from anywhere. Only take that path if the person asks for
@@ -230,6 +231,10 @@ deskpilot pair          # or shell/pair.sh from a checkout
 This prints a QR, the address it encodes, and an eight-character code good for ten
 minutes and one device. The QR carries the address and the code together, so there is
 nothing to type.
+
+**On 0.1.3 and earlier there is no QR and no address** — only the code, and a note
+telling you to go and find the URL. Give the person the address from step 3 alongside the
+code; they open it and type the code in. Everything after that is identical.
 
 **HUMAN: ask them to scan it with the phone's camera**, then to add the page to the home
 screen — Android/Chrome offers an **install** button; iOS/Safari needs **Share → Add to
@@ -275,7 +280,8 @@ status` where the binary is old enough to lack `addr`.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `deskpilot pair` prints a code but no QR or address | nothing is fronting the port | step 3 |
-| `desk.sh addr` says `unknown command: addr` | the installed binary is older than the command, which landed after 0.1.3 | read the URL from `tailscale serve status`; `deskpilot pair` re-checks it anyway |
+| `desk.sh addr` says `unknown command: addr` | the installed binary is older than the command, which landed after 0.1.3 | read the URL from `tailscale serve status`, and confirm it yourself — `pair` on these versions does not |
+| `deskpilot pair` prints a bare code, no QR and no address, on a binary at or below 0.1.3 | expected; `pair` learned the address after 0.1.3 | not a Serve fault. Hand over the URL from `tailscale serve status` with the code |
 | `tailscale up` or `serve` refuses with `Access denied` (`serve config denied` from `serve`) | they change daemon state; only root may, unless this user is the operator | run with `sudo`, or `sudo tailscale set --operator=$USER` once |
 | Phone shows "can't be reached" after scanning | the phone is not on the tailnet | install Tailscale on the phone and sign in |
 | No install prompt on the phone | the address is plain http, not a secure context | `tailscale serve --bg --yes 8790` |
