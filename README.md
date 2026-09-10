@@ -37,7 +37,7 @@ systemctl --user daemon-reload && systemctl --user enable --now deskpilot
 
 # 3 — give it an address your phone can reach. NOT optional.
 tailscale up                       # opens a browser to sign in
-tailscale serve --bg --yes 8790
+tailscale serve --bg --yes 8790    # both need sudo unless you are the operator
 
 # 4 — pair
 deskpilot pair
@@ -48,8 +48,10 @@ page to your home screen, and you are done — it is a web app, so there is noth
 download.
 
 **Step 3 is where installs go wrong.** deskpilot listens on loopback on purpose, so until
-something fronts it there is no address for a phone to open at all. Two things people
-miss: HTTPS certificates have to be switched on once for your tailnet at
+something fronts it there is no address for a phone to open at all. Three things people
+miss: both `tailscale` commands change daemon state, so on a fresh install they want
+`sudo` — run `sudo tailscale set --operator=$USER` once and they work bare from then on,
+as written above; HTTPS certificates have to be switched on once for your tailnet at
 [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns), and **the phone
 needs Tailscale too, signed in** — the address is a tailnet name, so a phone that is not
 on the tailnet cannot resolve it and the scan lands on "can't be reached". If anything is

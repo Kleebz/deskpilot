@@ -11,7 +11,8 @@ anywhere saying why.
 
 Three things you cannot do. Stop and ask when you reach them; they are marked **HUMAN**:
 
-1. `sudo` — installing to `/usr/bin` needs a password you do not have.
+1. `sudo` — installing to `/usr/bin` needs a password you do not have, and so do the
+   Tailscale daemon commands in step 3 unless this user is already the operator.
 2. The Tailscale login, which opens a browser, and the one admin-console setting it needs.
 3. Scanning the QR at the end. That is the point of the whole exercise.
 
@@ -29,6 +30,7 @@ uname -s -m                          # want: Linux x86_64
 command -v tmux || echo "MISSING"    # the one hard requirement
 systemctl --user is-system-running   # want: running or degraded, not "offline"
 command -v hyprctl grim ydotool      # optional; absence is fine
+tailscale debug prefs 2>/dev/null | grep OperatorUser   # empty/silent: step 3 needs root
 ```
 
 **Read the answers before continuing.**
@@ -41,6 +43,11 @@ command -v hyprctl grim ydotool      # optional; absence is fine
 - **`systemctl --user` says `offline`** — you are in a context with no user session bus
   (a bare `docker exec`, some SSH configurations). The service is a systemd *user* unit,
   so it cannot be installed from here. Say so and stop.
+- **`OperatorUser` empty, or the command printed nothing** — no operator is set, so every
+  state-changing `tailscale` command in step 3 — `up` and `serve` both — needs `sudo`.
+  This is the default on a fresh install, not a fault; distro packages do not set an
+  operator. Note it now and plan on asking the person in step 3 rather than discovering
+  it at the failure.
 - **No `hyprctl` / `grim` / `ydotool`** — expected on a headless box and not a problem.
   The server negotiates capabilities and the app hides what is missing. Do not install a
   compositor to make the list look complete.
@@ -151,15 +158,25 @@ degraded install; it produces one that cannot be paired.
 
 Today that fronting is [Tailscale](https://tailscale.com).
 
-**HUMAN — two parts, both of which need a person:**
+**HUMAN — three parts, all of which need a person:**
 
 1. `tailscale up` opens a browser to sign in. It cannot be completed from a shell.
 2. HTTPS certificates must be enabled once for the tailnet, at
    [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns) — the
    **Enable HTTPS** button. Without it `tailscale serve` has no certificate to use.
    This is per-tailnet, not per-machine, so it may already be done.
+3. Root, unless step 0 found an operator. `tailscale up` and the `tailscale serve` below
+   both change daemon state, and only root may do that; each refuses with its own
+   `Access denied` line — `serve` says `Access denied: serve config denied`. Two ways
+   out, and the person picks: run those commands with `sudo`, or
+   `sudo tailscale set --operator=$USER` once, after which everything here works
+   unprivileged and matches the commands as printed. Do not try to route a password
+   through the shell; ask.
 
-Ask the person to do both, then:
+The commands below are written bare, as they run once an operator is set. Prefix them
+with `sudo` when one is not.
+
+Ask the person to do all three, then:
 
 ```bash
 tailscale serve --bg --yes 8790
@@ -250,6 +267,7 @@ capabilities JSON plus step 3's `desk.sh addr` cover the same ground.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `deskpilot pair` prints a code but no QR or address | nothing is fronting the port | step 3 |
+| `tailscale up` or `serve` refuses with `Access denied` (`serve config denied` from `serve`) | they change daemon state; only root may, unless this user is the operator | run with `sudo`, or `sudo tailscale set --operator=$USER` once |
 | Phone shows "can't be reached" after scanning | the phone is not on the tailnet | install Tailscale on the phone and sign in |
 | No install prompt on the phone | the address is plain http, not a secure context | `tailscale serve --bg --yes 8790` |
 | Capabilities say `"compositor":"none"` on a Hyprland box | the user unit has no `WAYLAND_DISPLAY` | `systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE` |
