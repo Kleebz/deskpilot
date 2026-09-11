@@ -46,3 +46,16 @@ DESKPILOT_WRAP="claude codex aider opencode"
 # having ydotool installed is not the same as consenting to this.
 # Attempts are rate limited: five wrong answers pauses it for five minutes.
 #DESKPILOT_UNLOCK=1
+
+# What this machine is called: on its chip in the app's machines list, and in
+# the installed app's full name. Defaults to /etc/hostname.
+#DESKPILOT_NAME=workshop
+
+# What a launcher prints under the home screen icon. Defaults to "deskpilot",
+# and is deliberately NOT the machine name — the app is built to be installed
+# once and switched between machines from the machines list, so the icon should
+# say what the app is. Set this per machine only if you genuinely install it
+# several times on one phone and need to tell the icons apart; the full name
+# (shown by install prompts and Android's app info) always carries the machine
+# regardless. iOS ignores this and reads its title from the page.
+#DESKPILOT_APP_NAME=thinkpad

@@ -66,6 +66,10 @@ const NAME = Deno.env.get("DESKPILOT_NAME") ?? (() => {
   try { return Deno.readTextFileSync("/etc/hostname").trim() || "deskpilot"; }
   catch { return "deskpilot"; }
 })();
+// What a launcher prints under the home screen icon, which is a different
+// question from what this machine is called. Deliberately NOT defaulted to
+// NAME: see serveManifest.
+const APP_NAME = Deno.env.get("DESKPILOT_APP_NAME") ?? "deskpilot";
 const TOKEN = (await readToken()).trim();
 
 async function readToken(): Promise<string> {
@@ -351,22 +355,35 @@ async function serveStatic(path: string): Promise<Response> {
   }
 }
 
-// The manifest names the installed app, and every machine served an identical
-// one — so three installs put three home-screen icons called "deskpilot" on a
-// phone with nothing to tell them apart. Tapping the wrong one lands on the
-// offline page and reads as an outage rather than as the wrong icon.
+// The manifest names the installed app.
 //
-// The name is the machine's own, the same one the app prints on its chips.
+// `name` carries the machine, because every machine used to serve an identical
+// manifest and three installs then put three home-screen icons called
+// "deskpilot" on one phone with nothing to tell them apart — tapping the wrong
+// one lands on the offline page and reads as an outage rather than as the wrong
+// icon. Install prompts and Android's app-info screen both show `name`, so that
+// case is still answered.
+//
+// `short_name` is the launcher label, and it went the same way — which meant
+// the icon on a single-machine install said "omarchy" and the product name
+// appeared nowhere on the phone at all. That trades the common case for the
+// uncommon one: this app is built to be installed ONCE and switched between
+// machines from the machines list, because the host keyring is per-origin and
+// a second install is a second app that shares nothing with the first. Several
+// installs are the fallback path, not the intended one.
+//
+// So the launcher says "deskpilot", and anyone who genuinely runs several
+// installs sets DESKPILOT_APP_NAME per machine to tell them apart.
+//
+// iOS never took this route: it ignores the manifest and reads
+// apple-mobile-web-app-title from index.html, which has always said deskpilot.
 async function serveManifest(): Promise<Response> {
   const res = await serveStatic("/manifest.webmanifest");
   if (!res.ok) return res;
   try {
     const m = JSON.parse(await res.text());
     m.name = `deskpilot — ${NAME}`;
-    // short_name is what a launcher actually prints under the icon, and the
-    // only part with room to tell one install from another. The machine's name
-    // alone, therefore, not a prefix that is the same everywhere.
-    m.short_name = NAME;
+    m.short_name = APP_NAME;
     return new Response(JSON.stringify(m, null, 2), {
       headers: { "content-type": "application/manifest+json", "cache-control": "no-store" },
     });

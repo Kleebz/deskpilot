@@ -1239,3 +1239,33 @@ to fail still exits 1.
 `DESKPILOT_TERMINAL` is reached for in exactly two places in `server.ts`, both under
 `ws != null`. A headless host never places a session on a workspace, so the emulator is
 never invoked there and its absence is not a fault.
+
+## The home screen icon said "omarchy", so the product name was nowhere on the phone
+
+`serveManifest` rewrote `short_name` to the machine's name. The reasoning was
+sound and is still in the file: every machine served an identical manifest, so
+three installs put three icons called "deskpilot" on one phone with nothing to
+tell them apart, and tapping the wrong one lands on the offline page — which
+reads as an outage rather than as the wrong icon.
+
+It answered that with the wrong field. `short_name` is the launcher label, so on
+a single-machine install the icon read "omarchy" and the word "deskpilot"
+appeared nowhere on the phone at all. That trades the common case for the
+uncommon one, and the uncommon one is uncommon **by design**: the host keyring is
+per-origin `localStorage`, so a second install is a second app sharing nothing
+with the first — which is exactly why `+ add a machine` exists. One install
+switching between machines is the intended shape; several installs are the
+fallback.
+
+`name` still carries the machine, and install prompts and Android's app-info
+screen both show `name`, so the original case is still answered where there is
+room for it. `short_name` is now `DESKPILOT_APP_NAME`, defaulting to
+"deskpilot" — set per machine by anyone who really does install several.
+
+iOS was never affected: it ignores the manifest and reads
+`apple-mobile-web-app-title` from `index.html`, which has always said deskpilot.
+So this had been showing two different names on two platforms for one install.
+
+Changing a manifest does not rename an icon already on a home screen. Chrome
+re-reads it and updates on its own schedule; removing and re-adding is the only
+way to be sure.
