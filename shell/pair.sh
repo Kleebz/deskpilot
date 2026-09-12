@@ -141,8 +141,15 @@ if [ -n "$CODE" ]; then
   echo "Scan the QR or open the complete link above. It already contains the code;"
   echo "do not enter anything separately. Good for 10 minutes, one device."
   echo
-  echo "Then add the page to your home screen. This device gets its own"
-  echo "credential — revoke it from the app without disturbing anything else."
+  echo "First Deskpilot machine on this phone?"
+  echo "  Scan the QR or open the link. It loads and pairs this machine automatically."
+  echo
+  echo "Already have Deskpilot installed for another machine?"
+  echo "  Open that app, choose '+ add another machine', and paste the complete link."
+  echo "  A camera scan opens a separate browser app instead of adding to your list."
+  echo
+  echo "This device gets its own credential — revoke it from the app without"
+  echo "disturbing anything else."
 else
   echo "Scan it, then add the page to your home screen."
   echo

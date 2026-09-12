@@ -387,6 +387,14 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
 
   Scan the QR or open the complete link above. ${bold("It already contains the code;")}
   ${bold("do not enter anything separately.")} Good for ten minutes, one device.
+
+  ${bold("First Deskpilot machine on this phone?")}
+  Scan the QR or open the link. It loads this machine and pairs automatically.
+
+  ${bold("Already have Deskpilot installed for another machine?")}
+  Open that installed app, choose ${bold("+ add another machine")}, and paste the complete
+  link above. Scanning it in the phone camera opens this machine as a separate
+  browser app instead of adding it to the machine list you already have.
 `);
       // Said after the QR and before anything else, because it is the step
       // that has to happen first and the one that has no error message: a

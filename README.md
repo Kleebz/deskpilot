@@ -282,6 +282,12 @@ already in both, so there is no second field to fill in. When another program or
 relaying the result, `deskpilot pair --link` prints only that complete link, without the
 terminal QR or duplicate prose.
 
+That scan/open path is for the first Deskpilot machine on a phone. If Deskpilot is already
+installed from another machine, open the installed app, choose **+ add another machine**, and
+paste the complete link there. Scanning the new machine's QR in the phone camera opens its
+origin separately in the browser; browser storage is origin-scoped, so it cannot add
+itself to the machine list stored by the already-installed app.
+
 Two things it can say instead of printing a QR, and they are not the same problem:
 
 - **nothing answered on an address a phone could reach** — Tailscale Serve is not
@@ -336,12 +342,16 @@ upgrades itself — it says so in the list, and one tap swaps the shared credent
 of its own without re-pairing anything else.
 
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
-`deskpilot pair` there, and paste the link it prints into the app: open the index, scroll
-past your sessions to **machines**, tap **add a machine**, and put the whole link in the
+`deskpilot pair --link` there, and paste the link it prints into the app: open the index, scroll
+past your sessions to **machines**, tap **add another machine**, and put the whole link in the
 address field — it carries the code, so the code field fills itself in. The separate code
 field is only a fallback when you already have the machine's bare address. A strip
 appears at the top once you have two, one tap to switch, with a dot on any machine that
 needs you.
+
+Use the in-app flow even when a QR is available. A PWA and its machine list belong to the
+origin it was installed from; scanning another machine's QR in the phone camera opens that
+other origin in the browser instead of inserting it into the installed app's list.
 
 **If nothing appears in the app**, the usual cause is that agents started at your desk are
 running outside tmux, where nothing can reach them. The app says so on the empty screen

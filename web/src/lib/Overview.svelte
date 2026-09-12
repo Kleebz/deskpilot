@@ -556,7 +556,7 @@
       revocable from that machine without disturbing anything else.
     </div>
   {:else}
-    <button class="addm" onclick={() => (adding = true)}>+ add a machine</button>
+    <button class="addm" onclick={() => (adding = true)}>+ add another machine</button>
   {/if}
   </div>
 

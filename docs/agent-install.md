@@ -208,10 +208,18 @@ one device. Relay that exact URL as a single tappable/copyable value. The code i
 inside it: do not print the code again or tell the person they need both. If the person is
 at the machine and wants a QR, plain `deskpilot pair` prints the QR and the same link.
 
-**HUMAN: ask them to open the complete link on the phone** (or scan the QR from a local
-terminal), then to add the page to the home screen — Android/Chrome offers an **install**
-button; iOS/Safari needs **Share → Add to Home Screen**. Installing rather than
-bookmarking is what gets full-screen, durable storage, and push on iOS.
+**HUMAN: ask which path applies:**
+
+- **First Deskpilot machine on this phone:** open the complete link on the phone, or scan
+  the QR from a local terminal. Then add the page to the home screen — Android/Chrome
+  offers an **install** button; iOS/Safari needs **Share → Add to Home Screen**.
+- **Deskpilot is already installed from another machine:** open that installed app,
+  choose **+ add another machine**, and paste the complete link there. Do not tell them to scan
+  the QR in the phone camera: that opens this machine's origin as a separate browser app
+  instead of adding it to the existing app's machine list.
+
+The distinction comes from browser origin isolation: each machine serves the PWA from a
+different hostname, and one origin cannot write another origin's stored machine list.
 
 If the output says **"Nothing answered on an address a phone could reach"**, step 3 did
 not take effect. That message is not a pairing failure; go back and fix Serve.
