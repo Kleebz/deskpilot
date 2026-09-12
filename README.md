@@ -355,11 +355,15 @@ model.
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
 `deskpilot pair --link` there, then tap **Add machine** beside the persistent machine
 picker and paste the complete link. You can also scan its QR or enter an address and code
-separately. The picker shows attention counts for all paired machines. Selecting a machine
-opens its sessions at the top; tapping any session opens its terminal, including sessions
-with no desktop window.
+separately. The picker shows attention counts for all paired machines. A machine's label can
+be renamed under **Manage** on this phone, so two hosts that both report `omarchy` can read
+as `Desktop` and `Laptop` without changing either hostname. Selecting a machine opens its
+sessions at the top; tapping any session opens its terminal, including sessions with no
+desktop window.
 
 **Screens** provides desktop workspace browsing and window controls on capable machines.
+Swipe horizontally between adjacent screens, or use the workspace selector to jump
+directly to one; the two controls stay synchronized.
 **Manage** contains authorized devices, credentials, usage, notifications, and installation.
 **New session** opens a dedicated form: desktop placement is optional, defaulting to no
 window from Sessions and the selected workspace from Screens. Cancel retains the draft;

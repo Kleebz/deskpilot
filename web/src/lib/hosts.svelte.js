@@ -56,6 +56,16 @@ export function currentHost() {
     { origin: location.origin, token: "", name: location.hostname };
 }
 
+// `name` belongs to the machine and follows what it reports. `alias` belongs
+// to this installed app: two perfectly valid machines can both be called
+// "omarchy", while the person holding the phone needs to see "Desktop" and
+// "Laptop". Keeping the two fields separate also means a capability refresh
+// can never silently undo the label they chose.
+export function displayName(host = currentHost()) {
+  return host?.alias?.trim() || host?.name?.trim() ||
+    (host?.origin ? new URL(host.origin).hostname : "machine");
+}
+
 export function capsFor(origin = hosts.current) {
   // Assume the full set until told otherwise: a machine that has not answered
   // yet should not have its controls flicker in as the reply lands.
@@ -93,6 +103,15 @@ export function addHost({ origin, token, name }) {
   persist();
 }
 
+export function setHostAlias(origin, alias) {
+  const host = hosts.list.find((h) => h.origin === origin);
+  if (!host) return;
+  const clean = alias.trim().slice(0, 40);
+  if (clean) host.alias = clean;
+  else delete host.alias;
+  persist();
+}
+
 export function removeHost(origin) {
   hosts.list = hosts.list.filter((h) => h.origin !== origin);
   if (hosts.current === origin) hosts.current = hosts.list[0]?.origin ?? location.origin;
@@ -105,7 +124,7 @@ export function removeHost(origin) {
 export function setCaps(origin, caps) {
   hosts.caps = { ...hosts.caps, [origin]: caps };
   const h = hosts.list.find((x) => x.origin === origin);
-  // The machine names itself; the list should say what the machine says.
+  // Keep the reported name current without touching this app's local alias.
   if (h && caps?.name && h.name !== caps.name) {
     h.name = caps.name;
     persist();

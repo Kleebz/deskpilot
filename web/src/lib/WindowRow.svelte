@@ -135,6 +135,9 @@
     flex: 1; min-width: 0; font-size: 12px; color: var(--dim);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .lbscroll { flex: 1; overflow: auto; touch-action: pinch-zoom pan-x pan-y; }
+  .lbscroll {
+    flex: 1; overflow: auto; touch-action: pinch-zoom pan-x pan-y;
+    overscroll-behavior: contain;
+  }
   .lbscroll img { display: block; max-width: none; }
 </style>

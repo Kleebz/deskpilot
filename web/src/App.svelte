@@ -1,7 +1,7 @@
 <script>
   import { onMount, tick, untrack } from 'svelte';
   import { api, post, ready, tilde } from './lib/api.js';
-  import { hosts, currentHost, switchTo, setCaps, needsYou, attention, setAttention } from './lib/hosts.svelte.js';
+  import { hosts, currentHost, displayName, switchTo, setCaps, needsYou, attention, setAttention } from './lib/hosts.svelte.js';
   import { vis } from './lib/visible.svelte.js';
   import Pane from './lib/Pane.svelte';
   import WindowRow from './lib/WindowRow.svelte';
@@ -14,6 +14,7 @@
   let status = $state(''), bad = $state(false), locked = $state(false);
   let route = $state({ view: 'sessions', host: hosts.current });
   let main = $state(null);
+  let screenRail = $state(null);
   let shownHost = '', epoch = 0, request = 0;
   let drafts = $state({}), creationDrafts = $state({}), pairingDraft = $state({ address: '', code: '' });
   let menu = $state(false), rename = $state(''), target = $state(1), actionBusy = $state(false);
@@ -31,6 +32,24 @@
 
   function onstatus(text, error = false) { status = text; bad = error; }
   function remember() { if (main) positions.set(keyFor(route), main.scrollTop); }
+  function alignScreen(behavior = 'auto') {
+    if (!screenRail) return;
+    screenRail.scrollTo({ left: (screen - 1) * screenRail.clientWidth, behavior });
+  }
+  function showScreen(value, smooth = true) {
+    const next = Math.max(1, Math.min(10, Number(value) || 1));
+    screen = next;
+    screensByHost.set(hosts.current, next);
+    alignScreen(smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto');
+  }
+  function onScreenScroll() {
+    if (!screenRail?.clientWidth) return;
+    const next = Math.max(1, Math.min(10, Math.round(screenRail.scrollLeft / screenRail.clientWidth) + 1));
+    if (next !== screen) {
+      screen = next;
+      screensByHost.set(hosts.current, next);
+    }
+  }
   async function renderRoute(next, focus = '') {
     route = next; menu = false; status = ''; password = '';
     if (next.view === 'new') creationDrafts[next.host] ??= { name: '', dir: '', command: 'claude', workspace: null };
@@ -40,6 +59,7 @@
     }
     await tick();
     if (keyFor(route) !== keyFor(next)) return;
+    if (next.view === 'screens') alignScreen();
     if (main) main.scrollTop = positions.get(keyFor(next)) ?? 0;
     const control = focus && document.getElementById(focus);
     (control || document.querySelector('h1'))?.focus({ preventScroll: true });
@@ -70,9 +90,9 @@
     switchTo(item.host.origin);
     navigate('terminal', { session: item.session });
   }
-  function create() {
-    creationDrafts[hosts.current] ??= { name: '', dir: '', command: 'claude', workspace: route.view === 'screens' ? screen : null };
-    navigate('new', {}, 'new-session');
+  function create(workspace = null, invoker = 'new-session') {
+    creationDrafts[hosts.current] ??= { name: '', dir: '', command: 'claude', workspace: route.view === 'screens' ? (workspace ?? screen) : null };
+    navigate('new', {}, invoker);
   }
   async function created(result) {
     const here = hosts.current, generation = epoch;
@@ -140,7 +160,10 @@
       if (!hosts.list.some(h => h.origin === next.host)) { home(true); return; }
       switchTo(next.host); renderRoute(next, restoreFocus); restoreFocus = '';
     };
-    const resize = () => document.documentElement.style.setProperty('--app-h', `${window.visualViewport?.height ?? innerHeight}px`);
+    const resize = () => {
+      document.documentElement.style.setProperty('--app-h', `${window.visualViewport?.height ?? innerHeight}px`);
+      requestAnimationFrame(() => { if (route.view === 'screens') alignScreen(); });
+    };
     window.addEventListener('popstate', back);
     window.visualViewport?.addEventListener('resize', resize); resize();
     return () => { window.removeEventListener('popstate', back); window.visualViewport?.removeEventListener('resize', resize); };
@@ -178,7 +201,7 @@
 </script>
 
 <header>
-  <label class="picker">Machine<select aria-label="Machine" value={hosts.current} onchange={e => choose(e.currentTarget.value)}>{#each hosts.list as h (h.origin)}<option value={h.origin}>{h.name}{needsYou[h.origin] ? ` · ${needsYou[h.origin]} need you` : ''}</option>{/each}</select></label>
+  <label class="picker">Machine<select aria-label="Machine" value={hosts.current} onchange={e => choose(e.currentTarget.value)}>{#each hosts.list as h (h.origin)}<option value={h.origin}>{displayName(h)}{needsYou[h.origin] ? ` · ${needsYou[h.origin]} need you` : ''}</option>{/each}</select></label>
   <button id="add-machine" class="addm" onclick={() => navigate('add', {}, 'add-machine')}>Add machine</button>
 </header>
 {#if route.view !== 'terminal'}
@@ -196,7 +219,7 @@
   </div>{/if}
   {#key draftKey}<Pane ws={selected.workspace} session={selected} windows={[]} orphans={[]} allNames={sessions.map(s => s.session)} {workspaces} active={true} {onstatus} onchanged={refresh} bind:draft={drafts[draftKey]} />{/key}
 {:else}
-<main bind:this={main}>
+<main bind:this={main} class:screens-view={route.view === 'screens' && caps.windows && connection === 'ready'}>
   {#if route.view === 'add'}
     <AddMachine bind:draft={pairingDraft} onpaired={paired} oncancel={cancel} />
   {:else if route.view === 'new'}
@@ -205,19 +228,25 @@
   {:else if route.view === 'management'}
     {#key hosts.current}<Management {onstatus} connected={connection === 'ready'} />{/key}
   {:else if connection !== 'ready'}
-    {#if connection === 'loading'}<h1 tabindex="-1">Loading sessions…</h1><p role="status">Connecting to {currentHost().name}.</p>
-    {:else if connection === 'auth'}<h1 tabindex="-1">Authentication required</h1><p>Pair this device with {currentHost().name} to continue.</p><button class="primary" onclick={() => { pairingDraft.address = currentHost().origin; navigate('add'); }}>Pair this machine</button>
-    {:else if connection === 'offline'}<h1 tabindex="-1">Machine offline</h1><p>Cannot reach {currentHost().name}. Check the machine and your Tailscale connection.</p><button onclick={refresh}>Retry connection</button>
+    {#if connection === 'loading'}<h1 tabindex="-1">Loading sessions…</h1><p role="status">Connecting to {displayName()}.</p>
+    {:else if connection === 'auth'}<h1 tabindex="-1">Authentication required</h1><p>Pair this device with {displayName()} to continue.</p><button class="primary" onclick={() => { pairingDraft.address = currentHost().origin; navigate('add'); }}>Pair this machine</button>
+    {:else if connection === 'offline'}<h1 tabindex="-1">Machine offline</h1><p>Cannot reach {displayName()}. Check the machine and your Tailscale connection.</p><button onclick={refresh}>Retry connection</button>
     {:else}<h1 tabindex="-1">Could not load sessions</h1><button onclick={refresh}>Try again</button>{/if}
   {:else if route.view === 'screens' && caps.windows}
     <h1 tabindex="-1">Screens</h1>
-    <label>Desktop workspace<select bind:value={screen}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label>
+    <label>Desktop workspace<select aria-label="Desktop workspace" value={screen} onchange={e => showScreen(e.currentTarget.value)}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label>
     {#if locked}<p class="dim">Desktop locked. Screenshots are unavailable.</p>
       {#if caps.unlock}<form onsubmit={unlock}><label>Desktop password<input type="password" bind:value={password} autocomplete="current-password" /></label><button disabled={unlocking || !password}>{unlocking ? 'Unlocking…' : 'Unlock desktop'}</button></form>{/if}
     {/if}
-    {#each sessions.filter(s => s.workspace === screen) as s (s.session)}<button class="session-row" onclick={() => open(s)}>{s.session} · Open terminal</button>{/each}
-    {#each windows.filter(w => w.workspace === screen) as win (win.address)}<WindowRow {win} {workspaces} {onstatus} onchanged={refresh} />{:else}<p class="dim">No windows on Screen {screen}.</p>{/each}
-    <button id="new-session" class="primary" onclick={create}>New session</button>
+    <div class="screen-rail" bind:this={screenRail} onscroll={onScreenScroll} aria-label="Desktop screens">
+      {#each workspaces as n}
+        <section class="screen-page" aria-label={`Screen ${n}`} aria-hidden={n !== screen} inert={n !== screen}>
+          {#each sessions.filter(s => s.workspace === n) as s (s.session)}<button class="session-row" onclick={() => open(s)}>{s.session} · Open terminal</button>{/each}
+          {#each windows.filter(w => w.workspace === n) as win (win.address)}<WindowRow {win} {workspaces} {onstatus} onchanged={refresh} />{:else}<p class="dim">No windows on Screen {n}.</p>{/each}
+          <button id={`new-session-${n}`} class="primary screen-new" onclick={() => create(n, `new-session-${n}`)}>New session</button>
+        </section>
+      {/each}
+    </div>
   {:else if route.view === 'terminal'}
     <h1 tabindex="-1">Session closed</h1><p>This session is no longer running.</p><button onclick={() => home()}>Back to sessions</button>
   {:else}
@@ -228,7 +257,7 @@
         {#each attentionItems as item (`${item.host.origin}:${item.session}`)}
           <button class="attention-row" onclick={() => openAttention(item)}>
             <span class="row-title"><strong>{item.session}</strong><span class="err">Needs you</span></span>
-            <span class="dim">{item.host.name}{item.tool ? ` · ${item.tool}` : ''}</span>
+            <span class="dim">{displayName(item.host)}{item.tool ? ` · ${item.tool}` : ''}</span>
             {#if item.detail}<span>{item.detail}</span>{/if}
           </button>
         {/each}
@@ -257,6 +286,21 @@ nav button { flex:1; min-width:0; }
 .active { color:var(--ok); border-color:var(--ok); }
 main { flex:1; min-height:0; overflow:auto; padding:.7rem; display:flex; flex-direction:column; gap:.7rem; overflow-wrap:anywhere; }
 main > :global(*) { flex-shrink:0; }
+.screens-view { overflow:hidden; }
+.screens-view > .screen-rail {
+  display:flex; flex:1 1 auto; min-width:0; min-height:0; overflow-x:auto;
+  scroll-snap-type:x mandatory; overscroll-behavior-x:contain;
+  scrollbar-width:none;
+}
+.screen-rail::-webkit-scrollbar { display:none; }
+.screen-rail:has(:global(.lightbox)) { overflow-x:hidden; scroll-snap-type:none; }
+.screen-page {
+  flex:0 0 100%; width:100%; min-width:0; min-height:0; overflow-y:auto;
+  display:flex; flex-direction:column; gap:.7rem;
+  scroll-snap-align:start; scroll-snap-stop:always; overscroll-behavior-y:contain;
+}
+.screen-page > :global(*) { flex-shrink:0; }
+.screen-new { margin-top:auto; }
 .heading,.row-title { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
 .session-row,.attention-row { display:flex; flex-direction:column; align-items:stretch; gap:.35rem; text-align:left; width:100%; background:var(--card); padding:.85rem; overflow-wrap:anywhere; }
 .row-title strong { min-width:0; color:var(--ok); }

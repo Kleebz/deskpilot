@@ -11,6 +11,12 @@ Polling does not recreate the forms or list. Navigation records list scroll posi
 uses browser history, and restores focus after cancellation. Responses are bound to their
 original machine; pairing and creation completion cannot navigate an unmounted view.
 
+Machine labels are local aliases in the installed app, separate from the hostname returned
+by capability negotiation. Screens keeps the redesign's explicit workspace selector and
+adds back the old rail's native horizontal scroll-snap only within that view. The active
+screen follows either input, is remembered per machine, and supplies the placement default
+for a session created there.
+
 Run from the isolated worktree:
 
 ```sh

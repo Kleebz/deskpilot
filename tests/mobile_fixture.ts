@@ -50,7 +50,9 @@ export async function fixture() {
         if (i === 0 && state.auth) return json({ error: "unauthorized" }, 401);
         if (u.pathname === "/api/capabilities") {
           return json({
-            name: ["Desktop", "Headless", "New machine"][i],
+            // Deliberately identical: the browser test proves local labels do
+            // not get erased when both machines report the same hostname.
+            name: "Omarchy",
             windows: i === 0,
             screenshot: i === 0,
             terminal: true,

@@ -96,6 +96,26 @@ try {
     });
     await pause();
   };
+  const swipeLeft = async (selector: string) => {
+    const box = await run(
+      `(() => { const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {left:r.left,top:r.top,width:r.width,height:r.height}; })()`,
+    );
+    const y = box.top + box.height * .55;
+    const xs = [.82, .65, .48, .31, .14].map((n) => box.left + box.width * n);
+    await send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: xs[0], y }],
+    });
+    for (const x of xs.slice(1)) {
+      await send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x, y }],
+      });
+      await pause(20);
+    }
+    await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await pause(500);
+  };
   // A phone-sized viewport alone still exposes a mouse pointer in Chromium.
   await send("Emulation.setTouchEmulationEnabled", {
     enabled: true,
@@ -104,7 +124,7 @@ try {
   await send("Page.enable");
   await send("Page.addScriptToEvaluateOnNewDocument", {
     source:
-      `localStorage.setItem('dp_hosts',JSON.stringify([{origin:'http://127.0.0.1:8892',token:'fixture',name:'Desktop'},{origin:'http://127.0.0.1:8893',token:'fixture',name:'Headless'},{origin:'http://127.0.0.1:8895',token:'fixture',name:'Offline'}]));localStorage.setItem('dp_host','http://127.0.0.1:8892');window.__errors=[];window.addEventListener('error', e=>window.__errors.push(e.message));`,
+      `if(!localStorage.getItem('dp_hosts')){localStorage.setItem('dp_hosts',JSON.stringify([{origin:'http://127.0.0.1:8892',token:'fixture',name:'Omarchy',alias:'Desktop'},{origin:'http://127.0.0.1:8893',token:'fixture',name:'Omarchy',alias:'Headless'},{origin:'http://127.0.0.1:8895',token:'fixture',name:'Omarchy',alias:'Offline'}]));localStorage.setItem('dp_host','http://127.0.0.1:8892')}window.__errors=[];window.addEventListener('error', e=>window.__errors.push(e.message));`,
   });
   await metrics(390, 844);
   await send("Page.navigate", { url: "http://127.0.0.1:8892" });
@@ -205,35 +225,60 @@ try {
   await until(`document.getElementById('session-detached')`);
   await click("Screens");
   await run(
-    `{const el=document.querySelector('main select');el.value='2';el.dispatchEvent(new Event('change',{bubbles:true}));}`,
+    `{const el=document.querySelector('select[aria-label="Desktop workspace"]');el.value='2';el.dispatchEvent(new Event('change',{bubbles:true}));}`,
   );
-  await pause();
+  await until(`Math.abs(document.querySelector('.screen-rail').scrollLeft-document.querySelector('.screen-rail').clientWidth)<2`);
   await check(
-    `document.querySelectorAll('main .session-row').length>=2 && !!document.querySelector('.win')`,
-    "Screens retains sessions and window controls",
+    `document.querySelector('[aria-label="Screen 2"] .session-row') && document.querySelector('[aria-label="Screen 2"] .win') && !document.querySelector('[aria-label="Screen 2"]').inert`,
+    "Screens selector retains sessions and window controls",
   );
-  await click("New session");
+  await swipeLeft('.screen-rail');
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await check(
+    `document.querySelector('[aria-label="Screen 2"]').inert && !document.querySelector('[aria-label="Screen 3"]').inert`,
+    "Screens swipe updates the selector and active panel",
+  );
+  await run(`document.getElementById('new-session-3').click()`);
   await check(
     `document.querySelector('form select:last-of-type')!==null && document.body.innerText.includes('Desktop placement')`,
     "desktop creation exposes optional placement",
   );
   await check(
-    `document.querySelectorAll('form select')[1].value==='2'`,
-    "Screens creation defaults to selected workspace",
+    `document.querySelectorAll('form select')[1].value==='3'`,
+    "Screens creation defaults to the swiped workspace",
   );
   await click("Cancel");
   await until(`document.querySelector('h1')?.textContent==='Screens'`);
   await check(
-    `document.activeElement.id==='new-session'`,
+    `document.activeElement.id==='new-session-3'`,
     "Cancel restores invoking control focus",
   );
   await click("Sessions");
   await click("New session");
   await check(
-    `document.querySelectorAll('form select')[1].selectedOptions[0].textContent==='Screen 2'`,
+    `document.querySelectorAll('form select')[1].selectedOptions[0].textContent==='Screen 3'`,
     "creation draft is retained across cancellation",
   );
   await click("Cancel");
+  await click("Screens");
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await run(`{const rail=document.querySelector('.screen-rail');rail.scrollTo({left:rail.scrollWidth,behavior:'auto'});rail.dispatchEvent(new Event('scroll'));}`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='10'`);
+  await run(`{const rail=document.querySelector('.screen-rail');rail.scrollTo({left:-rail.clientWidth,behavior:'auto'});rail.dispatchEvent(new Event('scroll'));}`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='1'`);
+  await run(`{const el=document.querySelector('select[aria-label="Desktop workspace"]');el.value='3';el.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await until(`Math.abs(document.querySelector('.screen-rail').scrollLeft-document.querySelector('.screen-rail').clientWidth*2)<2`);
+  await choose(8893);
+  await until(`document.getElementById('session-headless-job')`);
+  await choose(8892);
+  await until(`document.getElementById('session-detached')`);
+  await click("Screens");
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await check(
+    `Math.abs(document.querySelector('.screen-rail').scrollLeft-document.querySelector('.screen-rail').clientWidth*2)<2`,
+    "screen selection is bounded and restored per machine",
+  );
+  await click("Sessions");
   await click("Add machine");
   await input(".pair-form input", "http://127.0.0.1:8894");
   await input(".code-in", "BADCODE");
@@ -265,8 +310,8 @@ try {
     `document.querySelector('h1')?.textContent==='Sessions' && document.querySelector('select[aria-label="Machine"]').value.endsWith('8892')`,
   );
   await check(
-    `document.querySelector('main').scrollTop===0`,
-    "already-paired success opens sessions at top",
+    `document.querySelector('main').scrollTop===0 && JSON.parse(localStorage.getItem('dp_hosts')).find(h=>h.origin.endsWith('8892')).alias==='Desktop'`,
+    "already-paired success opens sessions at top without losing its label",
   );
   // Leaving an in-flight pairing must not select its machine when it finishes.
   fx.state.enrollDelay = 700;
@@ -286,6 +331,37 @@ try {
     `document.body.innerText.includes('Test phone') && !document.querySelector('.session-row')`,
     "management separates authorized devices from sessions",
   );
+  await click("rename label");
+  await input('input[aria-label="machine label"]', "Studio");
+  await click("save");
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Studio') && JSON.parse(localStorage.getItem('dp_hosts')).find(h=>h.origin.endsWith('8892')).alias==='Studio' && document.body.innerText.includes('Reported as Omarchy')`,
+    "local machine label is shown and persisted separately from hostname",
+  );
+  await click("Sessions");
+  await click("Refresh");
+  await until(`document.getElementById('session-detached')`);
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Studio')`,
+    "capability refresh preserves local machine label",
+  );
+  await run("location.reload()");
+  await until(`document.getElementById('session-detached')`);
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Studio')`,
+    "machine label survives reload",
+  );
+  await click("Manage");
+  await until(`document.body.innerText.includes('Authorized devices')`);
+  await click("rename label");
+  await click("use reported name");
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Omarchy') && !('alias' in JSON.parse(localStorage.getItem('dp_hosts')).find(h=>h.origin.endsWith('8892')))`,
+    "machine label can be reset to the reported hostname",
+  );
+  await click("rename label");
+  await input('input[aria-label="machine label"]', "Desktop");
+  await click("save");
   await click("Sessions");
   await click("Add machine");
   await input(
@@ -418,6 +494,20 @@ try {
     await click("Add machine");
     await measure(`${width}×${height} pairing`, width);
     await click("Cancel");
+    await click("Screens");
+    await until(`document.querySelector('h1')?.textContent==='Screens'`);
+    await measure(`${width}×${height} screens`, width);
+    await check(
+      `(() => { const rail=document.querySelector('.screen-rail'); const panel=rail.children[0].getBoundingClientRect().width; return [...rail.children].every(p=>Math.abs(p.getBoundingClientRect().width-rail.clientWidth)<1) && Math.abs(rail.scrollWidth-panel*10)<2; })()`,
+      `${width}×${height}: screen panels match the rail width`,
+    );
+    await click("Sessions");
+    await click("Manage");
+    await until(`document.body.innerText.includes('Authorized devices')`);
+    await click("rename label");
+    await measure(`${width}×${height} machine rename`, width);
+    await click("cancel");
+    await click("Sessions");
   }
   await metrics(390, 420);
   await click("New session");

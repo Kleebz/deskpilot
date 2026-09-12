@@ -1273,3 +1273,23 @@ So this had been showing two different names on two platforms for one install.
 Changing a manifest does not rename an icon already on a home screen. Chrome
 re-reads it and updates on its own schedule; removing and re-adding is the only
 way to be sure.
+
+## A reported hostname is not a useful machine label
+
+The session-first redesign put machines in a selector and workspaces behind **Screens**.
+That exposed two related losses from the old rail: two machines can honestly report the
+same hostname, and the direct workspace selector removed the quick adjacent-screen gesture.
+
+Machine identity remains the origin. The capability `name` remains the machine's reported
+hostname, but a host record may now carry a phone-local `alias`; every user-facing label
+prefers it and capability refresh never overwrites it. Renaming lives with the selected
+machine in **Manage**, not with authorized devices: the former labels a desktop in this PWA,
+while the latter identifies a browser credential on the desktop. No server mutation or API
+was needed, and old `dp_hosts` records remain valid because the new field is optional.
+
+The old eleven-page rail does not return. Sessions remain home and terminals remain
+dedicated routes. **Screens** alone is a ten-page native scroll-snap rail, with the selector
+kept as a synchronized direct jump and accessible fallback. Each page scrolls vertically;
+horizontal movement stops at screens 1 and 10, and the active screen is remembered per
+machine. Session creation receives the invoking page number directly so a scroll event
+racing the tap cannot place a new terminal on the wrong workspace.

@@ -1,8 +1,9 @@
 <script>
   import { onDestroy } from "svelte";
-  import { currentHost as viewHost } from "./hosts.svelte.js";
+  import {
+    hosts, currentHost as viewHost, displayName, setHostAlias, removeHost,
+  } from "./hosts.svelte.js";
   import { api as requestApi, post as requestPost, enroll as requestEnroll, setToken } from './api.js';
-  import { hosts, currentHost, removeHost } from './hosts.svelte.js';
   import Usage from './Usage.svelte';
   import Notify from './Notify.svelte';
   import Install from './Install.svelte';
@@ -24,6 +25,8 @@
   // you which one you are holding.
   let devices = $state([]);
   let legacy = $state(false);
+  let renamingMachine = $state(false);
+  let machineNameInput = $state("");
   let renamingDevice = $state("");
   let deviceNameInput = $state("");
   // Entering a code on a device that is already in. The gate in App.svelte only
@@ -46,7 +49,7 @@
     upgrading = true;
     try {
       const { code } = await post("/devices/code", {});
-      await enroll(code, currentHost());
+      await enroll(code, viewHost());
       onstatus("this device now has its own credential");
       loadDevices(hosts.current);
     } catch (e) {
@@ -62,7 +65,7 @@
     if (!code || claiming) return;
     claiming = true;
     try {
-      await enroll(code, currentHost());
+      await enroll(code, viewHost());
       ownCode = "";
       onstatus("this device now has its own credential");
       loadDevices(hosts.current);
@@ -95,9 +98,9 @@
     const here = hosts.current;
     devices = [];
     legacy = false;
-    // A rename in progress names a session on the machine you were on; saving
-    // it after a switch renames whatever happens to share that name here.
-
+    // Rename forms belong to the machine this component mounted for. Closing
+    // them on a switch prevents a stale form acting on the next machine.
+    renamingMachine = false;
     renamingDevice = "";
     if (connected) loadDevices(here);
   });
@@ -108,6 +111,26 @@
       onstatus(r.self ? "revoked this device — reload to re-pair" : `revoked ${d.name}`);
       loadDevices(hosts.current);
     } catch (e) { onstatus(e.message, true); }
+  }
+
+  function startMachineRename() {
+    machineNameInput = displayName(viewHost());
+    renamingMachine = true;
+  }
+
+  function saveMachineRename(ev) {
+    ev.preventDefault();
+    const name = machineNameInput.trim();
+    if (!name) return;
+    setHostAlias(actionHost.origin, name === actionHost.name ? "" : name);
+    renamingMachine = false;
+    onstatus(`machine label saved as ${displayName(actionHost)}`);
+  }
+
+  function resetMachineName() {
+    setHostAlias(actionHost.origin, "");
+    renamingMachine = false;
+    onstatus(`machine label reset to ${displayName(actionHost)}`);
   }
 
   function startDeviceRename(d) {
@@ -130,7 +153,22 @@
 </script>
 <h1 tabindex="-1">Management</h1>
 <h2>Selected remote machine</h2>
-<p>{currentHost().name}<br /><span class="dim">{currentHost().origin}</span></p>
+<div class="machine-summary">
+  <p><strong>{displayName(viewHost())}</strong><br />
+    {#if actionHost.alias}<span class="dim">Reported as {actionHost.name}</span><br />{/if}
+    <span class="dim">{actionHost.origin}</span>
+  </p>
+  <button class="sm" onclick={startMachineRename}>rename label</button>
+</div>
+<p class="dim machine-hint">This label is stored only in this app and does not rename the machine.</p>
+{#if renamingMachine}
+  <form class="unlock machine-rn" onsubmit={saveMachineRename}>
+    <input bind:value={machineNameInput} maxlength="40" aria-label="machine label" />
+    <button disabled={!machineNameInput.trim()}>save</button>
+    <button type="button" onclick={() => (renamingMachine = false)}>cancel</button>
+    {#if actionHost.alias}<button type="button" onclick={resetMachineName}>use reported name</button>{/if}
+  </form>
+{/if}
 <p class="dim">Version {hosts.caps[hosts.current]?.version ?? 'unknown'}</p>
 {#if hosts.list.length > 1}<button class="danger" onclick={() => removeHost(hosts.current)}>Forget this machine</button>{/if}
 {#if connected}
@@ -195,6 +233,9 @@
   <Install />
 
 <style>
+.machine-summary { display:flex; align-items:center; gap:.5rem; min-width:0; }
+.machine-summary p { flex:1; min-width:0; overflow-wrap:anywhere; }
+.machine-hint { font-size:12px; }
 .row { display:flex; flex-wrap:wrap; gap:.5rem; padding:.6rem 0; }
 .go { display:flex; flex:1; min-width:0; flex-wrap:wrap; justify-content:flex-start; }
 .path { width:100%; overflow-wrap:anywhere; }
