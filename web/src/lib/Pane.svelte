@@ -1,5 +1,7 @@
 <script>
-  import { post } from "./api.js";
+  import { onDestroy } from "svelte";
+  import { currentHost as viewHost } from "./hosts.svelte.js";
+  import { post as requestPost } from "./api.js";
   import WindowRow from "./WindowRow.svelte";
   import { hosts } from "./hosts.svelte.js";
   import NewSession from "./NewSession.svelte";
@@ -8,12 +10,18 @@
   import { canRead, readText } from "./clipboard.js";
   import { vis } from "./visible.svelte.js";
 
-  let { ws, session, windows, orphans, allNames, workspaces, active, onstatus, onchanged } = $props();
+  let { ws, session, windows, orphans, allNames, workspaces, active, onstatus: reportStatus, onchanged, draft = $bindable({ input: "", clip: "" }) } = $props();
+  const actionHost = viewHost();
+  let mounted = true;
+  onDestroy(() => mounted = false);
+  const onstatus = (...args) => { if (mounted && viewHost().origin === actionHost.origin) reportStatus?.(...args); };
+  const post = (path, body, opts = {}) => requestPost(path, body, { ...opts, host: actionHost });
+
 
   // Pane-local state. This is the reason for the framework: a poll updates
   // `session`/`windows` from the parent without touching any of these, so a
   // half-typed prompt survives and the drawer you opened stays open.
-  let input = $state("");
+
   let lastChange = $state(0);    // when output last moved
   let showWindows = $state(false);
   let showKeys = $state(false);
@@ -62,16 +70,16 @@
 
   async function send(ev) {
     ev.preventDefault();
-    const text = input.trim();
+    const text = draft.input.trim();
     if (!text || !session) return;
-    input = "";
+    draft.input = "";
     // Acknowledge the tap straight away, rather than waiting for the echo to
     // come back down the socket.
     lastChange = Date.now();
     try {
       await post("/send", { session: session.session, text });
       onstatus(`→ ${session.session}`);
-    } catch (e) { onstatus(e.message, true); input = text; }
+    } catch (e) { onstatus(e.message, true); draft.input = text; }
   }
 
   // ---- clipboard ----
@@ -94,7 +102,7 @@
   // every newline in it is an Enter — a thirty-line snippet arriving as thirty
   // submitted prompts. /api/paste hands it to tmux as a paste instead.
   let pasting = $state(false);
-  let clip = $state("");
+
 
   async function openPaste() {
     if (pasting) { pasting = false; return; }
@@ -108,18 +116,18 @@
     // that cannot read the clipboard, closing the drawer and opening it again
     // would otherwise wipe text that was pasted in by hand and not yet sent.
     const c = await readText();
-    if (c) clip = c;
+    if (c) draft.clip = c;
   }
 
   async function paste() {
-    if (!clip || !session) return;
-    const text = clip;
+    if (!draft.clip || !session) return;
+    const text = draft.clip;
     lastChange = Date.now();
     try {
       await post("/paste", { session: session.session, text });
       onstatus(`pasted ${text.split("\n").length} lines`);
       pasting = false;
-      clip = "";
+      draft.clip = "";
     } catch (e) { onstatus(e.message, true); }
   }
 
@@ -152,7 +160,7 @@
   // shifts under someone mid-thought.
   let hintIdx = $state(0);
   $effect(() => {
-    if (!active || !session || input || !vis.visible) return;
+    if (!active || !session || draft.input || !vis.visible) return;
     const id = setInterval(() => (hintIdx = (hintIdx + 1) % hints.length), 6000);
     return () => clearInterval(id);
   });
@@ -184,7 +192,7 @@
     <!-- Transcript is the hero: it fills the pane, the composer pins to the
          bottom, and everything secondary hides behind a toggle. -->
     <div class="bar">
-      <span class="badge">ws{ws}</span>
+      {#if ws != null}<span class="badge">Screen {ws}</span>{/if}
       <span class="name">{session.session}</span>
       {#if working}<span class="pulse" title="output changing"></span>{/if}
       <button class="sm ghost" class:on={big} title="text size"
@@ -199,9 +207,9 @@
       {#if active}
         <button class="sm ghost" onclick={copy}>copy</button>
       {/if}
-      <button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
+      {#if windows.length}<button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {windows.length} window{windows.length === 1 ? "" : "s"}
-      </button>
+      </button>{/if}
     </div>
 
     {#if showWindows}
@@ -238,7 +246,7 @@
     <div class="composer">
       <form onsubmit={send}>
         <input
-          bind:value={input}
+          bind:value={draft.input}
           placeholder={hints[hintIdx % hints.length]}
           autocomplete="off" autocapitalize="off" autocorrect="off" />
         <button class="sm ghost pastetoggle" class:on={pasting} type="button"
@@ -249,7 +257,7 @@
       </form>
       {#if pasting}
         <div class="paste">
-          <textarea bind:value={clip} rows="3"
+          <textarea bind:value={draft.clip} rows="3"
                     placeholder={canRead()
                       ? "nothing on the clipboard — long-press → Paste"
                       : "long-press → Paste"}></textarea>
@@ -258,7 +266,7 @@
               goes in unsent, so you can add to it before you send.
             </span>
             <button class="sm" type="button" onclick={() => (pasting = false)}>cancel</button>
-            <button class="sm" type="button" disabled={!clip} onclick={paste}>paste</button>
+            <button class="sm" type="button" disabled={!draft.clip} onclick={paste}>paste</button>
           </div>
         </div>
       {/if}
@@ -317,7 +325,7 @@
      refuses to shrink below content size — a pane then inflates past the
      viewport to fit its widest row and the whole rail goes wonky. */
   section {
-    flex: 0 0 100%; width: 100%; max-width: 100%;
+    flex: 1; width: 100%; max-width: 100%;
     min-width: 0; min-height: 0;
     scroll-snap-align: start;
     /* `always` makes momentum stop at the next pane instead of flying past

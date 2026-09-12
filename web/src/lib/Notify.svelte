@@ -1,7 +1,16 @@
 <script>
-  import { api, post } from "./api.js";
+  import { onDestroy } from "svelte";
+  import { currentHost as viewHost } from "./hosts.svelte.js";
+  import { api as requestApi, post as requestPost } from "./api.js";
 
-  let { onstatus } = $props();
+  let { onstatus: reportStatus } = $props();
+  const actionHost = viewHost();
+  let mounted = true;
+  onDestroy(() => mounted = false);
+  const onstatus = (...args) => { if (mounted && viewHost().origin === actionHost.origin) reportStatus?.(...args); };
+  const api = (path, opts = {}) => requestApi(path, { ...opts, host: actionHost });
+  const post = (path, body, opts = {}) => requestPost(path, body, { ...opts, host: actionHost });
+
 
   // Three separate things have to line up for a push to arrive: a registered
   // service worker, granted permission, and a subscription the server knows

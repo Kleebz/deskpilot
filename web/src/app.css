@@ -86,3 +86,17 @@ input:focus, select:focus {
   inherits: false;
 }
 @keyframes sweep { to { --angle: 360deg; } }
+
+h1 { font-size:1.25rem; margin:0; }
+h2 { font-size:1rem; }
+p { margin:.3rem 0; }
+label { display:flex; flex-direction:column; gap:.35rem; min-width:0; }
+main form { display:flex; flex-direction:column; gap:.85rem; min-width:0; }
+input, select { max-width:100%; min-width:0; font-size:16px; }
+.primary { border-color:var(--ok); color:var(--ok); background:var(--panel); }
+.form-actions { display:flex; gap:.5rem; position:sticky; bottom:0; padding:.5rem 0; background:var(--bg); }
+.form-actions button { flex:1; }
+main { padding-bottom:calc(.7rem + env(safe-area-inset-bottom, 0px)); }
+@media(prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}

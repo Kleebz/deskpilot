@@ -26,7 +26,7 @@ export let token = readToken();
 //
 // Everything else in this file waits on `ready`, so no request can go out
 // holding the wrong credential — or none — while the exchange is in flight.
-export async function enroll(code, host) {
+export async function enroll(code, host, { activate = true } = {}) {
   // Against the selected machine, not the one that served the page: the token
   // gate appears whenever the *selected* machine answers 401, which on a phone
   // with several paired is usually one of the others.
@@ -38,10 +38,11 @@ export async function enroll(code, host) {
     // Named after the browser rather than left blank: a list of four entries
     // called "device" is not a list you can revoke from with any confidence.
     body: JSON.stringify({ code, name: await deviceName() }),
+    signal: AbortSignal.timeout(8000),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? "pairing failed");
-  if (body.token) {
+  if (body.token && activate) {
     addHost({ origin: h.origin, token: body.token, name: h.name });
     // The legacy same-origin token only ever covered this machine, so only
     // this machine's credential may overwrite it.
@@ -66,7 +67,10 @@ async function enrollFromCode() {
   // second row in the device list. A legacy shared credential deliberately
   // continues through enrollment so the visit upgrades it to a revocable one.
   try {
-    if (await hasDeviceCredential(self)) return;
+    if (await hasDeviceCredential(self)) {
+      addHost({ ...self, token: hosts.list.find(h => h.origin === self.origin)?.token });
+      return;
+    }
     await enroll(code, self);
   } catch { /* falls back to what is stored */ }
 }
@@ -132,9 +136,10 @@ export function resolve(path, host) {
 }
 
 export async function api(path, opts = {}) {
+  const host = opts.host ?? currentHost();
   await ready;
   let res;
-  const { url, token: tok, same } = resolve(path, opts.host);
+  const { url, token: tok, same } = resolve(path, host);
   try {
     res = await fetch(url, {
       ...opts,

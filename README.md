@@ -353,12 +353,17 @@ privacy-reduced browser data sometimes identifies only the platform rather than 
 model.
 
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
-`deskpilot pair --link` there, and paste the link it prints into the app: open the index, scroll
-past your sessions to **machines**, tap **add another machine**, and put the whole link in the
-address field — it carries the code, so the code field fills itself in. The separate code
-field is only a fallback when you already have the machine's bare address. A strip
-appears at the top once you have two, one tap to switch, with a dot on any machine that
-needs you.
+`deskpilot pair --link` there, then tap **Add machine** beside the persistent machine
+picker and paste the complete link. You can also scan its QR or enter an address and code
+separately. The picker shows attention counts for all paired machines. Selecting a machine
+opens its sessions at the top; tapping any session opens its terminal, including sessions
+with no desktop window.
+
+**Screens** provides desktop workspace browsing and window controls on capable machines.
+**Manage** contains authorized devices, credentials, usage, notifications, and installation.
+**New session** opens a dedicated form: desktop placement is optional, defaulting to no
+window from Sessions and the selected workspace from Screens. Cancel retains the draft;
+Back to sessions restores the previous list position.
 
 Use the in-app flow even when a QR is available. A PWA and its machine list belong to the
 origin it was installed from; scanning another machine's QR in the phone camera opens that
@@ -396,7 +401,7 @@ crash-looped for thirty seconds and everything was still there afterwards.
 
 On a release or package install, `deskpilot version` says what you are running; from a
 checkout there is no such command, and `shell/check.sh` reports the running version
-instead. The app shows it per machine in the **machines** list — which is the one that matters once a phone
+instead. The app shows it per machine in **Manage** for the selected machine — which is the one that matters once a phone
 holds more than one, since the question stops being "what am I running" and becomes "which
 of these is behind".
 
@@ -555,8 +560,8 @@ The short version:
 
 ```
 deno test --allow-read --allow-write --allow-env tests/   # unit tests
-deno run -A tests/layout.ts                               # phone layout, headless chromium
-deno run -A tests/scanner.ts                              # QR camera preview, simulated camera
+deno run -A tests/layout.ts                               # mobile flows/layout, disposable fixtures
+deno run -A tests/scanner.ts                              # QR preview, fixtures + simulated camera
 deno run -A tests/recovery.ts                             # reconnects, offline cold launch (restarts the service)
 tests/headless.sh dist/deskpilot                          # a host with no desktop
 shell/check.sh                                            # every environment assumption

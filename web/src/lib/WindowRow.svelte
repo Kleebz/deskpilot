@@ -1,7 +1,16 @@
 <script>
-  import { api, post } from "./api.js";
+  import { onDestroy } from "svelte";
+  import { currentHost as viewHost } from "./hosts.svelte.js";
+  import { api as requestApi, post as requestPost } from "./api.js";
 
-  let { win, workspaces, onstatus, onchanged, self = false } = $props();
+  let { win, workspaces, onstatus: reportStatus, onchanged, self = false } = $props();
+  const actionHost = viewHost();
+  let mounted = true;
+  onDestroy(() => mounted = false);
+  const onstatus = (...args) => { if (mounted && viewHost().origin === actionHost.origin) reportStatus?.(...args); };
+  const api = (path, opts = {}) => requestApi(path, { ...opts, host: actionHost });
+  const post = (path, body, opts = {}) => requestPost(path, body, { ...opts, host: actionHost });
+
 
   let shot = $state(null);      // object URL, kept across polls
   let busy = $state(false);

@@ -1,7 +1,15 @@
 <script>
-  import { api } from "./api.js";
+  import { onDestroy } from "svelte";
+  import { currentHost as viewHost } from "./hosts.svelte.js";
+  import { api as requestApi } from "./api.js";
 
-  let { onstatus } = $props();
+  let { onstatus: reportStatus } = $props();
+  const actionHost = viewHost();
+  let mounted = true;
+  onDestroy(() => mounted = false);
+  const onstatus = (...args) => { if (mounted && viewHost().origin === actionHost.origin) reportStatus?.(...args); };
+  const api = (path, opts = {}) => requestApi(path, { ...opts, host: actionHost });
+
 
   // Records are written by omarchy-agent-usage-update on its own schedule, so
   // polling faster than it writes only burns battery. Its default is 15

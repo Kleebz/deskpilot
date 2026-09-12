@@ -6,6 +6,8 @@
 // the failure where getUserMedia succeeds while the preview remains hidden or
 // zero-sized — exactly what a person sees as a stop button over no camera.
 
+import { fixture } from "./mobile_fixture.ts";
+
 type Cdp = {
   send: (method: string, params?: unknown, sessionId?: string) => Promise<any>;
   close: () => void;
@@ -18,13 +20,18 @@ async function connect(wsUrl: string): Promise<Cdp> {
     ws.onerror = () => reject(new Error("could not connect to Chromium"));
   });
   let id = 0;
-  const waiting = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  const waiting = new Map<
+    number,
+    { resolve: (v: any) => void; reject: (e: Error) => void }
+  >();
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     const call = waiting.get(msg.id);
     if (!call) return;
     waiting.delete(msg.id);
-    msg.error ? call.reject(new Error(msg.error.message)) : call.resolve(msg.result);
+    msg.error
+      ? call.reject(new Error(msg.error.message))
+      : call.resolve(msg.result);
   };
   return {
     send(method, params = {}, sessionId) {
@@ -42,9 +49,12 @@ const args = new Map<string, string>();
 for (let i = 0; i < Deno.args.length; i += 2) {
   args.set(Deno.args[i].replace(/^--/, ""), Deno.args[i + 1] ?? "");
 }
-const base = args.get("url") ?? "http://127.0.0.1:8790";
+const fixtures = args.has("url") ? null : await fixture();
+const base = args.get("url") ?? "http://127.0.0.1:8892";
 const token = args.get("token") ??
-  (await Deno.readTextFile(`${Deno.env.get("HOME")}/.config/deskpilot/token`)).trim();
+  (fixtures ? "fixture" : (await Deno.readTextFile(
+    `${Deno.env.get("HOME")}/.config/deskpilot/token`,
+  )).trim());
 const port = 9334;
 const profile = await Deno.makeTempDir();
 const chrome = new Deno.Command("chromium", {
@@ -75,8 +85,13 @@ try {
   if (!wsUrl) throw new Error("Chromium did not start a debugging endpoint");
 
   cdp = await connect(wsUrl);
-  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
-  const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
+  const { targetId } = await cdp.send("Target.createTarget", {
+    url: "about:blank",
+  });
+  const { sessionId } = await cdp.send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
   await cdp.send("Emulation.setDeviceMetricsOverride", {
     width: 390,
     height: 844,
@@ -84,7 +99,11 @@ try {
     mobile: true,
   }, sessionId);
   await cdp.send("Page.enable", {}, sessionId);
-  await cdp.send("Page.navigate", { url: `${base}/?token=${token}` }, sessionId);
+  await cdp.send(
+    "Page.navigate",
+    { url: `${base}/?token=${token}` },
+    sessionId,
+  );
 
   const evaluate = async (expression: string) => {
     const result = await cdp!.send("Runtime.evaluate", {
@@ -126,10 +145,17 @@ try {
       overflow: Math.max(addressBox.right, codeBox.right, buttonBox.right) - box.right,
     };
   })()`);
-  if (!form || form.addressWidth < 250 || form.codeWidth < 160 || form.overflow > 1) {
-    throw new Error(`pairing fields do not fit the phone: ${JSON.stringify(form)}`);
+  if (
+    !form || form.addressWidth < 250 || form.codeWidth < 160 ||
+    form.overflow > 1
+  ) {
+    throw new Error(
+      `pairing fields do not fit the phone: ${JSON.stringify(form)}`,
+    );
   }
-  await evaluate(`document.querySelector(".scanner button.scan").click(); true`);
+  await evaluate(
+    `document.querySelector(".scanner button.scan").click(); true`,
+  );
 
   let state;
   for (let i = 0; i < 40; i++) {
@@ -151,11 +177,18 @@ try {
     if (state?.readyState >= 2 && state?.track === "live") break;
   }
 
-  if (!state || state.display === "none" || state.width < 200 || state.height < 150) {
-    throw new Error(`camera preview has no usable layout: ${JSON.stringify(state)}`);
+  if (
+    !state || state.display === "none" || state.width < 200 ||
+    state.height < 150
+  ) {
+    throw new Error(
+      `camera preview has no usable layout: ${JSON.stringify(state)}`,
+    );
   }
   if (state.readyState < 2 || state.paused || state.track !== "live") {
-    throw new Error(`camera stream is not producing frames: ${JSON.stringify(state)}`);
+    throw new Error(
+      `camera stream is not producing frames: ${JSON.stringify(state)}`,
+    );
   }
 
   console.log(
@@ -164,6 +197,9 @@ try {
   );
 } finally {
   cdp?.close();
-  try { chrome.kill(); } catch { /* already exited */ }
+  await fixtures?.close();
+  try {
+    chrome.kill();
+  } catch { /* already exited */ }
   await Deno.remove(profile, { recursive: true }).catch(() => {});
 }

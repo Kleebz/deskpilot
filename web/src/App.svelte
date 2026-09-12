@@ -1,377 +1,252 @@
 <script>
-  import { api, token, setToken, enroll } from "./lib/api.js";
-  import Pane from "./lib/Pane.svelte";
-  import Overview from "./lib/Overview.svelte";
-  import { vis } from "./lib/visible.svelte.js";
-  import { parsePairingInput } from "./lib/pairing.js";
-  import {
-    hosts, currentHost, switchTo, back, hasPrevious, setCaps, capsFor,
-    needsYou, setNeedsYou,
-  } from "./lib/hosts.svelte.js";
+  import { onMount, tick, untrack } from 'svelte';
+  import { api, post, ready, tilde } from './lib/api.js';
+  import { hosts, currentHost, switchTo, setCaps, needsYou, setNeedsYou } from './lib/hosts.svelte.js';
+  import { vis } from './lib/visible.svelte.js';
+  import Pane from './lib/Pane.svelte';
+  import WindowRow from './lib/WindowRow.svelte';
+  import NewSession from './lib/NewSession.svelte';
+  import AddMachine from './lib/AddMachine.svelte';
+  import Management from './lib/Management.svelte';
 
-  const WORKSPACES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const workspaces = [1,2,3,4,5,6,7,8,9,10];
+  let sessions = $state([]), windows = $state([]), connection = $state('loading');
+  let status = $state(''), bad = $state(false), locked = $state(false);
+  let route = $state({ view: 'sessions', host: hosts.current });
+  let main = $state(null);
+  let shownHost = '', epoch = 0, request = 0;
+  let drafts = $state({}), creationDrafts = $state({}), pairingDraft = $state({ address: '', code: '' });
+  let menu = $state(false), rename = $state(''), target = $state(1), actionBusy = $state(false);
+  let screen = $state(1), password = $state(''), unlocking = $state(false);
+  const screensByHost = new Map();
+  const positions = new Map();
+  const caps = $derived(hosts.caps[hosts.current] ?? {});
+  const selected = $derived(sessions.find(s => s.session === route.session));
+  const rank = s => s.state === 'blocked' ? 0 : s.state === 'working' ? 1 : 2;
+  const ordered = $derived([...sessions].sort((a,b) => rank(a)-rank(b)));
+  const keyFor = r => JSON.stringify([r.host, r.view, r.session ?? '']);
+  const draftKey = $derived(JSON.stringify([hosts.current, route.session]));
+  let restoreFocus = '';
 
-  let sessions = $state([]);
-  let windows = $state([]);
-  let locked = $state(false);
-  let status = $state("");
-  let bad = $state(false);
-  let needToken = $state(!token);
-  let offline = $state(false);
-  let lastSeen = $state(null);
-  let tokenInput = $state("");
-  let rail = $state(null);
-  // Which machine the data on screen came from. Anything left over from the
-  // previous one has to go the moment you switch: without this, selecting a
-  // machine that was off kept the old machine's sessions on screen verbatim —
-  // same list, same "6 on screen" count — under the new machine's name and an
-  // offline banner. Nothing on that screen told you whose work you were
-  // looking at, and every row on it was a lie.
-  let shownHost = hosts.current;
-  // Rail position 0 is the sessions index, which is where the app opens.
-  // Starting this at 1 lit the wrong dot until the first swipe.
-  let activeWs = $state(0);
-
-  const orphans = $derived(sessions.filter((s) => s.workspace === null));
-  const allNames = $derived(sessions.map((s) => s.session));
-
-  // The header shows transient feedback and then gets out of the way. Errors
-  // persist — they are not noise, and a stale error is better than a silent
-  // failure. Successes clear themselves.
-  let clearTimer;
-  function onstatus(text, isErr = false) {
-    status = text;
-    bad = isErr;
-    clearTimeout(clearTimer);
-    if (!isErr && text) clearTimer = setTimeout(() => { if (status === text) status = ""; }, 4000);
+  function onstatus(text, error = false) { status = text; bad = error; }
+  function remember() { if (main) positions.set(keyFor(route), main.scrollTop); }
+  async function renderRoute(next, focus = '') {
+    route = next; menu = false; status = ''; password = '';
+    if (next.view === 'new') creationDrafts[next.host] ??= { name: '', dir: '', command: 'claude', workspace: null };
+    if (next.view === 'terminal') {
+      const key = JSON.stringify([next.host, next.session]);
+      drafts[key] ??= { input: '', clip: '' };
+    }
+    await tick();
+    if (keyFor(route) !== keyFor(next)) return;
+    if (main) main.scrollTop = positions.get(keyFor(next)) ?? 0;
+    const control = focus && document.getElementById(focus);
+    (control || document.querySelector('h1'))?.focus({ preventScroll: true });
   }
+  function navigate(view, extra = {}, invoker = '') {
+    remember(); restoreFocus = invoker;
+    const next = { view, host: hosts.current, ...extra };
+    history.pushState({ deskpilot: next }, '', location.href);
+    renderRoute(next);
+  }
+  function home(top = false) {
+    if (top) positions.set(keyFor({ host: hosts.current, view: 'sessions' }), 0);
+    navigate('sessions');
+  }
+  function cancel() {
+    // Our form entries always have an in-app predecessor.
+    history.back();
+  }
+  function choose(origin) {
+    if (origin === hosts.current) return;
+    remember(); switchTo(origin);
+    positions.set(keyFor({ host: origin, view: 'sessions' }), 0);
+    navigate('sessions');
+  }
+  function open(s) { navigate('terminal', { session: s.session }, `session-${s.session}`); }
+  function create() {
+    creationDrafts[hosts.current] ??= { name: '', dir: '', command: 'claude', workspace: route.view === 'screens' ? screen : null };
+    navigate('new', {}, 'new-session');
+  }
+  async function created(result) {
+    const here = hosts.current, generation = epoch;
+
+    await refresh();
+    if (here !== hosts.current || generation !== epoch || route.view !== 'new') return;
+    if (!sessions.some(s => s.session === result.session)) sessions = [...sessions, result];
+    navigate('terminal', { session: result.session });
+    delete creationDrafts[here];
+    onstatus(result.workspace == null ? 'Session created' : `Session created; desktop placement requested on Screen ${result.workspace}`);
+  }
+  function paired() { home(true); refresh(); onstatus('Machine paired'); }
 
   async function refresh() {
-    const here = currentHost().origin;
+    const host = currentHost(), generation = epoch, seq = ++request;
     try {
-      const [s, w, l, c] = await Promise.all([
-        api("/sessions"),
-        // A machine with no compositor answers these with nothing useful, so
-        // they must not be able to fail the whole refresh.
-        api("/desk/state").catch(() => []),
-        api("/desk/locked").catch(() => ({ locked: false })),
-        api("/capabilities").catch(() => null),
+      const [list, c, w, l] = await Promise.all([
+        api('/sessions', { host }), api('/capabilities', { host }),
+        api('/desk/state', { host }).catch(() => []),
+        api('/desk/locked', { host }).catch(() => ({ locked: false })),
       ]);
-      // A reply from the machine you just left must not land on the machine
-      // you just arrived at. This is not an exotic race: switching is one tap
-      // and these are four requests with an eight second deadline, so the
-      // window is open for most of a switch to anything slow.
-      if (currentHost().origin !== here) return;
-      sessions = s; windows = w; locked = l.locked;
-      if (c) setCaps(here, c);
-      needToken = false;
-      offline = false;
-      lastSeen = new Date();
-      // The header is for transient messages. Counts belong in the index,
-      // where there is room and where you go to act on them — repeating them
-      // in a 12px truncating strip was noise that crowded out real feedback.
-      if (locked) onstatus("locked");
-      else if (bad) onstatus("");   // recovered from an error
+      if (host.origin !== hosts.current || generation !== epoch || seq !== request) return;
+      sessions = list; windows = w; locked = l.locked; setCaps(host.origin, c);
+      setNeedsYou(host.origin, list.filter(s => s.state === 'blocked').length);
+      connection = 'ready';
     } catch (e) {
-      // Likewise for failures: a timeout from the machine you left would
-      // otherwise put "offline" over the machine you are now on.
-      if (currentHost().origin !== here) return;
-      if (e.status === 401) { needToken = true; onstatus("token required", true); }
-      else if (e.unreachable) { offline = true; onstatus("offline", true); }
-      else onstatus(e.message, true);
+      if (host.origin !== hosts.current || generation !== epoch || seq !== request) return;
+      connection = e.status === 401 ? 'auth' : e.unreachable ? 'offline' : 'error';
+      if (connection === 'error') onstatus(e.message, true);
     }
   }
-
-  // Every machine, not just the one on screen. This is the whole point of the
-  // strip: you should be able to see that another box needs you without
-  // leaving the session you are in. Only the count travels — the full list is
-  // still fetched lazily for whichever machine is selected.
-  async function pollOthers() {
-    await Promise.all(hosts.list.map(async (h) => {
-      try {
-        const list = await api("/sessions", { host: h, timeoutMs: 6000 });
-        setNeedsYou(h.origin, list.filter((s) => s.state === "blocked").length);
-      } catch {
-        // A machine that is off or unreachable is not a machine that needs
-        // you; it just has nothing to say.
-        setNeedsYou(h.origin, 0);
-      }
-    }));
-  }
-
-  // Structural poll only — sessions and window geometry. Pane contents refresh
-  // themselves, and only for the visible pane.
-  //
-  // Reading vis.visible and vis.wokeAt makes this effect re-run when the page
-  // is backgrounded or comes back, so returning to the app refetches at once
-  // rather than waiting for a timer the browser had suspended.
-  // Fetch once unconditionally: a page can start hidden — restored in a
-  // background tab, or a PWA launched behind the lock screen — and gating the
-  // first load on visibility leaves it permanently empty. Only the *polling*
-  // is conditional.
   $effect(() => {
-    void vis.wokeAt;
-    // Reading the selected machine here is what makes switching refetch at
-    // once rather than waiting out the poll interval.
     const here = hosts.current;
-    if (here !== shownHost) {
-      shownHost = here;
-      // Empty is honest; the previous machine's list is not. The index says
-      // "no sessions" for the moment it takes the new machine to answer, and
-      // keeps saying it if the machine never does.
-      sessions = []; windows = []; locked = false;
-      offline = false; lastSeen = null;
-      onstatus("");
-    }
-    refresh();
-    pollOthers();
-    if (!vis.visible) return;
-    const id = setInterval(refresh, 5000);
-    // Slower than the foreground poll: this is N requests and it only feeds a
-    // badge, so it does not need to keep pace with the screen you are on.
-    const other = setInterval(pollOthers, 15000);
-    return () => { clearInterval(id); clearInterval(other); };
-  });
-
-  // Rail position 0 is the index; workspace N is therefore at position N.
-  function onRailScroll() {
-    if (!rail) return;
-    activeWs = Math.round(rail.scrollLeft / (rail.clientWidth || 1));
-  }
-
-  // Which session a screen is showing, when it holds more than one. Keyed by
-  // workspace -> session name. The spatial model addresses a *screen*, but a
-  // screen can host two sessions (a claude agent and a shell, say), and without
-  // this the pane always showed whichever sorted first — so the index could
-  // list both but only ever reach one. A tap from the index records the choice
-  // here; sessionFor honours it.
-  // Keyed by machine, then workspace. It was workspace alone, which meant a
-  // choice made on one machine silently applied to another machine's screen of
-  // the same number — and with sessions named after directories, two machines
-  // sharing a name is the normal case rather than a coincidence.
-  let selected = $state({});
-
-  function jump(ws, session) {
-    if (session) {
-      const host = currentHost().origin;
-      selected = { ...selected, [host]: { ...(selected[host] ?? {}), [ws]: session } };
-    }
-    rail?.scrollTo({ left: ws * (rail.clientWidth || 1), behavior: "smooth" });
-  }
-
-  // Takes either a pairing code or a raw token, because the person typing it
-  // does not necessarily know which they were handed — and telling them apart
-  // is trivial. A code is eight characters from a deliberately unambiguous
-  // alphabet; a token is 64 hex characters.
-  const looksLikeCode = (v) => /^[34679CDFGHJKMNPQRTVWXY]{8}$/i.test(v);
-
-  async function saveToken(ev) {
-    ev.preventDefault();
-    const parsed = parsePairingInput(tokenInput);
-    const v = parsed.code;
-    if (!v) {
-      if (parsed.wasLink) onstatus("that link has no pairing code", true);
-      return;
-    }
-    if (looksLikeCode(v)) {
-      try {
-        await enroll(v, parsed.host);
-        tokenInput = "";
-        onstatus("paired");
-        refresh();
-      } catch (e) {
-        onstatus(e.message, true);
+    void vis.wokeAt;
+    untrack(() => {
+    if (shownHost !== here) {
+      screensByHost.set(shownHost, screen); screen = screensByHost.get(here) ?? 1;
+      shownHost = here; epoch++; sessions = []; windows = []; connection = 'loading';
+      if (route.host !== here) {
+        positions.set(keyFor({ host: here, view: 'sessions' }), 0);
+        renderRoute({ host: here, view: 'sessions' });
       }
-      return;
     }
-    setToken(v);
-    tokenInput = "";
-    refresh();
+    ready.then(refresh);
+    });
+    if (!vis.visible) return;
+    const timer = setInterval(refresh, 5000);
+    return () => clearInterval(timer);
+  });
+  $effect(() => {
+    const list = hosts.list.map(h => ({ ...h }));
+    if (!vis.visible) return;
+    const poll = () => Promise.all(list.map(async host => {
+      try { const s = await api('/sessions', { host, timeoutMs: 6000 }); setNeedsYou(host.origin, s.filter(s => s.state === 'blocked').length); }
+      catch { setNeedsYou(host.origin, 0); }
+    }));
+    poll(); const timer = setInterval(poll, 15000);
+    return () => clearInterval(timer);
+  });
+  onMount(() => {
+    history.replaceState({ deskpilot: $state.snapshot(route) }, '', location.href);
+    const back = e => {
+      if (!e.state?.deskpilot) return;
+      remember(); const next = e.state.deskpilot;
+      if (!hosts.list.some(h => h.origin === next.host)) { home(true); return; }
+      switchTo(next.host); renderRoute(next, restoreFocus); restoreFocus = '';
+    };
+    const resize = () => document.documentElement.style.setProperty('--app-h', `${window.visualViewport?.height ?? innerHeight}px`);
+    window.addEventListener('popstate', back);
+    window.visualViewport?.addEventListener('resize', resize); resize();
+    return () => { window.removeEventListener('popstate', back); window.visualViewport?.removeEventListener('resize', resize); };
+  });
+  async function unlock(e) {
+    e.preventDefault();
+    const host = currentHost(), generation = epoch, secret = password;
+    password = ''; unlocking = true;
+    try {
+      await post('/unlock', { password: secret }, { host, timeoutMs: 20000 });
+      if (generation === epoch && hosts.current === host.origin) { onstatus('Desktop unlocked'); refresh(); }
+    } catch (e) { if (generation === epoch && hosts.current === host.origin) onstatus(e.message, true); }
+    finally { unlocking = false; }
   }
-
-  // Prefer the session the user picked from the index for this screen; fall
-  // back to the first one on it. The fallback covers the common single-session
-  // case (nothing was ever picked) and a picked session that has since closed —
-  // resolving by name each time means a stale selection cannot pin the pane to
-  // a session that is no longer there.
-  const sessionFor = (ws) => {
-    const here = sessions.filter((s) => s.workspace === ws);
-    return here.find((s) => s.session === selected[currentHost().origin]?.[ws]) ??
-      here[0] ?? null;
-  };
-  const windowsFor = (ws) => windows.filter((w) => w.workspace === ws);
-  const occupied = (ws) => sessions.some((s) => s.workspace === ws) || windowsFor(ws).length > 0;
+  async function action(kind) {
+    if (actionBusy || !selected) return;
+    if (kind === 'kill' && !confirm(`Kill session "${selected.session}"? Anything running in it is lost.`)) return;
+    const host = currentHost(), generation = epoch, name = selected.session;
+    const view = route;
+    actionBusy = true;
+    try {
+      await post(`/sessions/${kind}`, { session: name, ...(kind === 'rename' ? { name: rename.trim() } : {}), ...(kind === 'attach' ? { workspace: target } : {}) }, { host });
+      if (generation !== epoch || host.origin !== hosts.current || route !== view) return;
+      if (kind === 'rename') {
+        drafts[JSON.stringify([host.origin, rename.trim()])] = drafts[draftKey];
+        route = { ...route, session: rename.trim() };
+        history.replaceState({ deskpilot: $state.snapshot(route) }, '', location.href);
+      }
+      if (kind === 'kill') home();
+      menu = false; await refresh();
+      if (host.origin === hosts.current) onstatus(kind === 'attach' ? `Opening ${name} on Screen ${target}` : kind === 'kill' ? 'Session killed' : 'Session renamed');
+    } catch (e) { if (generation === epoch && host.origin === hosts.current) onstatus(e.message, true); }
+    finally { actionBusy = false; }
+  }
 </script>
 
 <header>
-  <b class="brand">deskpilot</b>
-  <button class="dots" onclick={() => jump(0)} title="all sessions">
-    <i class:on={activeWs === 0} class="idx"></i>
-    {#if capsFor().windows}
-      {#each WORKSPACES as n}
-        <i class:on={n === activeWs} class:has={occupied(n)}></i>
-      {/each}
-    {/if}
-  </button>
-  <span class:err={bad} class="dim status">{status}</span>
-  <button class="reload" onclick={refresh}>↻</button>
+  <label class="picker">Machine<select aria-label="Machine" value={hosts.current} onchange={e => choose(e.currentTarget.value)}>{#each hosts.list as h (h.origin)}<option value={h.origin}>{h.name}{needsYou[h.origin] ? ` · ${needsYou[h.origin]} need you` : ''}</option>{/each}</select></label>
+  <button id="add-machine" class="addm" onclick={() => navigate('add', {}, 'add-machine')}>Add machine</button>
 </header>
-
-{#if hosts.list.length > 1}
-  <!-- Machines live here rather than on a vertical swipe: dragging up and down
-       is how a terminal scrolls, and the two would fight on every session
-       screen. One tap switches; the strip stays visible so you can see where
-       the work is without leaving the session you are in. -->
-  <nav class="machines">
-    {#each hosts.list as h (h.origin)}
-      <button
-        class="machine"
-        class:on={h.origin === hosts.current}
-        onclick={() => (h.origin === hosts.current && hasPrevious() ? back() : switchTo(h.origin))}
-        title={h.origin}
-      >{h.name}{#if needsYou[h.origin]}<span class="dot"></span>{/if}</button>
-    {/each}
-  </nav>
-{/if}
-
-{#if offline && !needToken}
-  <div class="offline">
-    <b>Can't reach the desktop.</b>
-    Almost always Tailscale — being signed in is not the same as the tunnel running,
-    and Android stops it in the background unless it is set to always-on with
-    unrestricted battery use.
-    {#if lastSeen}<br /><span class="dim">Last contact {lastSeen.toLocaleTimeString()}.</span>{/if}
-    <button onclick={refresh}>retry</button>
-  </div>
-{/if}
-
-{#if needToken}
-  <form class="gate" onsubmit={saveToken}>
-    <p class="dim">
-      Scan the QR from <code>deskpilot pair</code>, paste its complete link here, or
-      enter the eight-character code. A token from <code>~/.config/deskpilot/token</code>
-      also works.
-    </p>
-    <input bind:value={tokenInput} placeholder="pairing link or code"
-           autocomplete="off" autocapitalize="characters" autocorrect="off"
-           spellcheck="false" />
-    <button>save</button>
-  </form>
+{#if route.view !== 'terminal'}
+<nav aria-label="Views"><button class:active={route.view === 'sessions'} onclick={() => home()}>Sessions</button>{#if caps.windows}<button class:active={route.view === 'screens'} onclick={() => navigate('screens')}>Screens</button>{/if}<button class:active={route.view === 'management'} onclick={() => navigate('management')}>Manage</button></nav>
 {:else}
-  <div class="rail" bind:this={rail} onscroll={onRailScroll}>
-    <Overview
-      {sessions}
-      workspaces={WORKSPACES}
-      {locked}
-      {onstatus}
-      onchanged={refresh}
-      onjump={jump} />
-    {#each WORKSPACES as ws (ws)}
-      <Pane
-        {ws}
-        session={sessionFor(ws)}
-        windows={windowsFor(ws)}
-        {orphans}
-        {allNames}
-        workspaces={WORKSPACES}
-        active={ws === activeWs}
-        {onstatus}
-        onchanged={refresh} />
-    {/each}
-  </div>
+<div class="terminal-nav"><button onclick={() => { const id = `session-${route.session}`; home(); tick().then(() => document.getElementById(id)?.focus({ preventScroll: true })); }}>Back to sessions</button><button aria-expanded={menu} onclick={() => { menu = !menu; rename = route.session; }}>Session actions</button></div>
+{/if}
+{#if status}<div class:err={bad} class="feedback" role={bad ? 'alert' : 'status'}>{status}</div>{/if}
+
+{#if route.view === 'terminal' && connection === 'ready' && selected}
+  {#if menu}<div class="session-menu">
+    <label>Session name<input bind:value={rename} aria-label="Session name" /></label><button disabled={actionBusy || !rename.trim()} onclick={() => action('rename')}>Rename</button>
+    {#if caps.windows}<label>Desktop screen<select bind:value={target}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label><button disabled={actionBusy} onclick={() => action('attach')}>Attach to screen</button>{/if}
+    <button class="danger" disabled={actionBusy} onclick={() => action('kill')}>Kill session</button>
+  </div>{/if}
+  {#key draftKey}<Pane ws={selected.workspace} session={selected} windows={[]} orphans={[]} allNames={sessions.map(s => s.session)} {workspaces} active={true} {onstatus} onchanged={refresh} bind:draft={drafts[draftKey]} />{/key}
+{:else}
+<main bind:this={main}>
+  {#if route.view === 'add'}
+    <AddMachine bind:draft={pairingDraft} onpaired={paired} oncancel={cancel} />
+  {:else if route.view === 'new'}
+    <h1 tabindex="-1">New session</h1>
+    {#key hosts.current}<NewSession taken={sessions.map(s => s.session)} bind:draft={creationDrafts[hosts.current]} onchanged={created} oncancel={cancel} />{/key}
+  {:else if route.view === 'management'}
+    {#key hosts.current}<Management {onstatus} connected={connection === 'ready'} />{/key}
+  {:else if connection !== 'ready'}
+    {#if connection === 'loading'}<h1 tabindex="-1">Loading sessions…</h1><p role="status">Connecting to {currentHost().name}.</p>
+    {:else if connection === 'auth'}<h1 tabindex="-1">Authentication required</h1><p>Pair this device with {currentHost().name} to continue.</p><button class="primary" onclick={() => { pairingDraft.address = currentHost().origin; navigate('add'); }}>Pair this machine</button>
+    {:else if connection === 'offline'}<h1 tabindex="-1">Machine offline</h1><p>Cannot reach {currentHost().name}. Check the machine and your Tailscale connection.</p><button onclick={refresh}>Retry connection</button>
+    {:else}<h1 tabindex="-1">Could not load sessions</h1><button onclick={refresh}>Try again</button>{/if}
+  {:else if route.view === 'screens' && caps.windows}
+    <h1 tabindex="-1">Screens</h1>
+    <label>Desktop workspace<select bind:value={screen}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label>
+    {#if locked}<p class="dim">Desktop locked. Screenshots are unavailable.</p>
+      {#if caps.unlock}<form onsubmit={unlock}><label>Desktop password<input type="password" bind:value={password} autocomplete="current-password" /></label><button disabled={unlocking || !password}>{unlocking ? 'Unlocking…' : 'Unlock desktop'}</button></form>{/if}
+    {/if}
+    {#each sessions.filter(s => s.workspace === screen) as s (s.session)}<button class="session-row" onclick={() => open(s)}>{s.session} · Open terminal</button>{/each}
+    {#each windows.filter(w => w.workspace === screen) as win (win.address)}<WindowRow {win} {workspaces} {onstatus} onchanged={refresh} />{:else}<p class="dim">No windows on Screen {screen}.</p>{/each}
+    <button id="new-session" class="primary" onclick={create}>New session</button>
+  {:else if route.view === 'terminal'}
+    <h1 tabindex="-1">Session closed</h1><p>This session is no longer running.</p><button onclick={() => home()}>Back to sessions</button>
+  {:else}
+    <div class="heading"><h1 tabindex="-1">Sessions</h1><button aria-label="Refresh sessions" onclick={refresh}>Refresh</button></div>
+    {#each ordered as s (s.session)}
+      <button id={`session-${s.session}`} class="session-row" onclick={() => open(s)}>
+        <span class="row-title"><strong>{s.session}</strong><span class:err={s.state === 'blocked'} class="dim">{s.state === 'blocked' ? 'Needs you' : s.state === 'working' ? 'Working' : 'Idle'}</span></span>
+        <span class="dim">{s.workspace == null ? 'No desktop window' : `Screen ${s.workspace}`} · {tilde(s.path) || s.command || 'Terminal'}</span>
+        {#if s.state === 'blocked' && (s.tool || s.detail)}<span>{s.tool ? `${s.tool}: ` : ''}{s.detail ?? ''}</span>{/if}
+      </button>
+    {:else}<p>No sessions yet. Start a session to open a terminal on this machine.</p>{#if caps.shellHook === false}<p class="dim">Sessions started outside tmux are not visible here.</p>{/if}{/each}
+    <button id="new-session" class="primary sticky" onclick={create}>New session</button>
+  {/if}
+</main>
 {/if}
 
 <style>
-  /* A scrollable strip rather than a wrapping row: the header must never grow
-     a second line, and this reads well up to five or six machines before it
-     wants to become a picker instead. */
-  .machines {
-    display: flex; gap: .35rem; overflow-x: auto; min-width: 0;
-    padding: .3rem .6rem; scrollbar-width: none;
-    border-bottom: 1px solid var(--card-line);
-  }
-  .machines::-webkit-scrollbar { height: 0; }
-  .machine {
-    flex: none; min-height: 44px; padding: 0 .8rem;
-    font-size: 12px; color: var(--dim);
-    background: var(--card); border: 1px solid var(--card-line);
-    border-radius: 999px; white-space: nowrap;
-  }
-  .machine.on { color: var(--ok); border-color: var(--ok); }
-  /* A dot, not a number: the useful question is "does that one need me", and a
-     count invites you to read it rather than act on it. */
-  .dot {
-    display: inline-block; width: 7px; height: 7px; margin-left: .4rem;
-    border-radius: 50%; background: var(--err); vertical-align: middle;
-  }
-  /* Every child is flex:none except the status, which absorbs the slack and
-     truncates. Without this the header overflowed below ~360px. */
-  header {
-    display: flex; gap: .5rem; align-items: center; min-width: 0;
-    flex: none;
-    padding: .5rem .6rem; border-bottom: 1px solid var(--line);
-    background: var(--bg); z-index: 3;
-  }
-  /* Landscape on a phone is wide and very short — 390px tall. Every row of
-     chrome costs a visible line of transcript, so the header slims down and
-     the wordmark goes. */
-  @media (max-height: 480px) {
-    header { padding: .25rem .5rem; }
-    .brand { display: none; }
-    /* The strip did not slim with the header, so on a 430px-tall landscape
-       phone it and the header together took 108px — a quarter of the screen —
-       before a single line of transcript. 38px is the floor the panes already
-       settled on for landscape; this follows that rather than inventing a
-       second answer to the same question. */
-    .machines { padding: .1rem .5rem; }
-    .machine { min-height: 38px; }
-  }
-  .brand {
-    flex: none; font-weight: 600; letter-spacing: .06em;
-    color: var(--ok);
-    text-shadow: 0 0 14px color-mix(in srgb, var(--ok) 40%, transparent);
-  }
-  .reload { flex: none; }
-  .status {
-    flex: 1 1 auto; min-width: 0; font-size: 12px; text-align: right;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* Narrow phones: the wordmark is the first thing that can go. */
-  @media (max-width: 359px) {
-    .brand { display: none; }
-    header { gap: .4rem; }
-  }
-  .dots {
-    display: flex; gap: 4px; align-items: center; flex: none;
-    border: 0; padding: .3rem .2rem; background: transparent;
-  }
-  .dots i {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--line); display: block;
-  }
-  .dots i.has { background: var(--dim); }
-  /* the index marker is a square so it reads as "not a screen" */
-  .dots i.idx { border-radius: 2px; background: var(--dim); }
-  .dots i.on {
-    background: var(--ok);
-    box-shadow: 0 0 8px -1px color-mix(in srgb, var(--ok) 70%, transparent);
-  }
-  .rail {
-    display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
-    /* Takes whatever is left after the header — no assumed header height.
-       min-height:0 is required or a flex child refuses to shrink. */
-    flex: 1; min-height: 0; scrollbar-width: none;
-    /* Without contain, a swipe past the last pane scrolls the page behind it. */
-    overscroll-behavior-x: contain;
-  }
-  .rail::-webkit-scrollbar { display: none; }
-  .offline {
-    margin: .6rem; padding: .6rem .7rem; border-radius: var(--radius); line-height: 1.5;
-    font-size: 12px; border: 1px solid color-mix(in srgb, var(--err) 60%, transparent);
-    background: color-mix(in srgb, var(--err) 10%, transparent);
-    box-shadow: 0 0 16px -6px color-mix(in srgb, var(--err) 60%, transparent);
-  }
-  .offline button { margin-top: .4rem; display: block; }
-  .gate { padding: 1rem; display: flex; flex-direction: column; gap: .6rem; overflow-y: auto; }
-  .gate p { margin: 0; font-size: 12px; line-height: 1.5; }
+header { display:flex; gap:.6rem; align-items:end; padding:.5rem .7rem; border-bottom:1px solid var(--line); flex:none; }
+.picker { flex:1; min-width:0; font-size:12px; gap:.2rem; }
+.picker select { width:100%; }
+header button { flex:none; font-size:12px; }
+nav,.terminal-nav { display:flex; gap:.4rem; padding:.4rem .7rem; flex:none; }
+.terminal-nav button { font-size:12px; }
+nav button { flex:1; min-width:0; }
+.active { color:var(--ok); border-color:var(--ok); }
+main { flex:1; min-height:0; overflow:auto; padding:.7rem; display:flex; flex-direction:column; gap:.7rem; overflow-wrap:anywhere; }
+main > :global(*) { flex-shrink:0; }
+.heading,.row-title { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
+.session-row { display:flex; flex-direction:column; align-items:stretch; gap:.35rem; text-align:left; width:100%; background:var(--card); padding:.85rem; overflow-wrap:anywhere; }
+.row-title strong { min-width:0; color:var(--ok); }
+.row-title > span { flex:none; font-size:12px; }
+.session-row > .dim { font-size:12px; }
+.sticky { position:sticky; bottom:0; margin-top:auto; background:var(--panel); }
+.feedback { padding:.4rem .7rem; overflow-wrap:anywhere; flex:none; font-size:12px; }
+.session-menu { padding:.7rem; display:flex; flex-wrap:wrap; gap:.5rem; max-height:45%; overflow:auto; }
+.session-menu label { flex:1; min-width:140px; }
+@media(max-height:480px) { header { padding:.2rem .5rem; } .picker { flex-direction:row; align-items:center; } nav,.terminal-nav { padding:.2rem .5rem; } }
 </style>

@@ -1,151 +1,35 @@
 <script>
-  import { api, post, waitFor, tilde } from "./api.js";
-
-  let { ws, taken, onstatus, onchanged, oncancel } = $props();
-
-  // The old flow hardcoded bash in $HOME, which meant you could not start an
-  // agent on a project from your phone — the thing this exists for.
-  const PRESETS = [
-    { label: "shell", cmd: "bash" },
-    { label: "claude", cmd: "claude" },
-    { label: "continue", cmd: "claude --continue" },
-  ];
-
-  let dirs = $state([]);
-  let dir = $state("");
-  let name = $state("");
-  let preset = $state("claude");
-  let custom = $state("");
-  let busy = $state(false);
-  let touchedName = $state(false);
-
-  const command = $derived(preset === "custom" ? custom.trim() : preset);
-
-  // The server refuses anything outside this set rather than escaping it, since
-  // the name reaches tmux. Enforce it here so a space produces guidance in the
-  // field instead of "bad session name" after a round trip.
-  const OK = /^[A-Za-z0-9_.-]{1,64}$/;
-  const clash = $derived(taken.includes(name.trim()));
-  const nameProblem = $derived(
-    !name.trim() ? "required"
-    : !OK.test(name.trim()) ? "letters, numbers, dot, dash, underscore only"
-    : clash ? "already in use"
-    : "",
-  );
-
-  $effect(() => {
-    api("/dirs")
-      .then((d) => { dirs = d; if (!dir) dir = d[1] ?? d[0] ?? ""; })
-      .catch((e) => onstatus(e.message, true));
+  import { onMount, onDestroy } from 'svelte';
+  import { api, post, tilde } from './api.js';
+  import { currentHost, capsFor } from './hosts.svelte.js';
+  let { ws = null, taken = [], onchanged, oncancel, draft = $bindable({ name: '', dir: '', command: 'claude', workspace: ws }) } = $props();
+  const host = currentHost();
+  let alive = true;
+  let dirs = $state([]), busy = $state(false), error = $state('');
+  onDestroy(() => alive = false);
+  onMount(async () => {
+    try { dirs = await api('/dirs', { host }); if (!draft.dir) draft.dir = dirs[1] ?? dirs[0] ?? ''; }
+    catch (e) { error = e.message; }
   });
-
-  // Name follows the directory until you type your own — same rule as the
-  // shell wrapper, so a session is named for its project either way.
-  $effect(() => {
-    if (touchedName || !dir) return;
-    const base = dir.split("/").filter(Boolean).pop() ?? "s";
-    name = uniquify(base.replace(/[^A-Za-z0-9_.-]/g, "-"));
-  });
-
-  function uniquify(base) {
-    if (!taken.includes(base)) return base;
-    for (let i = 2; i < 99; i++) if (!taken.includes(`${base}-${i}`)) return `${base}-${i}`;
-    return base;
-  }
-
-  async function create() {
-    if (nameProblem) { onstatus(`name: ${nameProblem}`, true); return; }
-    if (!command) { onstatus("pick something to run", true); return; }
-    busy = true;
-    const n = name.trim();
+  const problem = $derived(!/^[A-Za-z0-9_.-]{1,64}$/.test(draft.name.trim()) ? 'Use 1–64 letters, numbers, dots, dashes or underscores.' : taken.includes(draft.name.trim()) ? 'That name is already in use.' : '');
+  async function create(e) {
+    e.preventDefault();
+    if (busy || problem || !draft.command.trim()) return;
+    busy = true; error = '';
     try {
-      await post("/sessions", { name: n, path: dir, command, workspace: ws });
-    } catch (e) {
-      onstatus(e.message, true);
-      busy = false;
-      return;
-    }
-    // Creation succeeded. The window takes a moment to appear, and if it never
-    // does the session still exists — reporting that as a failure would be a
-    // lie that also hides a working session.
-    onstatus(`${n} created, opening window…`);
-    const placed = await waitFor(async () => {
-      const list = await api("/sessions");
-      return list.some((s) => s.session === n && s.workspace === ws);
-    });
-    onstatus(placed
-      ? `${n} · ${command} · screen ${ws}`
-      : `${n} created but has no window yet — see the sessions index`);
-    busy = false;
-    onchanged();
+      const result = await post('/sessions', { name: draft.name.trim(), path: draft.dir, command: draft.command.trim(), workspace: capsFor(host.origin).windows ? draft.workspace : null }, { host });
+      if (alive) onchanged(result);
+    } catch (e) { if (alive) error = e.message; }
+    finally { busy = false; }
   }
 </script>
-
-<div class="form">
-  <label>
-    <span class="lbl">directory</span>
-    <select bind:value={dir}>
-      {#each dirs as d}<option value={d}>{tilde(d)}</option>{/each}
-    </select>
-  </label>
-
-  <label>
-    <span class="lbl">run</span>
-    <div class="presets">
-      {#each PRESETS as p}
-        <button class="sm" class:sel={preset === p.cmd} onclick={() => (preset = p.cmd)}>
-          {p.label}
-        </button>
-      {/each}
-      <button class="sm" class:sel={preset === "custom"} onclick={() => (preset = "custom")}>
-        other
-      </button>
-    </div>
-  </label>
-
-  {#if preset === "custom"}
-    <input bind:value={custom} placeholder="command" autocapitalize="off" autocorrect="off" />
-  {/if}
-
-  <label>
-    <span class="lbl">name</span>
-    <input
-      class:bad={touchedName && nameProblem}
-      bind:value={name}
-      oninput={(e) => {
-        touchedName = true;
-        // spaces are the common case; turn them into something legal as you type
-        const fixed = e.currentTarget.value.replace(/\s+/g, "-");
-        if (fixed !== e.currentTarget.value) name = fixed;
-      }}
-      placeholder="session name" autocapitalize="off" autocorrect="off" />
-    {#if touchedName && nameProblem}
-      <span class="hint err">{nameProblem}</span>
-    {/if}
-  </label>
-
-  <div class="acts">
-    <button onclick={oncancel}>cancel</button>
-    <button class="go" disabled={busy || !!nameProblem} onclick={create}>
-      {busy ? "starting…" : `start on screen ${ws}`}
-    </button>
-  </div>
-</div>
-
-<style>
-  .form {
-    display: flex; flex-direction: column; gap: .5rem; min-width: 0;
-    border: 1px solid var(--line); border-radius: 8px; padding: .6rem;
-  }
-  label { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
-  .lbl { font-size: .65rem; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
-  select, input { width: 100%; min-width: 0; }
-  .presets { display: flex; gap: .3rem; flex-wrap: wrap; min-width: 0; }
-  .presets button.sel { border-color: var(--ok); color: var(--ok); }
-  .acts { display: flex; gap: .4rem; min-width: 0; }
-  .acts button { flex: 1; min-width: 0; }
-  .acts .go { border-color: var(--ok); color: var(--ok); }
-  .acts .go:disabled { border-color: var(--line); color: var(--dim); }
-  input.bad { border-color: var(--err); }
-  .hint { font-size: 11px; }
-</style>
+<form onsubmit={create}>
+  <label>Session name<input bind:value={draft.name} autocomplete="off" autocapitalize="off" placeholder="e.g. api-review" /></label>
+  {#if draft.name && problem}<span class="err">{problem}</span>{/if}
+  <label>Directory<select bind:value={draft.dir}>{#each dirs as d}<option value={d}>{tilde(d)}</option>{/each}</select></label>
+  <label>Command<input bind:value={draft.command} list="commands" autocapitalize="off" autocomplete="off" /></label>
+  <datalist id="commands"><option value="bash"></option><option value="claude"></option><option value="claude --continue"></option></datalist>
+  {#if capsFor(host.origin).windows}<label>Desktop placement<select bind:value={draft.workspace}><option value={null}>No desktop window</option>{#each [1,2,3,4,5,6,7,8,9,10] as n}<option value={n}>Screen {n}</option>{/each}</select></label>{/if}
+  {#if error}<p role="alert" class="err">{error}</p>{/if}
+  <div class="form-actions"><button type="button" onclick={oncancel}>Cancel</button><button class="primary" disabled={busy || !!problem || !draft.command.trim()}>{busy ? 'Starting…' : 'Create session'}</button></div>
+</form>
