@@ -7,6 +7,7 @@ export async function fixture() {
     enrollDelay: 0,
     createDelay: 0,
     calls: [] as string[],
+    requests: [] as { port: number; path: string; body: any }[],
     created: [] as any[],
     sockets: [] as string[],
     remoteBlocked: true,
@@ -38,6 +39,11 @@ export async function fixture() {
       }
       if (u.pathname.startsWith("/api/")) {
         state.calls.push(`${port}:${req.method}:${u.pathname}`);
+        if (req.method === "POST" && ["/api/send", "/api/paste"].includes(u.pathname)) {
+          const body = await req.json();
+          state.requests.push({ port, path: u.pathname, body });
+          return json({ ok: true });
+        }
         if (u.pathname === "/api/devices/enroll") {
           const body = await req.json();
           if (state.enrollDelay) {

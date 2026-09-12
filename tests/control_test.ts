@@ -7,6 +7,7 @@
 
 import { assertEquals } from "jsr:@std/assert@1";
 import { keysCommand, unescapeOutput } from "../server/control.ts";
+import { inputBufferName, pasteInputArgs } from "../server/tmux-input.ts";
 
 Deno.test("octal escapes become the bytes they stand for", () => {
   assertEquals(unescapeOutput("\\015"), "\r");
@@ -45,4 +46,29 @@ Deno.test("a long paste is split so no command line grows unbounded", () => {
   const cmds = keysCommand("s", "x".repeat(500));
   assertEquals(cmds.length, 3);
   for (const c of cmds) assertEquals(c.split(" ").length <= 205, true);
+});
+
+Deno.test("composed text is bracketed-pasted and submitted in one sequence", () => {
+  assertEquals(
+    pasteInputArgs("deskpilot-request1", "work", true),
+    [
+      "paste-buffer", "-p", "-d", "-b", "deskpilot-request1", "-t", "work",
+      ";", "send-keys", "-t", "work", "Enter",
+    ],
+  );
+});
+
+Deno.test("non-submitting text and clipboard paste omit Enter", () => {
+  assertEquals(
+    pasteInputArgs("deskpilot-request2", "work", false),
+    ["paste-buffer", "-p", "-d", "-b", "deskpilot-request2", "-t", "work"],
+  );
+});
+
+Deno.test("each input request gets its own tmux buffer", () => {
+  assertEquals(inputBufferName("first-id"), "deskpilot-firstid");
+  const first = inputBufferName();
+  const second = inputBufferName();
+  assertEquals(first.startsWith("deskpilot-"), true);
+  assertEquals(first === second, false);
 });

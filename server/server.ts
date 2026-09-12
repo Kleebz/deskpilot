@@ -19,6 +19,7 @@ import { runCommand } from "./cli.ts";
 import { listSessions } from "./sessions.ts";
 import { ROOT, scriptsDir } from "./scripts.ts";
 import { AgentStates, isLifecycle, type LifecycleReport } from "./agent-state.ts";
+import { inputBufferName, pasteInputArgs } from "./tmux-input.ts";
 
 const WEB = `${ROOT}/web`;
 
@@ -117,6 +118,31 @@ async function run(cmd: string, args: string[]) {
     // 127 is what a shell reports for "command not found", which is what this
     // is, and callers already treat any non-zero code as failure.
     return { code: 127, out: "", err: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// load-buffer is the only tmux operation here that takes request data on
+// stdin. Keeping text out of argv avoids quoting ambiguities and process-list
+// exposure. An error string means the caller must not attempt the paste.
+async function loadTmuxBuffer(buffer: string, text: string): Promise<string> {
+  try {
+    const child = new Deno.Command("tmux", {
+      args: ["load-buffer", "-b", buffer, "-"],
+      stdin: "piped",
+      stdout: "null",
+      stderr: "piped",
+    }).spawn();
+    const writer = child.stdin.getWriter();
+    await writer.write(new TextEncoder().encode(text));
+    await writer.close();
+    const loaded = await child.output();
+    if (loaded.code === 0) return "";
+    await run("tmux", ["delete-buffer", "-b", buffer]);
+    return new TextDecoder().decode(loaded.stderr).trim() ||
+      "could not load the paste buffer";
+  } catch (e) {
+    await run("tmux", ["delete-buffer", "-b", buffer]);
+    return e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -228,10 +254,10 @@ const ALLOWED_KEYS = new Set([
 
 // One clipboard's worth, not a file transfer: a paste is delivered to whatever
 // is running in the pane, and handing a TUI a megabyte of text in one go is a
-// way to wedge it rather than a feature. A named buffer keeps pastes from
-// piling up on tmux's buffer stack.
+// way to wedge it rather than a feature. Request-scoped named buffers keep
+// pastes off tmux's buffer stack without allowing simultaneous requests to
+// overwrite one another.
 const PASTE_MAX = 100_000;
-const PASTE_BUFFER = "deskpilot";
 
 // Tools whose worst case is reading something. These are the only requests the
 // phone may approve with one tap: the notification shows what is being asked,
@@ -742,10 +768,10 @@ async function handle(req: Request): Promise<Response> {
   }
 
   // Two modes, deliberately separate:
-  //   { text }  literal typing, sent with -l so it can never be interpreted
+  //   { text }  composed input, delivered through a bracketed tmux paste
   //   { keys }  named keys from a fixed allowlist, for driving TUI dialogs
   // Text can never become a key and a key can never be arbitrary — which is
-  // the whole point, since both end up as arguments to tmux send-keys.
+  // the point of keeping these request shapes separate at the tmux boundary.
   if (req.method === "POST" && path === "/api/send") {
     const body = await req.json().catch(() => null);
     const s = body?.session ?? "";
@@ -762,17 +788,24 @@ async function handle(req: Request): Promise<Response> {
 
     const text = body?.text ?? "";
     if (typeof text !== "string" || !text.length) return fail("empty text");
-    const lit = await run("tmux", ["send-keys", "-t", s, "-l", text]);
-    if (lit.code !== 0) return fail(lit.err || "send failed", 500);
-    if (body?.enter !== false) await run("tmux", ["send-keys", "-t", s, "Enter"]);
+    if (text.length > PASTE_MAX) {
+      return fail(`too much text — ${PASTE_MAX} characters at a time`, 413);
+    }
+    const buffer = inputBufferName();
+    const loaded = await loadTmuxBuffer(buffer, text);
+    if (loaded) return withCookie(fail(loaded, 500));
+    const sent = await run("tmux", pasteInputArgs(buffer, s, body?.enter !== false));
+    if (sent.code !== 0) {
+      await run("tmux", ["delete-buffer", "-b", buffer]);
+      return withCookie(fail(sent.err || "send failed", 500));
+    }
     return withCookie(json({ ok: true, session: s }));
   }
 
   // Paste, which is not the same thing as typing.
   //
-  // /api/send types text as keystrokes, which is right for a line composed on
-  // the phone and wrong for a block off the clipboard: every newline in it is
-  // an Enter, so a thirty-line snippet arrives as thirty submitted prompts.
+  // /api/send follows its bracketed paste with Enter, which is right for a line
+  // composed on the phone and wrong for a block that should remain editable.
   //
   // tmux's own buffer is the way round that. `load-buffer -` takes the text on
   // stdin, so nothing is ever quoted into a command line — the same reason
@@ -792,27 +825,17 @@ async function handle(req: Request): Promise<Response> {
       return fail(`too much text — ${PASTE_MAX} characters at a time`, 413);
     }
 
-    const child = new Deno.Command("tmux", {
-      args: ["load-buffer", "-b", PASTE_BUFFER, "-"],
-      stdin: "piped", stdout: "null", stderr: "piped",
-    }).spawn();
-    const w = child.stdin.getWriter();
-    await w.write(new TextEncoder().encode(text));
-    await w.close();
-    const loaded = await child.output();
-    if (loaded.code !== 0) {
-      const msg = new TextDecoder().decode(loaded.stderr).trim();
-      return withCookie(fail(msg || "could not load the paste buffer", 500));
-    }
+    const buffer = inputBufferName();
+    const loaded = await loadTmuxBuffer(buffer, text);
+    if (loaded) return withCookie(fail(loaded, 500));
 
     // -d drops the buffer as it is pasted. It holds somebody's clipboard, and
     // there is no reason for that to sit in tmux until the next paste replaces
     // it — where `showb` would print it, and a later `prefix ]` would paste it
     // somewhere nobody asked for.
-    const r = await run("tmux",
-      ["paste-buffer", "-p", "-d", "-b", PASTE_BUFFER, "-t", s]);
+    const r = await run("tmux", pasteInputArgs(buffer, s, false));
     if (r.code !== 0) {
-      await run("tmux", ["delete-buffer", "-b", PASTE_BUFFER]);
+      await run("tmux", ["delete-buffer", "-b", buffer]);
       return withCookie(fail(r.err || "no such session", 404));
     }
     return withCookie(json({ ok: true, session: s, chars: text.length }));

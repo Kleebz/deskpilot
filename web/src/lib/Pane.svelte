@@ -98,9 +98,8 @@
   }
 
   // Pasting is its own drawer because the composer is one line and this is
-  // usually not: a block pasted into the composer would be sent as text, and
-  // every newline in it is an Enter — a thirty-line snippet arriving as thirty
-  // submitted prompts. /api/paste hands it to tmux as a paste instead.
+  // usually not: sending the composer submits immediately, while /api/paste
+  // hands a block to tmux without Enter so it remains editable at the far end.
   let pasting = $state(false);
 
 

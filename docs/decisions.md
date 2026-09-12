@@ -923,13 +923,13 @@ width itself, so those line breaks are in the bytes and no amount of unwrapping 
 layer will find them — `capture-pane -J` has the identical limit. Landscape or the smaller
 font is the answer there, and both already exist.
 
-**Paste is not typing.** `/api/send` types text as keystrokes, which is right for a line
-composed on the phone and wrong for a block off the clipboard: every newline is an Enter,
-so a thirty-line snippet arrives as thirty submitted prompts. `/api/paste` hands it to
-tmux instead — `load-buffer -` takes the text on stdin, so nothing is ever quoted into a
-command line (the same reason keystrokes travel as hex), and `paste-buffer -p` brackets it
-*if the application asked for bracketed paste*, which is how a TUI tells a paste from
-typing. Nothing on this path knows which application that is.
+**Paste is not Send.** `/api/send` bracket-pastes composed text and follows it with Enter,
+which is right for a line composed on the phone and wrong for a block that should remain
+editable. `/api/paste` uses the same safe tmux input mechanism without Enter —
+`load-buffer -` takes the text on stdin, so nothing is ever quoted into a command line,
+and `paste-buffer -p` brackets it *if the application asked for bracketed paste*, which
+is how a TUI tells a paste from typing. Nothing on this path knows which application that
+is.
 
 Verified both ways against a live `bash`: with `-p`, `echo alpha\necho bravo\necho charlie`
 sat on the command line unexecuted; without it, alpha and bravo ran. Text containing

@@ -172,6 +172,45 @@ try {
     `document.querySelector('.composer input').value==='draft for detached'`,
     "polling preserves composer draft",
   );
+  const sendsBefore = fx.state.requests.length;
+  await click("send");
+  await until(`document.querySelector('.composer input').value===''`);
+  for (let i = 0; i < 20 && fx.state.requests.length < sendsBefore + 1; i++) await pause();
+  if (
+    fx.state.requests.length !== sendsBefore + 1 ||
+    fx.state.requests.at(-1)?.path !== "/api/send" ||
+    fx.state.requests.at(-1)?.body?.text !== "draft for detached" ||
+    fx.state.requests.at(-1)?.body?.session !== "detached" ||
+    "enter" in (fx.state.requests.at(-1)?.body ?? {})
+  ) {
+    throw Error(`Send button did not issue one submitting request: ${JSON.stringify(fx.state.requests)}`);
+  }
+  console.log("✓ mobile Send submits once and clears its draft");
+  await input(".composer input", "submitted from keyboard");
+  await run(`document.querySelector('.composer input').focus()`);
+  await send("Input.dispatchKeyEvent", {
+    type: "rawKeyDown", key: "Enter", code: "Enter",
+    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "char", key: "Enter", code: "Enter", text: "\r", unmodifiedText: "\r",
+    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyUp", key: "Enter", code: "Enter",
+    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+  });
+  await until(`document.querySelector('.composer input').value===''`);
+  for (let i = 0; i < 20 && fx.state.requests.length < sendsBefore + 2; i++) await pause();
+  if (
+    fx.state.requests.length !== sendsBefore + 2 ||
+    fx.state.requests.at(-1)?.path !== "/api/send" ||
+    fx.state.requests.at(-1)?.body?.text !== "submitted from keyboard" ||
+    Array.isArray(fx.state.requests.at(-1)?.body?.keys)
+  ) {
+    throw Error(`Keyboard submit did not issue one composed request: ${JSON.stringify(fx.state.requests)}`);
+  }
+  console.log("✓ mobile keyboard submission submits once without toolbar Enter");
   if (!fx.state.sockets.includes("8892:detached")) {
     throw Error("Detached terminal identity not opened");
   }
