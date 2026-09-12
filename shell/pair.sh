@@ -2,7 +2,8 @@
 #
 # Show a QR code that pairs a phone with deskpilot in one scan.
 #
-#   shell/pair.sh              pick the best address automatically
+#   shell/pair.sh              print a QR and complete pairing link
+#   shell/pair.sh --link       print only the complete link
 #   shell/pair.sh 100.x.y.z    force a specific host
 #
 # The QR encodes the address and a one-time code together, and the page strips
@@ -19,6 +20,19 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 TOKEN_FILE="$HOME/.config/deskpilot/token"
 PORT="${DESKPILOT_PORT:-8790}"
+LINK_ONLY=0
+HOST=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --link) LINK_ONLY=1 ;;
+    -*) echo "usage: $0 [--link] [host]" >&2; exit 1 ;;
+    *)
+      [ -z "$HOST" ] || { echo "usage: $0 [--link] [host]" >&2; exit 1; }
+      HOST="$arg"
+      ;;
+  esac
+done
 
 [ -f "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — run install-service.sh first" >&2; exit 1; }
 TOKEN=$(tr -d '\n' < "$TOKEN_FILE")
@@ -27,10 +41,10 @@ TOKEN=$(tr -d '\n' < "$TOKEN_FILE")
 # `deskpilot pair` asks — two copies of this logic had already been written and
 # only one of them checked that the address answers. An argument still wins, so
 # forcing a specific host stays possible.
-if [ $# -gt 0 ]; then
-  case "$1" in
-    http://*|https://*) BASE="$1" ;;
-    *)                  BASE="http://$1:${PORT}" ;;
+if [ -n "$HOST" ]; then
+  case "$HOST" in
+    http://*|https://*) BASE="$HOST" ;;
+    *)                  BASE="http://$HOST:${PORT}" ;;
   esac
 else
   BASE=$("$REPO/scripts/desk.sh" addr "$PORT" 2>/dev/null || true)
@@ -78,6 +92,13 @@ if ! curl -s -m 8 -o /dev/null "${BASE}/"; then
   echo "         sudo ufw allow from <subnet> to any port ${PORT} proto tcp" >&2
 fi
 
+# One clean value for agents, scripts and remote shells to relay. The code is
+# already in the URL, so callers should not present it as a second input.
+if [ "$LINK_ONLY" = 1 ]; then
+  echo "$URL"
+  exit 0
+fi
+
 echo
 if command -v qrencode >/dev/null; then
   qrencode -t ANSIUTF8 -m 1 "$URL"
@@ -117,9 +138,10 @@ else
 fi
 
 if [ -n "$CODE" ]; then
-  echo "Code: $CODE   (good for 10 minutes, one device)"
+  echo "Scan the QR or open the complete link above. It already contains the code;"
+  echo "do not enter anything separately. Good for 10 minutes, one device."
   echo
-  echo "Scan it, then add the page to your home screen. This device gets its own"
+  echo "Then add the page to your home screen. This device gets its own"
   echo "credential — revoke it from the app without disturbing anything else."
 else
   echo "Scan it, then add the page to your home screen."

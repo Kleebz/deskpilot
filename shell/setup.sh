@@ -181,7 +181,7 @@ case "\$cmd" in
     cat <<'USAGE'
 deskpilot — a phone-facing remote for the machine you left running
 
-  deskpilot pair       print a QR and a code that pair a phone
+  deskpilot pair       print a QR and complete link that pair a phone
   deskpilot setup      re-run the installer; every step is idempotent
   deskpilot rotate     replace this machine's shared token
   deskpilot update     pull, rebuild and restart this checkout

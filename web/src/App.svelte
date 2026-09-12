@@ -3,6 +3,7 @@
   import Pane from "./lib/Pane.svelte";
   import Overview from "./lib/Overview.svelte";
   import { vis } from "./lib/visible.svelte.js";
+  import { parsePairingInput } from "./lib/pairing.js";
   import {
     hosts, currentHost, switchTo, back, hasPrevious, setCaps, capsFor,
     needsYou, setNeedsYou,
@@ -166,11 +167,15 @@
 
   async function saveToken(ev) {
     ev.preventDefault();
-    const v = tokenInput.trim();
-    if (!v) return;
+    const parsed = parsePairingInput(tokenInput);
+    const v = parsed.code;
+    if (!v) {
+      if (parsed.wasLink) onstatus("that link has no pairing code", true);
+      return;
+    }
     if (looksLikeCode(v)) {
       try {
-        await enroll(v);
+        await enroll(v, parsed.host);
         tokenInput = "";
         onstatus("paired");
         refresh();
@@ -243,10 +248,11 @@
 {#if needToken}
   <form class="gate" onsubmit={saveToken}>
     <p class="dim">
-      Enter the pairing code from <code>shell/pair.sh</code>, or scan its QR and it
-      pairs itself. A token from <code>~/.config/deskpilot/token</code> also works.
+      Scan the QR from <code>deskpilot pair</code>, paste its complete link here, or
+      enter the eight-character code. A token from <code>~/.config/deskpilot/token</code>
+      also works.
     </p>
-    <input bind:value={tokenInput} placeholder="pairing code"
+    <input bind:value={tokenInput} placeholder="pairing link or code"
            autocomplete="off" autocapitalize="characters" autocorrect="off"
            spellcheck="false" />
     <button>save</button>

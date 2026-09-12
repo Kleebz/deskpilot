@@ -200,17 +200,18 @@ it explicitly.
 ## 4. Pair the phone
 
 ```bash
-deskpilot pair
+deskpilot pair --link
 ```
 
-This prints a QR, the address it encodes, and an eight-character code good for ten
-minutes and one device. The QR carries the address and the code together, so there is
-nothing to type.
+This prints one complete URL containing an eight-character code good for ten minutes and
+one device. Relay that exact URL as a single tappable/copyable value. The code is already
+inside it: do not print the code again or tell the person they need both. If the person is
+at the machine and wants a QR, plain `deskpilot pair` prints the QR and the same link.
 
-**HUMAN: ask them to scan it with the phone's camera**, then to add the page to the home
-screen — Android/Chrome offers an **install** button; iOS/Safari needs **Share → Add to
-Home Screen**. Installing rather than bookmarking is what gets full-screen, durable
-storage, and push on iOS.
+**HUMAN: ask them to open the complete link on the phone** (or scan the QR from a local
+terminal), then to add the page to the home screen — Android/Chrome offers an **install**
+button; iOS/Safari needs **Share → Add to Home Screen**. Installing rather than
+bookmarking is what gets full-screen, durable storage, and push on iOS.
 
 If the output says **"Nothing answered on an address a phone could reach"**, step 3 did
 not take effect. That message is not a pairing failure; go back and fix Serve.

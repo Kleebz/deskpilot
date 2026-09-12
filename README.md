@@ -48,9 +48,9 @@ tailscale serve --bg --yes 8790
 deskpilot pair
 ```
 
-Step 4 prints a QR carrying the address and a one-time code together. Scan it, add the
-page to your home screen, and you are done — it is a web app, so there is nothing to
-download.
+Step 4 prints a QR and the complete pairing link. The link already contains the one-time
+code; scan the QR or open the link, add the page to your home screen, and you are done —
+it is a web app, so there is nothing to download.
 
 **Step 3 is where installs go wrong.** deskpilot listens on loopback on purpose, so until
 something fronts it there is no address for a phone to open at all. Two things people
@@ -267,7 +267,7 @@ Then, on the machine:
 deskpilot pair
 ```
 
-That prints a QR, the address it points at, and an eight-character code good for ten
+That prints a QR and a complete link containing an eight-character code good for ten
 minutes and one device:
 
 ```
@@ -275,12 +275,12 @@ minutes and one device:
 
   https://yourbox.tailnet.ts.net/?code=K7MQ3FDN
 
-  K7MQ3FDN   (good for ten minutes, one device)
 ```
 
-Scan it with the phone's camera and pairing is done — the QR carries the address and the
-code together, so there is nothing to type. If you would rather type, open the address in
-the phone's browser and enter the code.
+Scan it with the phone's camera or open the complete link and pairing is done. The code is
+already in both, so there is no second field to fill in. When another program or agent is
+relaying the result, `deskpilot pair --link` prints only that complete link, without the
+terminal QR or duplicate prose.
 
 Two things it can say instead of printing a QR, and they are not the same problem:
 
@@ -338,8 +338,8 @@ of its own without re-pairing anything else.
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
 `deskpilot pair` there, and paste the link it prints into the app: open the index, scroll
 past your sessions to **machines**, tap **add a machine**, and put the whole link in the
-address field — it carries the code, so
-the code field fills itself in. Typing the address and the code separately works too. A strip
+address field — it carries the code, so the code field fills itself in. The separate code
+field is only a fallback when you already have the machine's bare address. A strip
 appears at the top once you have two, one tap to switch, with a dot on any machine that
 needs you.
 

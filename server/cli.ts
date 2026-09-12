@@ -213,7 +213,8 @@ function help() {
 
   deskpilot            run the server
   deskpilot setup      create a token, write the service, say what to run next
-  deskpilot pair       print a QR and a code that pair another device
+  deskpilot pair       print a QR and complete link that pair another device
+  deskpilot pair --link  print only the complete link (for agents and scripts)
   deskpilot rotate     replace this machine's shared token
   deskpilot update     replace this binary with the latest release
   deskpilot version    print the version
@@ -230,7 +231,8 @@ Configuration lives in ${dim(`${CONF_DIR}/config`)}.
 `);
 }
 
-export async function runCommand(cmd: string, version: string): Promise<number> {
+export async function runCommand(args: string[], version: string): Promise<number> {
+  const cmd = args[0];
   const port = Deno.env.get("DESKPILOT_PORT") ?? "8790";
 
   switch (cmd) {
@@ -296,6 +298,12 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
     }
 
     case "pair": {
+      const pairArgs = args.slice(1);
+      if (pairArgs.some((arg) => arg !== "--link")) {
+        console.error("usage: deskpilot pair [--link]");
+        return 1;
+      }
+      const linkOnly = pairArgs.includes("--link");
       let token = "";
       try {
         token = Deno.readTextFileSync(TOKEN_FILE).trim();
@@ -333,7 +341,7 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
   ${dim("The code above is good either way: open the app on the phone and enter")}
   ${dim("it. Ten minutes, one device.")}
 `);
-        return 0;
+        return linkOnly ? 1 : 0;
       }
 
       const addr = found.addr;
@@ -358,21 +366,27 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
   ${dim("If you front it some other way, open that address on the phone and")}
   ${dim("enter the code above. Good for ten minutes, one device.")}
 `);
-        return 0;
+        return linkOnly ? 1 : 0;
       }
 
       const url = `${addr}/?code=${code}`;
-      // QR first, text last: the address and the code are what you read, and
-      // on a short terminal whatever is printed first is what scrolls away.
+      // Agents and scripts need one clean value they can hand to a phone. The
+      // code is already inside this URL; printing it again led agents to tell
+      // people they needed both, which turned a one-tap handoff into typing on
+      // glass. Human-facing output keeps the QR and context below.
+      if (linkOnly) {
+        console.log(url);
+        return 0;
+      }
+      // QR first, text last: the complete link is what a person copies, and on
+      // a short terminal whatever is printed first is what scrolls away.
       console.log();
       console.log(qrTerminal(url));
       console.log(`
   ${bold(url)}
 
-  ${bold(code)}   ${dim("(good for ten minutes, one device)")}
-
-  Scan it with the phone's camera, or open ${bold(addr)} there
-  and enter the code. The scan carries both, so there is nothing to type.
+  Scan the QR or open the complete link above. ${bold("It already contains the code;")}
+  ${bold("do not enter anything separately.")} Good for ten minutes, one device.
 `);
       // Said after the QR and before anything else, because it is the step
       // that has to happen first and the one that has no error message: a

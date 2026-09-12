@@ -32,11 +32,15 @@ set -uo pipefail
 die() { echo "$*" >&2; exit 1; }
 have_env() { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; }
 
-have_env || {
+# A headless host has no Hyprland environment to discover. Do not run the
+# discovery pipeline there: the portable test image intentionally contains
+# neither `ls` nor `head`, and desktop endpoints must answer emptily rather
+# than fail because optional compositor tooling is absent.
+if ! have_env && command -v hyprctl >/dev/null 2>&1; then
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
   export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR/hypr" 2>/dev/null | head -1)
   export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
-}
+fi
 # Omarchy replaced hyprlock with a compositor-integrated lock, so `pidof
 # hyprlock` — once the only reliable check — now matches nothing and reports
 # "unlocked" forever. That disarmed both callers silently: unlock refused to
@@ -194,6 +198,13 @@ fi
 # screenshots still require Hyprland, and still say so.
 case "${1:-}" in
   type | key | unlock) ;;
+  state) have_env || exit 0 ;;
+  json)
+    if ! have_env; then
+      echo '[]'
+      exit 0
+    fi
+    ;;
   *) have_env || die "no Hyprland instance found" ;;
 esac
 

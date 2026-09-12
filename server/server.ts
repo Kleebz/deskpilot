@@ -60,7 +60,7 @@ const BUILD = describe(ROOT);
 // its user has — shell/setup.sh is in the repo, not the package — so making a
 // token, writing the unit and pairing a device have to be reachable here.
 if (Deno.args.length > 0) {
-  Deno.exit(await runCommand(Deno.args[0], BUILD));
+  Deno.exit(await runCommand(Deno.args, BUILD));
 }
 const NAME = Deno.env.get("DESKPILOT_NAME") ?? (() => {
   try { return Deno.readTextFileSync("/etc/hostname").trim() || "deskpilot"; }

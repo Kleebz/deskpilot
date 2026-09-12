@@ -539,19 +539,19 @@
   {#if adding}
     <form class="unlock" onsubmit={addMachine}>
       <input
-        bind:value={pasted} placeholder="address, e.g. box.tailnet.ts.net"
+        bind:value={pasted} placeholder="complete pairing link or address"
         autocapitalize="off" autocorrect="off" spellcheck="false" />
     </form>
     <form class="unlock" onsubmit={addMachine}>
       <input
-        class="code-in" bind:value={pastedCode} placeholder="code"
+        class="code-in" bind:value={pastedCode} placeholder="code (bare address only)"
         autocapitalize="characters" autocorrect="off" spellcheck="false" />
       <button disabled={!pasted.trim() || addingNow}>{addingNow ? "pairing…" : "add"}</button>
     </form>
     <div class="hint dim">
       Run <code>deskpilot pair</code> on the other machine — over SSH is fine, it needs
-      no screen — and paste the link it prints straight into the address. It carries
-      the code, so the code field fills itself in; typing both separately works too.
+      no screen — and paste the complete link into the first field. Leave the code field
+      empty; it is only for pairing from a bare address.
       Either way the code is exchanged for a credential belonging to this phone alone,
       revocable from that machine without disturbing anything else.
     </div>
