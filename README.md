@@ -282,6 +282,12 @@ already in both, so there is no second field to fill in. When another program or
 relaying the result, `deskpilot pair --link` prints only that complete link, without the
 terminal QR or duplicate prose.
 
+Opening another QR for a machine already paired in that browser/PWA selects its existing
+credential instead of enrolling it again. The **devices** count is a count of browser/PWA
+credentials accepted by this machine; the machine itself is the server and is not included.
+Device names can be changed in that panel if the browser only supplies a generic platform
+name.
+
 That scan/open path is for the first Deskpilot machine on a phone. If Deskpilot is already
 installed from another machine, open the installed app, choose **+ add another machine**, and
 paste the complete link there. Scanning the new machine's QR in the phone camera opens its
@@ -339,7 +345,10 @@ The app's **devices** panel is what you cannot do from a terminal you cannot rea
 lists what is paired and revokes any of it, one device at a time, which is the thing that
 makes a lost phone survivable. It is also where a device still on the old shared token
 upgrades itself — it says so in the list, and one tap swaps the shared credential for one
-of its own without re-pairing anything else.
+of its own without re-pairing anything else. Each browser/PWA credential is one row; the
+desktop machine serving the app is not a paired-device row. The name is editable because
+privacy-reduced browser data sometimes identifies only the platform rather than the phone
+model.
 
 **Adding more machines** works from the app. Install deskpilot on the second machine, run
 `deskpilot pair --link` there, and paste the link it prints into the app: open the index, scroll

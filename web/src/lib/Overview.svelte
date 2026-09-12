@@ -1,5 +1,5 @@
 <script>
-  import { api, post, waitFor, tilde, enroll } from "./api.js";
+  import { api, post, waitFor, tilde, enroll, hasDeviceCredential } from "./api.js";
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
   import Notify from "./Notify.svelte";
@@ -69,6 +69,8 @@
   // you which one you are holding.
   let devices = $state([]);
   let legacy = $state(false);
+  let renamingDevice = $state("");
+  let deviceNameInput = $state("");
   // Entering a code on a device that is already in. The gate in App.svelte only
   // renders when you are *not* authenticated, so a phone already paired had
   // nowhere to type one — while the notice above it said "pair it again below"
@@ -141,6 +143,7 @@
     // A rename in progress names a session on the machine you were on; saving
     // it after a switch renames whatever happens to share that name here.
     renaming = "";
+    renamingDevice = "";
     loadDevices(here);
   });
 
@@ -148,6 +151,23 @@
     try {
       const r = await post("/devices/revoke", { id: d.id });
       onstatus(r.self ? "revoked this device — reload to re-pair" : `revoked ${d.name}`);
+      loadDevices(hosts.current);
+    } catch (e) { onstatus(e.message, true); }
+  }
+
+  function startDeviceRename(d) {
+    renamingDevice = d.id;
+    deviceNameInput = d.name;
+  }
+
+  async function saveDeviceRename(ev, d) {
+    ev.preventDefault();
+    const name = deviceNameInput.trim();
+    if (!name || name === d.name) { renamingDevice = ""; return; }
+    try {
+      await post("/devices/rename", { id: d.id, name });
+      renamingDevice = "";
+      onstatus(`renamed device to ${name}`);
       loadDevices(hosts.current);
     } catch (e) { onstatus(e.message, true); }
   }
@@ -231,6 +251,16 @@
     addingNow = true;
     try {
       if (code) {
+        const existing = hosts.list.find((h) => h.origin === url.origin);
+        if (existing && await hasDeviceCredential(existing)) {
+          switchTo(existing.origin);
+          pasted = "";
+          pastedCode = "";
+          adding = false;
+          onstatus(`${url.hostname} is already paired`);
+          onchanged();
+          return;
+        }
         // The normal case. Exchanged on that machine for a credential
         // belonging to this phone alone, which is what makes a lost phone
         // survivable — enroll() records the machine once it has one.
@@ -599,8 +629,16 @@
         <span class="nm">{d.name}</span>
         <span class="path dim">last used {ago(d.lastSeen)}</span>
       </button>
+      <button class="sm" onclick={() => startDeviceRename(d)}>rename</button>
       <button class="sm danger" onclick={() => revokeDevice(d)}>revoke</button>
     </div>
+    {#if renamingDevice === d.id}
+      <form class="unlock rn device-rn" onsubmit={(ev) => saveDeviceRename(ev, d)}>
+        <input bind:value={deviceNameInput} maxlength="40" aria-label="device name" />
+        <button>save</button>
+        <button type="button" onclick={() => (renamingDevice = "")}>cancel</button>
+      </form>
+    {/if}
   {/each}
 
   <div class="hint dim">
@@ -743,6 +781,8 @@
   .acts { display: flex; gap: .4rem; min-width: 0; }
   /* extra separation before a destructive control */
   .acts .danger, .row .danger { margin-left: .5rem; }
+  .row > .sm { flex: none; }
+  .device-rn { margin-left: .4rem; margin-right: .4rem; }
   .acts select { flex: 1; min-width: 0; }
   /* Pushed to the right of its row and allowed to shrink away first: it is
      the least important thing on the line until you are deciding what to kill. */

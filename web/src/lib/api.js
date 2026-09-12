@@ -2,7 +2,8 @@
 // param, or a cookie it sets on first contact — so after one QR scan the
 // header below is belt-and-braces rather than the only thing holding auth.
 
-import { currentHost, addHost } from "./hosts.svelte.js";
+import { addHost, currentHost, hosts } from "./hosts.svelte.js";
+import { deviceName } from "./device-name.js";
 
 const KEY = "dp_token";
 
@@ -36,7 +37,7 @@ export async function enroll(code, host) {
     headers: { "content-type": "application/json" },
     // Named after the browser rather than left blank: a list of four entries
     // called "device" is not a list you can revoke from with any confidence.
-    body: JSON.stringify({ code, name: deviceName() }),
+    body: JSON.stringify({ code, name: await deviceName() }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? "pairing failed");
@@ -44,7 +45,10 @@ export async function enroll(code, host) {
     addHost({ origin: h.origin, token: body.token, name: h.name });
     // The legacy same-origin token only ever covered this machine, so only
     // this machine's credential may overwrite it.
-    if (same) { token = body.token; localStorage.setItem(KEY, body.token); }
+    if (same) {
+      token = body.token;
+      localStorage.setItem(KEY, body.token);
+    }
   }
   return body;
 }
@@ -57,14 +61,30 @@ async function enrollFromCode() {
   // A code in *this page's* URL came from this machine's pair.sh, whichever
   // machine a previous visit happened to leave selected.
   const self = { origin: location.origin, token: "", name: location.hostname };
-  try { await enroll(code, self); } catch { /* falls back to what is stored */ }
+  // Opening successive QRs in the system camera returns to this same origin.
+  // If it already has a device credential, consume neither the new code nor a
+  // second row in the device list. A legacy shared credential deliberately
+  // continues through enrollment so the visit upgrades it to a revocable one.
+  try {
+    if (await hasDeviceCredential(self)) return;
+    await enroll(code, self);
+  } catch { /* falls back to what is stored */ }
 }
 
-function deviceName() {
-  const ua = navigator.userAgent;
-  const m = ua.match(/\((?:Linux; )?(?:Android [\d.]+; )?([^;)]+)/);
-  const model = m?.[1]?.trim();
-  return (model && model.length < 30 ? model : "phone");
+// This deliberately does not call api(): ready is waiting for
+// enrollFromCode(), so doing that here would await itself forever.
+export async function hasDeviceCredential(host) {
+  const same = host.origin === location.origin;
+  const stored = hosts.list.find((h) => h.origin === host.origin)?.token ||
+    host.token;
+  const res = await fetch(`${same ? "" : host.origin}/api/devices`, {
+    credentials: same ? "same-origin" : "omit",
+    headers: stored ? { authorization: `Bearer ${stored}` } : {},
+    signal: AbortSignal.timeout(4000),
+  });
+  if (!res.ok) return false;
+  const body = await res.json().catch(() => ({}));
+  return body.legacy === false;
 }
 
 export const ready = enrollFromCode();
@@ -131,7 +151,10 @@ export async function api(path, opts = {}) {
   } catch (e) {
     // TimeoutError/AbortError from the deadline, TypeError from a dead route.
     // All three mean the same thing to a user standing in a car park.
-    if (e?.name === "TimeoutError" || e?.name === "AbortError" || e instanceof TypeError) {
+    if (
+      e?.name === "TimeoutError" || e?.name === "AbortError" ||
+      e instanceof TypeError
+    ) {
       throw new Unreachable();
     }
     throw e;
