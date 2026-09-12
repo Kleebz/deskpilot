@@ -201,6 +201,13 @@ SHIMEOF
       *":$BIN:"*) ;;
       *) bad "$BIN is not on your PATH — add it, or run $REPO/shell/pair.sh directly" ;;
     esac
+    # Merely appearing somewhere in PATH is not enough. A release install in
+    # /usr/bin can precede this shim, making setup report success while every
+    # documented command still runs the old release.
+    resolved=$(command -v deskpilot 2>/dev/null || true)
+    if [ -n "$resolved" ] && [ "$(readlink -f "$resolved")" != "$(readlink -f "$SHIM")" ]; then
+      bad "$resolved shadows $SHIM — put $BIN before it in PATH"
+    fi
   else
     bad "could not write $SHIM"
   fi

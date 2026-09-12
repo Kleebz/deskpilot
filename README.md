@@ -216,6 +216,8 @@ this README reads the same on a checkout as on a release install.
 It asks before touching your shell profile or `~/.claude/settings.json`, and `--yes`,
 `--no-shell` and `--no-claude` answer for it. Because the service points at the checkout,
 **moving or deleting the directory breaks it** — re-run `shell/setup.sh` after a move.
+If an older release command earlier in `PATH` shadows the source shim, setup reports the
+exact two paths rather than claiming the source command is ready.
 
 **Or build the binary yourself**, which is what the release does:
 
