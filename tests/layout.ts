@@ -246,6 +246,12 @@ async function openStates(cdp: Cdp, base: string, token: string): Promise<number
   await cdp.send("Emulation.setDeviceMetricsOverride", {
     width, height: HEIGHT, deviceScaleFactor: DPR, mobile: true,
   }, sessionId);
+  // Device metrics alone make the viewport phone-sized but leave Chromium's
+  // primary pointer as a mouse. This check is specifically about the coarse
+  // pointer branch, so emulate the touch hardware a real phone has as well.
+  await cdp.send("Emulation.setTouchEmulationEnabled", {
+    enabled: true, maxTouchPoints: 1,
+  }, sessionId);
   await cdp.send("Page.enable", {}, sessionId);
   // Reading the clipboard back is the only way to know `copy all` did anything.
   await cdp.send("Browser.grantPermissions", {
@@ -283,6 +289,31 @@ async function openStates(cdp: Cdp, base: string, token: string): Promise<number
   await new Promise((r) => setTimeout(r, 3500));   // connect, then prime scrollback
 
   let failures = 0;
+
+  // On a phone the real terminal is output, not a second invisible composer.
+  // xterm focuses a hidden textarea on mousedown and mobile IMEs can later
+  // replay text retained in it, so prove both halves of the guard: the helper
+  // cannot accept text and a terminal tap cannot steal composer focus.
+  const terminalInput = await run(`(() => {
+    const helper = document.querySelector(".xterm-helper-textarea");
+    const composer = document.querySelector("section.composing .composer input");
+    const screen = document.querySelector(".xterm-screen");
+    const problems = [];
+    if (!helper || !composer || !screen) return { problems: ["terminal input fixture is incomplete"] };
+    if (!helper.readOnly) problems.push("xterm helper accepts mobile IME input");
+    if (helper.tabIndex !== -1) problems.push("xterm helper remains in the mobile tab order");
+    composer.focus();
+    screen.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    if (document.activeElement !== composer) problems.push("a terminal tap stole composer focus");
+    return { problems };
+  })()`);
+  if (terminalInput.problems.length) {
+    failures++;
+    console.log(`\x1b[31m✗\x1b[0m ${width}px terminal input guard`);
+    for (const p of terminalInput.problems) console.log(`    ${p}`);
+  } else {
+    console.log(`\x1b[32m✓\x1b[0m ${width}px terminal input guard  (composer keeps focus)`);
+  }
 
   await run(`[...document.querySelectorAll(".rail > section button")]
     .find((b) => b.textContent.trim() === "copy")?.click()`);

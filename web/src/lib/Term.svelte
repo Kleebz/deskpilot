@@ -13,6 +13,18 @@
   let term, fit, ws;
   let state = $state("connecting");
 
+  // Phone keyboards do not speak in terminal keystrokes. They edit a text
+  // field through composition/IME events, and xterm's hidden textarea can
+  // retain already-sent text and emit it again on a later edit. That presents
+  // as a tap unexpectedly putting the cursor in the terminal, followed by an
+  // old part of the prompt being duplicated.
+  //
+  // The visible composer is the phone's input surface. Keep xterm interactive
+  // for a mouse-and-keyboard desktop, but display-only when the primary pointer
+  // is coarse. The touch handlers below still own terminal scrolling, and the
+  // pane's key toolbar sends its named keys independently of xterm stdin.
+  const displayOnly = matchMedia("(pointer: coarse)").matches;
+
   // Reconnecting without being asked.
   //
   // The server closes an idle terminal after 60 seconds — idleTimeout on the
@@ -211,11 +223,15 @@
       theme, fontSize: px,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       cursorBlink: true, scrollback: 2000, allowProposedApi: true,
-      macOptionIsMeta: true,
+      macOptionIsMeta: true, disableStdin: displayOnly,
     });
     fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    // readOnly prevents IME writes; removing the helper from tab order and
+    // blocking xterm's always-on mousedown focus handler prevents a terminal
+    // tap from taking focus away from a half-written composer prompt.
+    if (displayOnly && term.textarea) term.textarea.tabIndex = -1;
     refit();
     term.onData((d) => {
       if (ws?.readyState !== WebSocket.OPEN) return;
@@ -312,6 +328,12 @@
 
   function touchCancel() { dragging = false; glide = 0; dragAcc = 0; }
 
+  function blockTerminalFocus(e) {
+    if (!displayOnly) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   // Reading fontPx first is deliberate: an early return above it would leave
   // the effect with no dependency on it, and font changes would never apply.
   //
@@ -352,12 +374,16 @@
     host.addEventListener("touchmove", touchMove, { passive: false });
     host.addEventListener("touchend", touchEnd, { passive: true });
     host.addEventListener("touchcancel", touchCancel, { passive: true });
+    // xterm focuses its helper textarea from a bubbling mousedown. Capture the
+    // synthetic mouse event generated after a phone tap before xterm sees it.
+    host.addEventListener("mousedown", blockTerminalFocus, { capture: true });
 
     return () => {
       host.removeEventListener("touchstart", touchStart);
       host.removeEventListener("touchmove", touchMove);
       host.removeEventListener("touchend", touchEnd);
       host.removeEventListener("touchcancel", touchCancel);
+      host.removeEventListener("mousedown", blockTerminalFocus, { capture: true });
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       ro.disconnect();
