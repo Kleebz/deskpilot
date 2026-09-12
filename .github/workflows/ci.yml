@@ -62,6 +62,7 @@ jobs:
           DESKPILOT_PORT=8790 ./dist/deskpilot &
           for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null http://127.0.0.1:8790/ && break; done
           deno run -A tests/layout.ts --url http://127.0.0.1:8790
+          deno run -A tests/scanner.ts --url http://127.0.0.1:8790
 
       - uses: actions/upload-artifact@v7
         with:

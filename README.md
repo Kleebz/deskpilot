@@ -540,6 +540,7 @@ The short version:
 ```
 deno test --allow-read --allow-write --allow-env tests/   # unit tests
 deno run -A tests/layout.ts                               # phone layout, headless chromium
+deno run -A tests/scanner.ts                              # QR camera preview, simulated camera
 deno run -A tests/recovery.ts                             # reconnects, offline page (restarts the service)
 tests/headless.sh dist/deskpilot                          # a host with no desktop
 shell/check.sh                                            # every environment assumption

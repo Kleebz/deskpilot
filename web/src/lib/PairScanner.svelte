@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import QrScanner from "qr-scanner";
 
   let { onscan, onstatus } = $props();
@@ -14,6 +14,11 @@
 
   async function start() {
     if (scanning) return;
+    // Give the video real dimensions before qr-scanner asks getUserMedia for a
+    // stream. Android can successfully start a camera against display:none,
+    // leaving us with a stop button and a zero-sized/blank preview.
+    scanning = true;
+    await tick();
     if (!scanner) {
       scanner = new QrScanner(
         video,
@@ -32,7 +37,6 @@
 
     try {
       await scanner.start();
-      scanning = true;
     } catch (e) {
       scanning = false;
       const denied = e?.name === "NotAllowedError" || /permission|denied/i.test(String(e));
@@ -49,7 +53,7 @@
 </script>
 
 <div class="scanner">
-  <video bind:this={video} class:active={scanning} playsinline muted></video>
+  <video bind:this={video} class:active={scanning} playsinline muted autoplay></video>
   {#if scanning}
     <div class="scan-note">Point this camera at <code>deskpilot pair</code> on the other machine.</div>
     <button class="sm ghost" type="button" onclick={stop}>stop camera</button>
@@ -59,9 +63,9 @@
 </div>
 
 <style>
-  .scanner { display: grid; gap: .4rem; margin: .35rem 0; }
+  .scanner { display: grid; gap: .4rem; margin: .35rem 0; position: relative; }
   video {
-    display: none; width: 100%; max-height: 44vh; object-fit: cover;
+    display: none; width: 100%; aspect-ratio: 4 / 3; max-height: 44vh; object-fit: cover;
     border: 1px solid var(--line); border-radius: var(--radius);
     background: #000;
   }
