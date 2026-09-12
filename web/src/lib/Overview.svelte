@@ -36,7 +36,7 @@
   // attempt as invalid.
   let addingNow = $state(false);
 
-  function acceptPairingScan(value) {
+  async function acceptPairingScan(value) {
     let url;
     try { url = new URL(value); } catch {
       onstatus("that QR is not a complete Deskpilot pairing link", true);
@@ -48,8 +48,15 @@
     }
     pasted = value;
     pastedCode = "";
-    onstatus("QR read — tap add");
+    onstatus("QR read — pairing…");
+    await pairMachine(value, "");
   }
+
+  function linkHasCode(value) {
+    try { return !!new URL(value).searchParams.get("code"); }
+    catch { return false; }
+  }
+  const linkCarriesCode = $derived(linkHasCode(pasted));
 
   // Which session is being renamed, and to what. A session is named after the
   // directory it started in, so "deskpilot" tells you where it is and nothing
@@ -191,11 +198,10 @@
     }
   }
 
-  async function addMachine(ev) {
-    ev.preventDefault();
+  async function pairMachine(rawValue, fallbackCode) {
     if (addingNow) return;
     let url;
-    const raw = pasted.trim();
+    const raw = rawValue.trim();
     try {
       // Nobody types the scheme, and the two documented ways to reach a machine
       // want different ones: Tailscale Serve answers https on 443 with no port,
@@ -214,7 +220,7 @@
 
     // A code in the address wins: pasting a whole link should not also require
     // retyping the code out of it.
-    const code = url.searchParams.get("code") || pastedCode.trim();
+    const code = url.searchParams.get("code") || fallbackCode.trim();
     const token = url.searchParams.get("token");
     if (!code && !token) {
       onstatus("enter the code that `deskpilot pair` printed", true);
@@ -247,6 +253,11 @@
     adding = false;
     onstatus(`added ${url.hostname}`);
     onchanged();
+  }
+
+  async function addMachine(ev) {
+    ev.preventDefault();
+    await pairMachine(pasted, pastedCode);
   }
 
   function forget(origin, name) {
@@ -554,19 +565,20 @@
 
   {#if adding}
     <PairScanner onscan={acceptPairingScan} {onstatus} />
-    <form class="unlock" onsubmit={addMachine}>
+    <form class="unlock pair-form" onsubmit={addMachine}>
       <input
         bind:value={pasted} placeholder="complete pairing link or address"
         autocapitalize="off" autocorrect="off" spellcheck="false" />
-    </form>
-    <form class="unlock" onsubmit={addMachine}>
-      <input
-        class="code-in" bind:value={pastedCode} placeholder="code (bare address only)"
-        autocapitalize="characters" autocorrect="off" spellcheck="false" />
+      {#if !linkCarriesCode}
+        <input
+          class="code-in" bind:value={pastedCode} placeholder="code (bare address only)"
+          autocapitalize="characters" autocorrect="off" spellcheck="false" />
+      {/if}
       <button disabled={!pasted.trim() || addingNow}>{addingNow ? "pairing…" : "add"}</button>
     </form>
     <div class="hint dim">
-      Show <code>deskpilot pair</code> on the other machine and scan its QR here. For a
+      Show <code>deskpilot pair</code> on the other machine and scan its QR here; a
+      successful scan pairs immediately. For a
       headless machine over SSH, transfer the complete link and paste it into the first
       field. Leave the code field empty; it is only for pairing from a bare address.
       Either way the code is exchanged for a credential belonging to this phone alone,
@@ -784,6 +796,9 @@
   .claim input { text-transform: uppercase; }
   .unlock { display: flex; gap: .4rem; min-width: 0; }
   .unlock input { flex: 1; min-width: 0; }
+  .pair-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .pair-form > input:first-child { grid-column: 1 / -1; }
+  .pair-form > button { grid-column: 2; }
   /* The alphabet is uppercase, so show it that way whatever the phone's
      keyboard did. No flex rule here on purpose: `.unlock input` outranks a
      bare class, so one was already being ignored, and the code shares its row

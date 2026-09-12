@@ -108,6 +108,27 @@ try {
   if (!await evaluate(`!!document.querySelector(".scanner button.scan")`)) {
     throw new Error("scan-QR button did not render");
   }
+  const form = await evaluate(`(() => {
+    const form = document.querySelector("form.pair-form");
+    const address = form?.querySelector("input:not(.code-in)");
+    const code = form?.querySelector("input.code-in");
+    const button = form?.querySelector("button");
+    if (!form || !address || !code || !button) return null;
+    const box = form.getBoundingClientRect();
+    const addressBox = address.getBoundingClientRect();
+    const codeBox = code.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    return {
+      width: box.width,
+      addressWidth: addressBox.width,
+      codeWidth: codeBox.width,
+      buttonWidth: buttonBox.width,
+      overflow: Math.max(addressBox.right, codeBox.right, buttonBox.right) - box.right,
+    };
+  })()`);
+  if (!form || form.addressWidth < 250 || form.codeWidth < 160 || form.overflow > 1) {
+    throw new Error(`pairing fields do not fit the phone: ${JSON.stringify(form)}`);
+  }
   await evaluate(`document.querySelector(".scanner button.scan").click(); true`);
 
   let state;
