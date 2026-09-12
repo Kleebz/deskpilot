@@ -109,9 +109,27 @@ try {
   await metrics(390, 844);
   await send("Page.navigate", { url: "http://127.0.0.1:8892" });
   await until(`document.querySelectorAll('.session-row').length===27`);
+  await until(`!!document.querySelector('.attention-row')`);
+  await check(
+    `document.querySelector('.attention-row').textContent.includes('headless-job') && document.querySelector('.attention-row').textContent.includes('Headless')`,
+    "cross-machine attention names the machine and blocked session",
+  );
+  await run(`document.querySelector('.attention-row').click()`);
+  await until(`document.querySelector('.name')?.textContent==='headless-job'`);
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').value.endsWith('8893')`,
+    "cross-machine attention opens the correct machine and session",
+  );
+  await click("Back to sessions");
+  await choose(8892);
+  await until(`document.querySelectorAll('.session-row').length===27`);
   await check(
     `document.querySelector('.session-row').textContent.includes('detached')`,
     "attention first, including detached sessions",
+  );
+  await check(
+    `document.getElementById('session-project-0').textContent.includes('Ready') && document.getElementById('session-project-1').textContent.includes('Terminal')`,
+    "done and unknown have distinct session labels",
   );
   await run(`document.querySelector('main').scrollTop=650`);
   const scroll = await run(`document.querySelector('main').scrollTop`);

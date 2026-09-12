@@ -41,6 +41,7 @@ KIND=${1:-event}
 PORT=${DESKPILOT_PORT:-8790}
 TOKEN_FILE=${DESKPILOT_TOKEN_FILE:-$HOME/.config/deskpilot/token}
 
+observed_at=$(date +%s%3N 2>/dev/null || true)
 # A hook must never be why an agent stalls. Every failure below exits 0 and
 # says nothing: a missed notification is a small loss, a wedged agent is not.
 payload=$(cat 2>/dev/null || true)
@@ -59,6 +60,7 @@ token=$(cat "$TOKEN_FILE") || exit 0
 # The tool name is the useful half of a permission request — "Bash wants to
 # run" is worth waking up for in a way that "a session needs you" is not.
 tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null || true)
+source_session=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
 
 # ...but the name alone is not enough to answer on. "Bash" covers both `ls` and
 # `rm -rf ~`, and a notification you cannot judge is one you approve out of
@@ -106,7 +108,12 @@ esac
 
 jq -n --arg s "$session" --arg k "$KIND" --arg t "$title" --arg b "$body" \
   --arg tool "$tool" --arg id "$reqid" --arg d "$detail" \
-  '{session:$s, kind:$k, title:$t, body:$b, tool:$tool, reqid:$id, detail:$d}' 2>/dev/null |
+  --arg source_session "$source_session" --argjson observed_at "${observed_at:-0}" \
+  '{version:1, session:$s, state:$k, source:"claude-code-hook",
+    sourceSession:$source_session, observedAt:$observed_at, agent:"claude-code",
+    title:$t, body:$b,
+    reason:{kind:(if $k == "blocked" then "permission" else "turn" end),
+      tool:$tool, requestId:$id, detail:$d}}' 2>/dev/null |
   curl -s -m 5 -o /dev/null \
     -X POST "http://127.0.0.1:${PORT}/api/event" \
     -H "authorization: Bearer $token" \

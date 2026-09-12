@@ -351,9 +351,10 @@ the whole point is delivery while the phone is asleep in a pocket.
 $REPO/shell/install-hooks.sh
 ```
 
-Wires two Claude Code hooks: `PermissionRequest` announces a prompt as it is raised,
-carrying the name of the tool asking; `Stop` announces a finished turn. Both `async`,
-so a notification can never make the agent wait.
+Wires three Claude Code hooks: `UserPromptSubmit` records that work began,
+`PermissionRequest` announces a prompt as it is raised carrying the name of the tool
+asking, and `Stop` announces a finished turn. All are `async`, so a notification can
+never make the agent wait.
 
 **Claude Code cannot run this for you** — same reason as the permission rules in
 Step 1. It writes to `~/.claude/settings.json`, and an agent editing its own settings
@@ -366,9 +367,10 @@ backs up first.
 **Hooks load when a session starts.** Open `/hooks` once or start a new session before
 expecting them to fire.
 
-**Another agent** needs its own two lines in its own config pointing at
-`shell/agent-hook.sh`, and no change to deskpilot: the server receives "something
-happened" and never learns who sent it.
+**Another agent** needs its own lifecycle hooks mapped to the same states, and no change
+to deskpilot: the server receives "something happened" through the agent-neutral
+contract. See [agent lifecycle reports](agent-state.md) for the versioned payload and
+adapter rules.
 
 ### 5c. The fallback, for agents that cannot signal
 

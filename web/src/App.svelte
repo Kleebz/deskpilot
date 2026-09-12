@@ -1,7 +1,7 @@
 <script>
   import { onMount, tick, untrack } from 'svelte';
   import { api, post, ready, tilde } from './lib/api.js';
-  import { hosts, currentHost, switchTo, setCaps, needsYou, setNeedsYou } from './lib/hosts.svelte.js';
+  import { hosts, currentHost, switchTo, setCaps, needsYou, attention, setAttention } from './lib/hosts.svelte.js';
   import { vis } from './lib/visible.svelte.js';
   import Pane from './lib/Pane.svelte';
   import WindowRow from './lib/WindowRow.svelte';
@@ -24,6 +24,7 @@
   const selected = $derived(sessions.find(s => s.session === route.session));
   const rank = s => s.state === 'blocked' ? 0 : s.state === 'working' ? 1 : 2;
   const ordered = $derived([...sessions].sort((a,b) => rank(a)-rank(b)));
+  const attentionItems = $derived(hosts.list.filter(h => h.origin !== hosts.current).flatMap(h => (attention[h.origin] ?? []).map(s => ({ ...s, host: h }))));
   const keyFor = r => JSON.stringify([r.host, r.view, r.session ?? '']);
   const draftKey = $derived(JSON.stringify([hosts.current, route.session]));
   let restoreFocus = '';
@@ -64,6 +65,11 @@
     navigate('sessions');
   }
   function open(s) { navigate('terminal', { session: s.session }, `session-${s.session}`); }
+  function openAttention(item) {
+    remember();
+    switchTo(item.host.origin);
+    navigate('terminal', { session: item.session });
+  }
   function create() {
     creationDrafts[hosts.current] ??= { name: '', dir: '', command: 'claude', workspace: route.view === 'screens' ? screen : null };
     navigate('new', {}, 'new-session');
@@ -90,7 +96,7 @@
       ]);
       if (host.origin !== hosts.current || generation !== epoch || seq !== request) return;
       sessions = list; windows = w; locked = l.locked; setCaps(host.origin, c);
-      setNeedsYou(host.origin, list.filter(s => s.state === 'blocked').length);
+      setAttention(host.origin, list);
       connection = 'ready';
     } catch (e) {
       if (host.origin !== hosts.current || generation !== epoch || seq !== request) return;
@@ -120,8 +126,8 @@
     const list = hosts.list.map(h => ({ ...h }));
     if (!vis.visible) return;
     const poll = () => Promise.all(list.map(async host => {
-      try { const s = await api('/sessions', { host, timeoutMs: 6000 }); setNeedsYou(host.origin, s.filter(s => s.state === 'blocked').length); }
-      catch { setNeedsYou(host.origin, 0); }
+      try { const s = await api('/sessions', { host, timeoutMs: 6000 }); setAttention(host.origin, s); }
+      catch { setAttention(host.origin, []); }
     }));
     poll(); const timer = setInterval(poll, 15000);
     return () => clearInterval(timer);
@@ -216,9 +222,21 @@
     <h1 tabindex="-1">Session closed</h1><p>This session is no longer running.</p><button onclick={() => home()}>Back to sessions</button>
   {:else}
     <div class="heading"><h1 tabindex="-1">Sessions</h1><button aria-label="Refresh sessions" onclick={refresh}>Refresh</button></div>
+    {#if attentionItems.length}
+      <section class="attention" aria-labelledby="attention-title">
+        <h2 id="attention-title">Needs attention on another machine</h2>
+        {#each attentionItems as item (`${item.host.origin}:${item.session}`)}
+          <button class="attention-row" onclick={() => openAttention(item)}>
+            <span class="row-title"><strong>{item.session}</strong><span class="err">Needs you</span></span>
+            <span class="dim">{item.host.name}{item.tool ? ` · ${item.tool}` : ''}</span>
+            {#if item.detail}<span>{item.detail}</span>{/if}
+          </button>
+        {/each}
+      </section>
+    {/if}
     {#each ordered as s (s.session)}
       <button id={`session-${s.session}`} class="session-row" onclick={() => open(s)}>
-        <span class="row-title"><strong>{s.session}</strong><span class:err={s.state === 'blocked'} class="dim">{s.state === 'blocked' ? 'Needs you' : s.state === 'working' ? 'Working' : 'Idle'}</span></span>
+        <span class="row-title"><strong>{s.session}</strong><span class:err={s.state === 'blocked'} class="dim">{s.state === 'blocked' ? 'Needs you' : s.state === 'working' ? 'Working' : s.state === 'done' ? 'Ready' : 'Terminal'}</span></span>
         <span class="dim">{s.workspace == null ? 'No desktop window' : `Screen ${s.workspace}`} · {tilde(s.path) || s.command || 'Terminal'}</span>
         {#if s.state === 'blocked' && (s.tool || s.detail)}<span>{s.tool ? `${s.tool}: ` : ''}{s.detail ?? ''}</span>{/if}
       </button>
@@ -240,10 +258,13 @@ nav button { flex:1; min-width:0; }
 main { flex:1; min-height:0; overflow:auto; padding:.7rem; display:flex; flex-direction:column; gap:.7rem; overflow-wrap:anywhere; }
 main > :global(*) { flex-shrink:0; }
 .heading,.row-title { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
-.session-row { display:flex; flex-direction:column; align-items:stretch; gap:.35rem; text-align:left; width:100%; background:var(--card); padding:.85rem; overflow-wrap:anywhere; }
+.session-row,.attention-row { display:flex; flex-direction:column; align-items:stretch; gap:.35rem; text-align:left; width:100%; background:var(--card); padding:.85rem; overflow-wrap:anywhere; }
 .row-title strong { min-width:0; color:var(--ok); }
 .row-title > span { flex:none; font-size:12px; }
-.session-row > .dim { font-size:12px; }
+.session-row > .dim,.attention-row > .dim { font-size:12px; }
+.attention { display:flex; flex-direction:column; gap:.5rem; padding:.65rem; border:1px solid var(--err); border-radius:var(--radius); }
+.attention h2 { margin:0; font-size:14px; color:var(--err); }
+.attention-row { background:color-mix(in srgb, var(--err) 7%, var(--card)); }
 .sticky { position:sticky; bottom:0; margin-top:auto; background:var(--panel); }
 .feedback { padding:.4rem .7rem; overflow-wrap:anywhere; flex:none; font-size:12px; }
 .session-menu { padding:.7rem; display:flex; flex-wrap:wrap; gap:.5rem; max-height:45%; overflow:auto; }

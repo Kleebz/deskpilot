@@ -18,6 +18,7 @@ import { describe } from "./version.ts";
 import { runCommand } from "./cli.ts";
 import { listSessions } from "./sessions.ts";
 import { ROOT, scriptsDir } from "./scripts.ts";
+import { AgentStates, isLifecycle, type LifecycleReport } from "./agent-state.ts";
 
 const WEB = `${ROOT}/web`;
 
@@ -249,27 +250,6 @@ const SAFE_TO_APPROVE = new Set([
 // refused rather than delivered to the wrong dialog.
 const APPROVE_TTL_MS = 120_000;
 
-type Pending = { reqid: string; at: number; canApprove: boolean };
-const pending = new Map<string, Pending>();
-
-// What each session is doing right now, as opposed to the fact that something
-// happened. Events were fire-and-forget notifications: miss the push and there
-// was no way to ask what a session was waiting on. A console whose whole job is
-// "tell me which machine needs me" has to be able to answer that at any time.
-//
-// Persisted, because it is the state you least want to lose. The service
-// crash-looped for thirty seconds during a deploy, and in-memory state would
-// have quietly forgotten every blocked session — the ones actually waiting for
-// a human.
-type AgentState = {
-  state: "working" | "blocked" | "idle" | "done";
-  since: number;
-  tool?: string;
-  detail?: string;
-  reqid?: string;
-  canApprove?: boolean;
-};
-
 // Declared here rather than beside the other state paths because the store
 // below reads it at module load.
 const AGENT_FILE = `${Deno.env.get("HOME")}/.local/state/deskpilot/agent-state.json`;
@@ -277,30 +257,11 @@ const devices = new Devices(
   `${Deno.env.get("HOME")}/.local/state/deskpilot/devices.json`,
 );
 
-const agentState = new Map<string, AgentState>();
-
-try {
-  const raw = JSON.parse(Deno.readTextFileSync(AGENT_FILE)) as Record<string, AgentState>;
-  for (const [k, v] of Object.entries(raw)) if (SAFE_NAME.test(k)) agentState.set(k, v);
-} catch { /* first run, or unreadable */ }
-
-// Debounced: state changes in bursts as an agent works, and a console is not
-// worth an fsync per tool call.
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-function saveAgentState() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    Deno.writeTextFile(AGENT_FILE, JSON.stringify(Object.fromEntries(agentState)))
-      .catch((e) =>
-        console.error(`agent state: could not write ${AGENT_FILE}: ${e.message}`)
-      );
-  }, 500);
-}
-
-function setAgentState(session: string, next: AgentState) {
-  agentState.set(session, next);
-  saveAgentState();
-}
+const agentStates = new AgentStates(
+  AGENT_FILE,
+  (name) => SAFE_NAME.test(name),
+  Number(Deno.env.get("DESKPILOT_WORKING_TTL_MS") ?? "1800000"),
+);
 
 const DIST = `${WEB}/dist`;
 
@@ -606,8 +567,9 @@ async function handle(req: Request): Promise<Response> {
     // sessions before it was swapped in.
     const list = await listSessions();
     const merged = list.map((x) => {
-      const st = agentState.get(String(x.session));
-      return st ? { ...x, ...st } : { ...x, state: "idle", since: 0 };
+      const w = watched.get(String(x.session));
+      const activity = !w?.seenMovement ? "unknown" : Date.now() - w.changed < 6_000 ? "active" : "quiet";
+      return { ...x, ...agentStates.view(String(x.session)), activity, activitySince: w?.changed ?? 0 };
     });
     return withCookie(json(merged));
   }
@@ -668,12 +630,37 @@ async function handle(req: Request): Promise<Response> {
     if (!SAFE_NAME.test(s)) return fail("bad session name");
     const title = String(b?.title ?? s).slice(0, 120);
     const body = String(b?.body ?? "").slice(0, 300);
-    const kind = String(b?.kind ?? "event");
-    const tool = String(b?.tool ?? "").slice(0, 64);
-    const reqid = String(b?.reqid ?? "").slice(0, 64);
+    const versioned = b?.version === 1;
+    const kind = String(versioned ? b?.state : b?.kind ?? "event");
+    if (versioned && !isLifecycle(kind)) return fail("bad lifecycle state");
+    const reason = versioned && b?.reason && typeof b.reason === "object" ? b.reason : b;
+    const tool = String(reason?.tool ?? "").slice(0, 64);
+    const reqid = String(reason?.requestId ?? reason?.reqid ?? "").slice(0, 64);
     // What is actually being asked, as its own field rather than folded into
     // prose. "Bash" is not something you can answer; "Bash: rm -rf ~" is.
-    const detail = String(b?.detail ?? "").slice(0, 200);
+    const detail = String(reason?.detail ?? "").slice(0, 200);
+    const canApprove = kind === "blocked" && !!reqid && SAFE_TO_APPROVE.has(tool);
+    let accepted = true;
+    if (isLifecycle(kind)) {
+      const report: LifecycleReport = {
+        state: kind,
+        source: versioned ? String(b?.source ?? "").slice(0, 64) : "legacy-hook",
+        sourceSession: versioned ? String(b?.sourceSession ?? "").slice(0, 128) || undefined : undefined,
+        agent: versioned ? String(b?.agent ?? "").slice(0, 64) || undefined : undefined,
+        observedAt: versioned ? Number(b?.observedAt) : Date.now(),
+        tool, detail, requestId: reqid, canApprove,
+      };
+      accepted = agentStates.report(s, report);
+      if (!accepted && versioned) {
+        const invalid = !report.source || !Number.isFinite(report.observedAt) || report.observedAt <= 0 || report.observedAt > Date.now() + 60_000;
+        if (invalid) return fail("bad lifecycle report");
+      }
+    }
+
+    // A delayed asynchronous hook may arrive after a newer lifecycle event.
+    // It is acknowledged so the agent never waits, but it must not rewind the
+    // state, pending approval, fallback watcher, or notification stream.
+    if (!accepted) return withCookie(json({ ok: true, accepted: false }));
 
     // Keep the stillness fallback in step with what the agent just said about
     // itself. A stop is announced, so the fallback must not follow up a minute
@@ -685,27 +672,6 @@ async function handle(req: Request): Promise<Response> {
       else { w.notified = true; w.busy = false; }
     }
 
-    // Any later event supersedes the last one, so a notification left over from
-    // a request that has since been answered can no longer approve anything.
-    const canApprove = kind === "blocked" && !!reqid && SAFE_TO_APPROVE.has(tool);
-    if (kind === "blocked" && reqid) {
-      pending.set(s, { reqid, at: Date.now(), canApprove });
-    } else {
-      pending.delete(s);
-    }
-
-    // A turn starting is as much a state change as a turn ending; without it a
-    // session that has been working for ten minutes is indistinguishable from
-    // one that has been idle for ten minutes.
-    const known = kind === "working" || kind === "blocked" || kind === "done";
-    if (known) {
-      setAgentState(s, {
-        state: kind as AgentState["state"],
-        since: Date.now(),
-        ...(kind === "blocked" ? { tool, detail, reqid, canApprove } : {}),
-      });
-    }
-
     console.log(`event: ${s} ${kind}${tool ? ` ${tool}` : ""}${canApprove ? " (approvable)" : ""}`);
     // A turn starting is state, not news. Pushing it would notify on every
     // prompt, which trains you to ignore the notifications that matter.
@@ -714,7 +680,7 @@ async function handle(req: Request): Promise<Response> {
       // allowed to answer; otherwise there is nothing there to tap.
       await notify({ title, body, session: s, kind, canApprove, reqid: canApprove ? reqid : "" });
     }
-    return withCookie(json({ ok: true }));
+    return withCookie(json({ ok: true, accepted: true }));
   }
 
   // ---- push ----
@@ -763,16 +729,13 @@ async function handle(req: Request): Promise<Response> {
     if (!SAFE_NAME.test(s)) return fail("bad session name");
     const reqid = String(b?.reqid ?? "");
 
-    const p = pending.get(s);
-    if (!p || !reqid || p.reqid !== reqid) return fail("no longer pending", 409);
-    if (!p.canApprove) return fail("must be reviewed in the app", 409);
-    if (Date.now() - p.at > APPROVE_TTL_MS) {
-      pending.delete(s);
-      return fail("expired", 409);
-    }
-
     // Consumed first: a retry must not be able to press Enter a second time.
-    pending.delete(s);
+    // The lifecycle becomes working immediately instead of showing a blocked
+    // request that this endpoint has already answered.
+    const approval = agentStates.approve(s, reqid, APPROVE_TTL_MS);
+    if (approval === "missing") return fail("no longer pending", 409);
+    if (approval === "forbidden") return fail("must be reviewed in the app", 409);
+    if (approval === "expired") return fail("expired", 409);
     const r = await run("tmux", ["send-keys", "-t", s, "Enter"]);
     if (r.code !== 0) return fail(r.err || "send failed", 500);
     return withCookie(json({ ok: true, session: s }));
@@ -951,12 +914,9 @@ async function handle(req: Request): Promise<Response> {
 
     // Carry the state across, or a renamed session forgets it was blocked —
     // which is the one thing the console exists to remember.
-    const st = agentState.get(from);
-    if (st) { agentState.delete(from); agentState.set(to, st); saveAgentState(); }
+    agentStates.rename(from, to);
     const w = watched.get(from);
     if (w) { watched.delete(from); watched.set(to, w); }
-    const pend = pending.get(from);
-    if (pend) { pending.delete(from); pending.set(to, pend); }
 
     console.log(`rename: ${from} -> ${to}`);
     return withCookie(json({ ok: true, name: to }));
@@ -974,6 +934,7 @@ async function handle(req: Request): Promise<Response> {
     await run("tmux", ["set-option", "-t", name, "detach-on-destroy", "on"]);
     const r = await run("tmux", ["kill-session", "-t", name]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
+    agentStates.remove(name);
     return withCookie(json({ ok: true, killed: name }));
   }
 
@@ -1298,6 +1259,7 @@ type Watched = {
   changed: number;   // when the screen last differed at all — the idle signal
   busy: boolean;     // has produced output that has not yet been settled for
   notified: boolean; // already announced this particular stop
+  seenMovement: boolean;
 };
 
 // How long a session has to hold still before it counts as waiting rather than
@@ -1337,9 +1299,7 @@ async function tick() {
   const live = rows.map(([n]) => n);
 
   // Sessions that no longer exist stop being anything.
-  for (const name of [...agentState.keys()]) {
-    if (!live.includes(name)) { agentState.delete(name); saveAgentState(); }
-  }
+  agentStates.prune(live);
 
   for (const [s, attachedCount] of rows) {
     // A session with a client attached is on a screen in front of you, so a
@@ -1360,7 +1320,7 @@ async function tick() {
     if (!w) {
       watched.set(s, {
         prev: curr, changed: Date.now(),
-        busy: false, notified: true,   // nothing to announce about a session we just met
+        busy: false, notified: true, seenMovement: false,
       });
       continue;
     }
@@ -1379,6 +1339,7 @@ async function tick() {
     // stop.
     if (moved) {
       w.changed = Date.now();
+      w.seenMovement = true;
       w.busy = true;
       w.notified = false;
     } else if (!attached && w.busy && !w.notified && Date.now() - w.changed > IDLE_MS) {

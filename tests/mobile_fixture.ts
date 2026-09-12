@@ -9,6 +9,7 @@ export async function fixture() {
     calls: [] as string[],
     created: [] as any[],
     sockets: [] as string[],
+    remoteBlocked: true,
   };
   const servers = [8892, 8893, 8894].map((port, i) =>
     Deno.serve({ hostname: "127.0.0.1", port, onListen() {} }, async (req) => {
@@ -77,7 +78,18 @@ export async function fixture() {
           return json(
             i
               ? [
-                { session: "headless-job", workspace: null, command: "bash" },
+                {
+                  session: "headless-job",
+                  workspace: null,
+                  command: "bash",
+                  ...(state.remoteBlocked
+                    ? {
+                      state: "blocked",
+                      tool: "Write",
+                      detail: "Review generated file",
+                    }
+                    : {}),
+                },
                 ...state.created,
               ]
               : [
@@ -98,6 +110,7 @@ export async function fixture() {
                     workspace: n % 10 + 1,
                     command: "bash",
                     path: "/home/test/long-project-name",
+                    ...(n === 0 ? { state: "done" } : {}),
                   }),
                 ),
                 ...state.created,

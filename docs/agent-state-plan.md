@@ -1,6 +1,6 @@
 # Agent state plan
 
-Status: proposed
+Status: implemented on `design/agent-state-model`
 
 This plan strengthens Deskpilot's human-directed agent supervision without changing its
 tmux substrate or turning it into an agent-to-agent orchestration runtime.
@@ -125,12 +125,14 @@ The session index should make the distinction visible without adding dashboard n
 
 - `blocked`: show "needs you" or the tool/reason, sort first.
 - `working`: show "working", sort after blocked.
-- `done`: show "ready", followed by the current idle age.
-- `unknown`: show no lifecycle claim; retain the existing activity age.
+- `done`: show "ready".
+- `unknown`: show "terminal", making no agent lifecycle claim.
 
-Add one cross-machine attention list containing the machine, session, and blocked reason
-for every reachable host. Selecting a row switches to that machine and opens the session.
-The machine strip can retain its compact dot/count. Unreachable machines remain an
+Add a cross-machine attention section to the session-first home view containing the
+machine, session, and blocked reason from other reachable hosts. The selected host's
+blocked sessions are already first in its normal list, so repeating them would create
+duplicate rows. Selecting a cross-machine row switches to that machine and opens the
+session. The machine picker retains its compact count. Unreachable machines remain an
 availability concern rather than being presented as blocked agents.
 
 Do not add agent spawning, dependency graphs, worktree ownership, agent-to-agent prompts,
@@ -190,8 +192,8 @@ improving push delivery.
 
 Acceptance checks:
 
-- all blocked sessions across reachable machines are discoverable without switching
-  machines one by one;
+- blocked sessions on other reachable machines are discoverable without switching
+  machines one by one, while the selected machine shows them in its normal list;
 - selecting an attention item opens the correct `(machine, session)` pair;
 - stale responses from a previously selected machine cannot overwrite the current view;
 - 320, 360, 390, and 430 px layout checks still pass;

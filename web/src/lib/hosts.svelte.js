@@ -97,6 +97,8 @@ export function removeHost(origin) {
   hosts.list = hosts.list.filter((h) => h.origin !== origin);
   if (hosts.current === origin) hosts.current = hosts.list[0]?.origin ?? location.origin;
   delete hosts.caps[origin];
+  delete attention[origin];
+  delete needsYou[origin];
   persist();
 }
 
@@ -113,6 +115,9 @@ export function setCaps(origin, caps) {
 // Attention per machine, so the strip can show where the work is without
 // leaving the session you are in.
 export const needsYou = $state({});
-export function setNeedsYou(origin, n) {
+export const attention = $state({});
+export function setAttention(origin, sessions) {
+  attention[origin] = sessions.filter((s) => s.state === "blocked");
+  const n = attention[origin].length;
   if (needsYou[origin] !== n) needsYou[origin] = n;
 }
