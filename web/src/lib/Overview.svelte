@@ -3,6 +3,7 @@
   import NewSession from "./NewSession.svelte";
   import Install from "./Install.svelte";
   import Notify from "./Notify.svelte";
+  import PairScanner from "./PairScanner.svelte";
   import Usage from "./Usage.svelte";
 
   import {
@@ -34,6 +35,21 @@
   // A code is single-use: a double tap would spend it and report the second
   // attempt as invalid.
   let addingNow = $state(false);
+
+  function acceptPairingScan(value) {
+    let url;
+    try { url = new URL(value); } catch {
+      onstatus("that QR is not a complete Deskpilot pairing link", true);
+      return;
+    }
+    if (!/^https?:$/.test(url.protocol) || !url.searchParams.get("code")) {
+      onstatus("that QR is not a complete Deskpilot pairing link", true);
+      return;
+    }
+    pasted = value;
+    pastedCode = "";
+    onstatus("QR read — tap add");
+  }
 
   // Which session is being renamed, and to what. A session is named after the
   // directory it started in, so "deskpilot" tells you where it is and nothing
@@ -537,6 +553,7 @@
   </div>
 
   {#if adding}
+    <PairScanner onscan={acceptPairingScan} {onstatus} />
     <form class="unlock" onsubmit={addMachine}>
       <input
         bind:value={pasted} placeholder="complete pairing link or address"
@@ -549,9 +566,9 @@
       <button disabled={!pasted.trim() || addingNow}>{addingNow ? "pairing…" : "add"}</button>
     </form>
     <div class="hint dim">
-      Run <code>deskpilot pair</code> on the other machine — over SSH is fine, it needs
-      no screen — and paste the complete link into the first field. Leave the code field
-      empty; it is only for pairing from a bare address.
+      Show <code>deskpilot pair</code> on the other machine and scan its QR here. For a
+      headless machine over SSH, transfer the complete link and paste it into the first
+      field. Leave the code field empty; it is only for pairing from a bare address.
       Either way the code is exchanged for a credential belonging to this phone alone,
       revocable from that machine without disturbing anything else.
     </div>
