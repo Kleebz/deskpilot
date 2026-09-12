@@ -224,11 +224,11 @@ async function recoversAfterWake(cdp: Cdp, base: string, token: string, restart:
   return 0;
 }
 
-// Launching the app from a machine that is off. Runs against a throwaway copy
-// of the built UI so the server can genuinely be killed — the service worker
-// does its own fetching in its own target, and network emulation on the page
-// does not reach it, so faking this measures the wrong thing.
-async function offlinePageRoutes(cdp: Cdp, dist: string): Promise<number> {
+// Cold-launching the installed app while the machine that supplied its origin
+// is off. Runs against a throwaway copy of the built UI so the server can
+// genuinely be killed — network emulation on the page does not reach the
+// service worker, so faking this measures the wrong thing.
+async function cachedAppRoutes(cdp: Cdp, dist: string): Promise<number> {
   const TYPES: Record<string, string> = {
     ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
     ".json": "application/json", ".webmanifest": "application/manifest+json",
@@ -248,17 +248,24 @@ async function offlinePageRoutes(cdp: Cdp, dist: string): Promise<number> {
       } catch { return new Response("not found", { status: 404 }); }
     });
   } catch (e) {
-    console.log(`\x1b[31m✗\x1b[0m offline page — could not start a throwaway server: ${e}`);
+    console.log(`\x1b[31m✗\x1b[0m cached app — could not start a throwaway server: ${e}`);
     return 1;
   }
   const base = `http://127.0.0.1:${server.addr.port}`;
 
   const p = await page(cdp);
-  await p.goto(`${base}/`);
+  await p.goto(`${base}/?token=x`);
   await sleep(2500);
   const cached = await p.run(`navigator.serviceWorker.ready.then(async () => {
-    const c = await caches.open("deskpilot-offline-v2");
-    return !!(await c.match("/offline.html"));
+    const names = (await caches.keys()).filter((n) => n.startsWith("deskpilot-shell-"));
+    if (names.length !== 1) return { shells: names.length, app: false, assets: 0 };
+    const c = await caches.open(names[0]);
+    const keys = await c.keys();
+    return {
+      shells: names.length,
+      app: !!(await c.match("/__deskpilot_app_shell__")),
+      assets: keys.filter((r) => new URL(r.url).pathname.startsWith("/assets/")).length,
+    };
   }).catch(() => false)`);
   // Two other machines paired, as any real multi-machine phone has.
   await p.run(`localStorage.setItem("dp_hosts", JSON.stringify([
@@ -279,31 +286,39 @@ async function offlinePageRoutes(cdp: Cdp, dist: string): Promise<number> {
   await sleep(3500);
   const out = await p.run(`(() => ({
     title: document.title,
-    links: [...document.querySelectorAll("#others a")].map((a) => ({
-      label: a.innerText.replace(/\\s+/g, " ").trim(),
-      href: a.getAttribute("href"),
-      tall: Math.round(a.getBoundingClientRect().height),
+    offlineDocument: !!document.querySelector("#others"),
+    machines: [...document.querySelectorAll("nav.machines button.machine")].map((b) => ({
+      label: b.innerText.replace(/\\s+/g, " ").trim(),
+      origin: b.title,
+      tall: Math.round(b.getBoundingClientRect().height),
     })),
   }))()`);
+  const selected = await p.run(`(() => {
+    const b = [...document.querySelectorAll("nav.machines button.machine")]
+      .find((x) => x.title === "https://framework.example.ts.net");
+    if (!b) return "";
+    b.click();
+    return localStorage.getItem("dp_host") || "";
+  })()`);
   await p.close();
 
   const problems: string[] = [];
-  if (!cached) problems.push("the service worker never cached the offline page");
+  if (!cached?.app) problems.push("the service worker never cached the application document");
+  if ((cached?.assets ?? 0) < 3) problems.push(`only ${cached?.assets ?? 0} built assets were cached`);
   if (!controlled) problems.push("the service worker was not controlling the page");
-  if (!out.title.includes("offline")) problems.push(`the offline page did not render — got "${out.title}"`);
-  if (out.links.length !== 2) problems.push(`${out.links.length} machines offered, expected the 2 that are paired`);
-  for (const a of out.links) {
-    // A token in one of these would be written into browser history. Each
-    // machine's own page holds its own credential; these are bare origins.
-    if (/token=|[a-f0-9]{32}/i.test(a.href)) problems.push(`the link to ${a.label} carries a credential`);
-    if (a.tall < 44) problems.push(`the link to ${a.label} is ${a.tall}px tall`);
+  if (out.offlineDocument) problems.push("the static offline document rendered instead of the application");
+  if (out.title.includes("offline")) problems.push(`the application did not render — got "${out.title}"`);
+  if (out.machines.length !== 3) problems.push(`${out.machines.length} machines rendered, expected all 3 stored machines`);
+  for (const machine of out.machines) {
+    if (machine.tall < 44) problems.push(`${machine.label} is only ${machine.tall}px tall`);
   }
+  if (selected !== "https://framework.example.ts.net") problems.push("the live alternate machine could not be selected");
   if (problems.length) {
-    console.log(`\x1b[31m✗\x1b[0m offline page routes to the machines that are up`);
+    console.log(`\x1b[31m✗\x1b[0m cached app starts when its origin is off`);
     for (const m of problems) console.log(`    ${m}`);
     return 1;
   }
-  console.log(`\x1b[32m✓\x1b[0m offline page routes to the machines that are up  (${out.links.map((a: any) => a.label.split(" ")[0]).join(", ")})`);
+  console.log(`\x1b[32m✓\x1b[0m cached app starts when its origin is off  (${cached.assets} assets, alternate selected)`);
   return 0;
 }
 
@@ -346,7 +361,7 @@ async function main() {
   let failures = 0;
   failures += await recoversWhileWatching(cdp, base, token, restart);
   failures += await recoversAfterWake(cdp, base, token, restart);
-  failures += await offlinePageRoutes(cdp, dist);
+  failures += await cachedAppRoutes(cdp, dist);
 
   cdp.close();
   chrome.kill();

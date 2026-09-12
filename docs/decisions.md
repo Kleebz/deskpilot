@@ -467,7 +467,7 @@ Contrast was already fine and did not need touching: dim text 5.47:1, transcript
 The general lesson matches the layout one: at phone size, judge by measurement. The
 interface looked reasonable in every screenshot taken before this audit.
 
-## Service worker: needed after all, but caching still refused
+## Service worker: needed after all
 
 I originally skipped the service worker, reasoning that this is a live view of a machine
 and caching it offline would show sessions that no longer exist. That reasoning was
@@ -475,10 +475,10 @@ right. The conclusion was wrong, because **Chrome will not fire `beforeinstallpr
 without a service worker that has a fetch handler** — so "no service worker" silently
 meant "not installable", and no amount of manifest work would have fixed it.
 
-Resolved by separating the two things I had conflated. `public/sw.js` has a fetch
-handler and caches nothing: it handles navigations by going straight to the network and
-lets everything else fall through untouched, which also avoids interfering with range
-requests and image streaming.
+The first implementation separated the two things I had conflated. `public/sw.js` had a
+fetch handler, sent navigations straight to the network, and cached no application code.
+That made installation work without risking stale live data. It also made the origin
+machine a boot dependency, which became the next multi-machine failure described below.
 
 Checked against the documented criteria rather than assumed — this had already cost a
 long detour through TLS, DNS and firewalls looking for a cause that was never there.
@@ -536,25 +536,29 @@ media query slims the chrome in landscape, where every row costs a visible line.
 The earlier conclusion that this needed a "reader mode" parser was wrong. The problem was
 never the prose, which was always fine — it was the separators, and one regex fixed it.
 
-## The one thing worth caching
+## Cache the program, never the machine state
 
-The service worker exists because Chrome will not offer to install without one, and it
-deliberately caches none of the app — a cached shell would list sessions that no longer
-exist and a lock state from an hour ago.
+The original worker cached exactly one static error page. That was sufficient for one
+machine, but contradicted the multi-machine design: turning off the machine that supplied
+the installed PWA prevented a cold launch even while other paired machines were online.
+An already-open page happened to keep working, which made the failure depend on whether
+Android had reclaimed the process.
 
-It caches exactly one thing: a static error page. When the tailnet is down the app cannot
-load at all, so the browser shows its own "site can't be reached", which says nothing
-about the cause. The in-app offline banner cannot help here either — it only exists once
-the app has loaded, which is precisely what has failed.
+The corrected boundary is code versus data. The worker precaches `index.html`, every
+hashed JavaScript/CSS asset in Vite's build manifest, the scanner worker, icons, manifest,
+and the diagnostic fallback. It never caches `/api` or any runtime response. Navigation
+is network-first and falls back to the cached application document, which then reads the
+origin-scoped machine keyring and can select an online peer. Live sessions, locks,
+screenshots, and terminal content are fetched normally and cannot be stale.
 
-`offline.html` names the likely culprit instead, in order of probability, and retries by
-itself when connectivity returns so it does not become something to sit and stare at. It
-contains no live data, so it cannot go stale — which is what makes it the exception to
-the no-caching rule rather than a hole in it.
+Vite stamps `sw.js` with a digest of the asset manifest, application document, worker,
+and static shell files. A changed build therefore installs under a new cache name; only
+after it succeeds does activation discard the previous shell. `offline.html` remains the
+last fallback if the application cache is unavailable.
 
-Prompted by a real incident: the phone dropped off the tailnet after Android stopped
-Tailscale in the background, and the failure was indistinguishable from the app being
-broken.
+The recovery test starts a throwaway origin, installs and controls the worker, stores
+three machines, kills that origin, and performs a cold navigation. It requires the real
+app UI to render from cache and verifies that an alternate machine can be selected.
 
 ## Wrapping is a choice, not a setting
 

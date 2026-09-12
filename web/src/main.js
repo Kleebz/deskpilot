@@ -1,8 +1,8 @@
 import { mount } from "svelte";
 
-// Registering a service worker is what makes the app installable — Chrome will
-// not offer to install without one that has a fetch handler. It caches nothing;
-// see public/sw.js.
+// Registering a service worker makes the app installable and lets its static UI
+// cold-start when the machine that originally served it is off. Live machine
+// data remains network-only; see public/sw.js.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {

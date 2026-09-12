@@ -1,41 +1,81 @@
-// Network-only, with one exception.
+// The application shell is cached; live machine data never is.
 //
 // Chrome will not fire beforeinstallprompt without a service worker that has a
-// fetch handler, which is why this exists at all. It deliberately caches none
-// of the app: this is a live view of a machine, and a cached shell would show
-// sessions that no longer exist and a lock state from an hour ago.
-//
-// The exception is a single static error page. When the tailnet is down the app
-// cannot load at all, so the browser shows its own "site can't be reached" —
-// which says nothing about the actual cause. Serving our own page instead lets
-// it name the likely culprit. It contains no live data, so it cannot go stale.
+// fetch handler. Caching the HTML, CSS and JavaScript also removes the machine
+// that supplied the installed PWA as a boot dependency: once the UI starts, its
+// locally stored keyring can select any machine that is still online. Sessions,
+// locks, screenshots and every /api response remain network-only.
 
-// Bumped whenever offline.html changes. The install handler only re-runs when
-// this file's bytes differ, so editing the cached page alone would leave every
-// already-installed phone serving the old one forever.
-const SHELL = "deskpilot-offline-v2";
+// Vite replaces this marker with a digest of its complete asset manifest. That
+// changes sw.js whenever any built asset changes, which makes the browser
+// install the new worker and lets activation discard the old shell atomically.
+const SHELL = "deskpilot-shell-__DESKPILOT_SHELL_VERSION__";
+const SHELL_PREFIX = "deskpilot-shell-";
+const APP = "/__deskpilot_app_shell__";
 const OFFLINE = "/offline.html";
+const MANIFEST = "/.vite/manifest.json";
+const STATIC = [
+  OFFLINE,
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png",
+  "/apple-touch-icon.png",
+];
+
+async function fetchInto(cache, url, key = url) {
+  const response = await fetch(url, { cache: "reload" });
+  if (!response.ok) throw new Error(`could not cache ${url}: ${response.status}`);
+  await cache.put(key, response.clone());
+  return response;
+}
+
+async function installShell() {
+  const cache = await caches.open(SHELL);
+  const manifestResponse = await fetchInto(cache, MANIFEST);
+  const manifest = await manifestResponse.json();
+  const assets = new Set(STATIC);
+  for (const entry of Object.values(manifest)) {
+    if (entry.file) assets.add(`/${entry.file}`);
+    for (const file of entry.css || []) assets.add(`/${file}`);
+    for (const file of entry.assets || []) assets.add(`/${file}`);
+  }
+  await Promise.all([...assets].map((url) => fetchInto(cache, url)));
+
+  // Store the document under an internal key. Network navigations still ask
+  // the server first, while a failed cold launch gets this exact built shell.
+  await fetchInto(cache, "/", APP);
+}
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(SHELL).then((c) => c.add(OFFLINE)).then(() => self.skipWaiting()),
-  );
+  event.waitUntil(installShell().then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== SHELL).map((k) => caches.delete(k))))
+    caches.keys().then((keys) => Promise.all(
+      keys.filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL).map((k) => caches.delete(k)),
+    ))
       .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener("fetch", (event) => {
-  // Only navigations, and only to fall back — never to serve app data.
-  if (event.request.mode !== "navigate") return;
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(OFFLINE)),
-  );
+  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(fetch(event.request).catch(async () =>
+      (await caches.match(APP)) || caches.match(OFFLINE)
+    ));
+    return;
+  }
+
+  // Only responses explicitly placed in the shell cache can win here. API
+  // responses and runtime state never enter it, so they cannot become stale.
+  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
 });
 
 // ---- notifications ----

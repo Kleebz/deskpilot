@@ -364,6 +364,11 @@ Use the in-app flow even when a QR is available. A PWA and its machine list belo
 origin it was installed from; scanning another machine's QR in the phone camera opens that
 other origin in the browser instead of inserting it into the installed app's list.
 
+The machine that supplied the installed PWA does not have to remain online. The service
+worker caches the versioned application shell—not sessions, screenshots, lock state, or
+any API response—so a cold launch can still read the phone's machine list and switch to
+one that is available. Updates arrive when the origin machine is reachable again.
+
 **If nothing appears in the app**, the usual cause is that agents started at your desk are
 running outside tmux, where nothing can reach them. The app says so on the empty screen
 and gives you the one line that fixes it.
@@ -552,7 +557,7 @@ The short version:
 deno test --allow-read --allow-write --allow-env tests/   # unit tests
 deno run -A tests/layout.ts                               # phone layout, headless chromium
 deno run -A tests/scanner.ts                              # QR camera preview, simulated camera
-deno run -A tests/recovery.ts                             # reconnects, offline page (restarts the service)
+deno run -A tests/recovery.ts                             # reconnects, offline cold launch (restarts the service)
 tests/headless.sh dist/deskpilot                          # a host with no desktop
 shell/check.sh                                            # every environment assumption
 shell/build.sh                                            # the single binary

@@ -63,6 +63,7 @@ jobs:
           for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null http://127.0.0.1:8790/ && break; done
           deno run -A tests/layout.ts --url http://127.0.0.1:8790
           deno run -A tests/scanner.ts --url http://127.0.0.1:8790
+          deno run -A tests/recovery.ts --url http://127.0.0.1:8790 --dist web/dist
 
       - uses: actions/upload-artifact@v7
         with:
