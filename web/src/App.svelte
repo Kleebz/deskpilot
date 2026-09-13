@@ -234,8 +234,20 @@
     {:else if connection === 'offline'}<h1 tabindex="-1">Machine offline</h1><p>Cannot reach {displayName()}. Check the machine and your Tailscale connection.</p><button onclick={refresh}>Retry connection</button>
     {:else}<h1 tabindex="-1">Could not load sessions</h1><button onclick={refresh}>Try again</button>{/if}
   {:else if route.view === 'screens' && caps.windows}
-    <h1 tabindex="-1">Screens</h1>
-    <label>Desktop workspace<select aria-label="Desktop workspace" value={screen} onchange={e => showScreen(e.currentTarget.value)}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label>
+    <div class="screen-heading">
+      <h1 tabindex="-1">Screens</h1>
+      <label class="screen-picker"><span>Jump to</span><select aria-label="Desktop workspace" value={screen} onchange={e => showScreen(e.currentTarget.value)}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label>
+    </div>
+    <div class="screen-pager" aria-label="Screen navigation">
+      <button class="screen-step" aria-label="Previous screen" disabled={screen === 1} onclick={() => showScreen(screen - 1)}>‹</button>
+      <div class="screen-position" aria-live="polite">
+        <span>Screen {screen} of {workspaces.length}</span>
+        <div class="screen-dots" aria-hidden="true">
+          {#each workspaces as n}<i class:on={n === screen} class:has={sessions.some(s => s.workspace === n) || windows.some(w => w.workspace === n)}></i>{/each}
+        </div>
+      </div>
+      <button class="screen-step" aria-label="Next screen" disabled={screen === workspaces.length} onclick={() => showScreen(screen + 1)}>›</button>
+    </div>
     {#if locked}<p class="dim">Desktop locked. Screenshots are unavailable.</p>
       {#if caps.unlock}<form onsubmit={unlock}><label>Desktop password<input type="password" bind:value={password} autocomplete="current-password" /></label><button disabled={unlocking || !password}>{unlocking ? 'Unlocking…' : 'Unlock desktop'}</button></form>{/if}
     {/if}
@@ -315,6 +327,22 @@ main > :global(*) { flex-shrink:0; }
   display:flex; flex:1 1 auto; min-width:0; min-height:0; overflow-x:auto;
   scroll-snap-type:x mandatory; overscroll-behavior-x:contain;
   scrollbar-width:none;
+}
+.screen-heading { display:flex; align-items:end; justify-content:space-between; gap:.7rem; }
+.screen-picker { flex-direction:row; align-items:center; gap:.5rem; font-size:12px; }
+.screen-picker select { width:auto; padding-block:.3rem; }
+.screen-pager {
+  display:flex; align-items:center; gap:.55rem; width:100%;
+  border:1px solid var(--line); border-radius:var(--radius); background:var(--panel);
+}
+.screen-step { flex:none; width:44px; border:0; border-radius:calc(var(--radius) - 1px); font-size:24px; line-height:1; }
+.screen-position { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:.2rem; font-size:12px; }
+.screen-dots { display:flex; align-items:center; justify-content:center; gap:5px; height:8px; }
+.screen-dots i { display:block; width:6px; height:6px; border-radius:50%; background:var(--line); }
+.screen-dots i.has { background:var(--dim); }
+.screen-dots i.on {
+  width:8px; height:8px; background:var(--ok);
+  box-shadow:0 0 8px -1px color-mix(in srgb, var(--ok) 70%, transparent);
 }
 .screen-rail::-webkit-scrollbar { display:none; }
 .screen-rail:has(:global(.lightbox)) { overflow-x:hidden; scroll-snap-type:none; }

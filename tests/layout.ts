@@ -285,6 +285,14 @@ try {
     `document.querySelector('[aria-label="Screen 2"] .session-row') && document.querySelector('[aria-label="Screen 2"] .win') && !document.querySelector('[aria-label="Screen 2"]').inert`,
     "Screens selector retains sessions and window controls",
   );
+  await check(
+    `document.querySelector('.screen-position').textContent.includes('Screen 2 of 10') && document.querySelectorAll('.screen-dots i.on').length===1 && [...document.querySelectorAll('.screen-dots i')].indexOf(document.querySelector('.screen-dots i.on'))===1`,
+    "screen pager shows the selected screen",
+  );
+  await run(`document.querySelector('[aria-label="Next screen"]').click()`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await run(`document.querySelector('[aria-label="Previous screen"]').click()`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='2'`);
   await swipeLeft('.screen-rail');
   await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
   await check(
