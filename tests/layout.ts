@@ -245,6 +245,20 @@ try {
     `!document.body.innerText.includes('Desktop placement')`,
     "headless creation has no workspace selector",
   );
+  await check(
+    `document.querySelector('input[list="commands"]')?.placeholder==='Choose a preset or type any command' && [...document.querySelectorAll('#commands option')].map(o=>o.label+':'+o.value).join('|')==='Terminal:bash|Claude:claude|Claude continue:claude --continue|Codex:codex|Codex continue:codex resume --last|Codex yolo:codex --yolo'`,
+    "creation offers agent presets in an editable command field",
+  );
+  await input('input[list="commands"]', "codex --yolo");
+  await check(
+    `document.querySelector('.command-warning')?.textContent.includes('disables Codex approval prompts and sandboxing')`,
+    "yolo mode warns about disabled safety controls",
+  );
+  await input('input[list="commands"]', "claude");
+  await check(
+    `!document.querySelector('.command-warning')`,
+    "yolo warning clears with a safer command",
+  );
   await input('input[placeholder="e.g. api-review"]', "created-headless");
   await pause(5100);
   await check(
