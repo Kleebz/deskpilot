@@ -8,7 +8,7 @@
   import { vis } from "./visible.svelte.js";
   import { terminalText } from "./terminal-text.js";
 
-  let { session, fontPx = 10, alive = false, busy = false, onactivity } = $props();
+  let { session, fontPx = 10, alive = false, busy = false, onactivity, onstep } = $props();
 
   let host = $state(null);
   let term, fit, ws;
@@ -244,6 +244,7 @@
   const THROW = 11;         // px of coast per px/ms of release speed
 
   let dragAt = 0, dragAcc = 0, dragging = false;
+  let startX = 0, startY = 0, swipeX = 0, axis = '';
   let vel = 0, glide = 0, lastMoveAt = 0, raf = 0, lastFrame = 0;
 
   // Row height off the rendered grid, for the same reason refit() measures the
@@ -283,15 +284,31 @@
   }
 
   function touchStart(e) {
-    if (e.touches.length !== 1) return;
+    if (e.touches.length !== 1) { touchCancel(); return; }
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    swipeX = 0; axis = '';
     dragAt = e.touches[0].clientY;
     lastMoveAt = e.timeStamp;
     dragAcc = 0; vel = 0; glide = 0; dragging = false;
   }
 
   function touchMove(e) {
-    if (e.touches.length !== 1) return;
+    if (e.touches.length !== 1) { touchCancel(); return; }
+    if (axis === 'cancelled') return;
     const y = e.touches[0].clientY;
+    const x = e.touches[0].clientX - startX;
+    const totalY = y - startY;
+    if (!axis) {
+      if (Math.max(Math.abs(x), Math.abs(totalY)) < SLOP) return;
+      if (Math.abs(x) > Math.abs(totalY) * 1.3) axis = 'x';
+      else if (Math.abs(totalY) > Math.abs(x) * 1.3) axis = 'y';
+      else return;
+    }
+    if (axis === 'x') {
+      swipeX = x;
+      if (onstep) e.preventDefault();
+      return;
+    }
     const dy = y - dragAt;
     const dt = Math.max(e.timeStamp - lastMoveAt, 1);
     dragAt = y;
@@ -307,6 +324,12 @@
   }
 
   function touchEnd(e) {
+    if (axis === 'x') {
+      const distance = swipeX;
+      touchCancel();
+      if (Math.abs(distance) >= 50) onstep?.(distance < 0 ? 1 : -1);
+      return;
+    }
     if (!dragging) return;
     dragging = false;
     // A lift after a pause is a stop, not a throw.
@@ -314,7 +337,7 @@
     startPump();
   }
 
-  function touchCancel() { dragging = false; glide = 0; dragAcc = 0; }
+  function touchCancel() { axis = 'cancelled'; swipeX = 0; dragging = false; glide = 0; dragAcc = 0; }
 
   function blockTerminalFocus(e) {
     if (!displayOnly) return;
@@ -381,7 +404,7 @@
 </script>
 
 <div class="wrap" class:sweeping={alive} class:busy>
-  <div class="host" bind:this={host}></div>
+  <div class="host" class:session-swipe={!!onstep} bind:this={host}></div>
   {#if state !== "live"}
     <div class="state">
       {state === "connecting" ? "connecting…" : "disconnected"}
@@ -424,6 +447,9 @@
      browser keeps horizontal, or swiping between screens would stop working
      over a terminal, and keeps pinch so the text can still be zoomed. */
   .host { width: 100%; height: 100%; touch-action: pan-x pinch-zoom; }
+  /* Both axes are handled above when sessions can be swiped. Letting the
+     browser claim pan-x would cancel the gesture before touchEnd. */
+  .host.session-swipe { touch-action: pinch-zoom; }
   /* The columns are computed against the full host width, so nothing may
      overlay the right edge. Scrolling is by touch and wheel, not by grabbing a
      2px bar on a phone. */

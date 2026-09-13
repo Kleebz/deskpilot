@@ -41,6 +41,21 @@ Layout checks cover 320, 360, 390, and 430px portrait plus 932×430 landscape. T
 viewport width, page overflow, touch target heights, composer width, and terminal space.
 Representative screenshots are written to `/tmp/deskpilot-mobile-review`.
 
+Session navigation checks also cover desktop ordering, sessions sharing a screen,
+sessions without windows, horizontal and vertical terminal drags, composer identity
+and focus across swipes, separate drafts, stable ordering across placement/status polls,
+late send failures, correct prompt routing after switching, and returning directly to
+the originating list or desktop screen. The composer remains mounted while only the
+selected terminal connects. Physical keyboard retention still needs device verification.
+
+Resume checks force a page reload and a launch without browser history. They verify
+the original machine/session, prompt and paste drafts, list scroll, desktop screen,
+unfinished creation forms, functional Back/Cancel, and a session that closed while
+away. Backgrounding flushes the latest draft synchronously, and restoration issues no
+input request. Storage unit tests cover invalid data, removed machines, unavailable
+storage, and exclusion of passwords, pairing codes, and action state. This verifies
+recovery from a reload, not control over a phone's process-discard policy.
+
 The keyboard check simulates a reduced visual viewport; it does not replace physical iOS
 or Android keyboard testing. The camera test verifies a simulated preview, not a physical
 camera's recognition or OS permission prompt. Terminal fixtures verify session identity

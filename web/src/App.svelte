@@ -8,19 +8,26 @@
   import NewSession from './lib/NewSession.svelte';
   import AddMachine from './lib/AddMachine.svelte';
   import Management from './lib/Management.svelte';
+  import { readResume, resumeRoute, writeResume } from './lib/resume.js';
 
   const workspaces = [1,2,3,4,5,6,7,8,9,10];
+  const origins = hosts.list.map(h => h.origin);
+  const resumed = readResume(localStorage, origins);
+  const previousEntry = resumeRoute(history.state?.deskpilot, origins);
+  const initialRoute = previousEntry ?? resumed?.route ?? { view: 'sessions', host: hosts.current };
+  if (initialRoute.host !== hosts.current) switchTo(initialRoute.host);
   let sessions = $state([]), unmanaged = $state([]), windows = $state([]), connection = $state('loading');
   let status = $state(''), bad = $state(false), locked = $state(false);
-  let route = $state({ view: 'sessions', host: hosts.current });
+  let route = $state(initialRoute);
   let main = $state(null);
   let screenRail = $state(null);
+  let sessionOrder = $state(resumed?.route?.host === initialRoute.host ? resumed.order : []);
   let shownHost = '', epoch = 0, request = 0;
-  let drafts = $state({}), creationDrafts = $state({}), pairingDraft = $state({ address: '', code: '' });
+  let drafts = $state(resumed?.drafts ?? {}), creationDrafts = $state(resumed?.creationDrafts ?? {}), pairingDraft = $state({ address: '', code: '' });
   let menu = $state(false), rename = $state(''), target = $state(1), actionBusy = $state(false);
-  let screen = $state(1), password = $state(''), unlocking = $state(false);
-  const screensByHost = new Map();
-  const positions = new Map();
+  const screensByHost = new Map(resumed?.screens ?? []);
+  const positions = new Map(resumed?.positions ?? []);
+  let screen = $state(screensByHost.get(hosts.current) ?? 1), password = $state(''), unlocking = $state(false);
   const caps = $derived(hosts.caps[hosts.current] ?? {});
   const selected = $derived(sessions.find(s => s.session === route.session));
   const rank = s => s.state === 'blocked' ? 0 : s.state === 'working' ? 1 : 2;
@@ -28,7 +35,78 @@
   const attentionItems = $derived(hosts.list.filter(h => h.origin !== hosts.current).flatMap(h => (attention[h.origin] ?? []).map(s => ({ ...s, host: h }))));
   const keyFor = r => JSON.stringify([r.host, r.view, r.session ?? '']);
   const draftKey = $derived(JSON.stringify([hosts.current, route.session]));
+  const sessionPages = $derived(sessionOrder.map(name => sessions.find(s => s.session === name)).filter(Boolean));
+  const sessionIndex = $derived(sessionPages.findIndex(s => s.session === route.session));
   let restoreFocus = '';
+  let saveTimer;
+  prepareDraft(initialRoute);
+
+  function prepareDraft(next) {
+    if (next.view === 'new') creationDrafts[next.host] ??= { name: '', dir: '', command: 'claude', workspace: null };
+    if (next.view === 'terminal') drafts[JSON.stringify([next.host, next.session])] ??= { input: '', clip: '' };
+  }
+  function savePlace() {
+    clearTimeout(saveTimer);
+    remember();
+    screensByHost.set(hosts.current, screen);
+    writeResume(localStorage, {
+      // Pairing is intentionally not resumed: its form can hold credentials.
+      route: route.view === 'add' ? { host: hosts.current, view: 'sessions' } : route,
+      drafts, creationDrafts, screens: [...screensByHost], positions: [...positions], order: sessionOrder,
+    }, hosts.list.map(h => h.origin));
+  }
+  function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(savePlace, 150); }
+  $effect(() => {
+    // Track nested edits, including clearing a submitted draft. Flush again
+    // synchronously when hidden; a mobile process may disappear without unload.
+    JSON.stringify({ route, drafts, creationDrafts, sessionOrder, screen, machines: hosts.list.map(h => h.origin) });
+    scheduleSave();
+  });
+  function restorePosition() {
+    if (route.view === 'screens') alignScreen();
+    if (main) main.scrollTop = positions.get(keyFor(route)) ?? 0;
+  }
+  $effect(() => {
+    if (connection !== 'ready') return;
+    // The saved scroll position can only be applied once data has laid out.
+    untrack(() => {
+      const key = keyFor(route);
+      tick().then(() => { if (key === keyFor(route)) restorePosition(); });
+    });
+  });
+
+  const desktopOrder = () => [...sessions].sort((a, b) =>
+    (a.workspace ?? Infinity) - (b.workspace ?? Infinity) || a.session.localeCompare(b.session, undefined, { numeric: true }));
+  // Freeze existing neighbours while browsing. Polling may change status or
+  // desktop placement; only remove closed sessions and append new arrivals.
+  $effect(() => {
+    if (route.view !== 'terminal' || connection !== 'ready') return;
+    const available = desktopOrder().map(s => s.session);
+    untrack(() => {
+      const next = sessionOrder.filter(name => available.includes(name));
+      next.push(...available.filter(name => !next.includes(name)));
+      if (next.join('\0') !== sessionOrder.join('\0')) sessionOrder = next;
+    });
+  });
+
+  function switchSession(name) {
+    if (!sessions.some(s => s.session === name) || name === route.session) return;
+    const next = { ...route, session: name };
+    // Siblings share one history entry: Back returns to where browsing began.
+    history.replaceState({ deskpilot: $state.snapshot(next) }, '', location.href);
+    renderRoute(next);
+  }
+  function stepSession(direction) {
+    const next = sessionPages[sessionIndex + direction];
+    if (next) switchSession(next.session);
+  }
+  function keepComposerFocus(event) {
+    if (document.activeElement?.matches('.composer input')) event.preventDefault();
+  }
+  function backFromTerminal() {
+    if (route.returnTo) history.back();
+    else home();
+  }
 
   function sessionLocation(session) {
     const screens = session.workspaces?.length
@@ -40,7 +118,7 @@
   }
 
   function onstatus(text, error = false) { status = text; bad = error; }
-  function remember() { if (main) positions.set(keyFor(route), main.scrollTop); }
+  function remember() { if (main && connection === 'ready') positions.set(keyFor(route), main.scrollTop); }
   function alignScreen(behavior = 'auto') {
     if (!screenRail) return;
     screenRail.scrollTo({ left: (screen - 1) * screenRail.clientWidth, behavior });
@@ -60,16 +138,15 @@
     }
   }
   async function renderRoute(next, focus = '') {
+    const switchingSession = next.view === 'terminal' && route.view === 'terminal' && next.host === route.host;
+    if (next.view === 'terminal' && !switchingSession) sessionOrder = desktopOrder().map(s => s.session);
     route = next; menu = false; status = ''; password = '';
-    if (next.view === 'new') creationDrafts[next.host] ??= { name: '', dir: '', command: 'claude', workspace: null };
-    if (next.view === 'terminal') {
-      const key = JSON.stringify([next.host, next.session]);
-      drafts[key] ??= { input: '', clip: '' };
-    }
+    prepareDraft(next);
     await tick();
     if (keyFor(route) !== keyFor(next)) return;
     if (next.view === 'screens') alignScreen();
     if (main) main.scrollTop = positions.get(keyFor(next)) ?? 0;
+    if (switchingSession) return; // Keep the same focused composer and mobile keyboard.
     const control = focus && document.getElementById(focus);
     (control || document.querySelector('h1'))?.focus({ preventScroll: true });
   }
@@ -93,15 +170,16 @@
     positions.set(keyFor({ host: origin, view: 'sessions' }), 0);
     navigate('sessions');
   }
-  function open(s) { navigate('terminal', { session: s.session }, `session-${s.session}`); }
+  function open(s) { navigate('terminal', { session: s.session, returnTo: $state.snapshot(route) }, `session-${s.session}`); }
   function openAttention(item) {
     remember();
+    const returnTo = $state.snapshot(route);
     switchTo(item.host.origin);
-    navigate('terminal', { session: item.session });
+    navigate('terminal', { session: item.session, returnTo });
   }
   function create(workspace = null, invoker = 'new-session') {
     creationDrafts[hosts.current] ??= { name: '', dir: '', command: 'claude', workspace: route.view === 'screens' ? (workspace ?? screen) : null };
-    navigate('new', {}, invoker);
+    navigate('new', { returnTo: $state.snapshot(route) }, invoker);
   }
   async function created(result) {
     const here = hosts.current, generation = epoch;
@@ -109,7 +187,9 @@
     await refresh();
     if (here !== hosts.current || generation !== epoch || route.view !== 'new') return;
     if (!sessions.some(s => s.session === result.session)) sessions = [...sessions, result];
-    navigate('terminal', { session: result.session });
+    const next = { view: 'terminal', host: here, session: result.session, returnTo: route.returnTo };
+    history.replaceState({ deskpilot: $state.snapshot(next) }, '', location.href);
+    renderRoute(next);
     delete creationDrafts[here];
     onstatus(result.workspace == null ? 'Session created' : `Session created; desktop placement requested on Screen ${result.workspace}`);
   }
@@ -163,7 +243,18 @@
     return () => clearInterval(timer);
   });
   onMount(() => {
+    // A fresh PWA window has no in-app predecessor. Rebuild one so Back/Cancel
+    // still works after restoring a terminal or an unfinished creation form.
+    if (!previousEntry && ['terminal', 'new'].includes(route.view)) {
+      const parent = route.returnTo ?? { view: 'sessions', host: route.host };
+      route = { ...route, returnTo: parent };
+      history.replaceState({ deskpilot: $state.snapshot(parent) }, '', location.href);
+      history.pushState({ deskpilot: $state.snapshot(route) }, '', location.href);
+    }
     history.replaceState({ deskpilot: $state.snapshot(route) }, '', location.href);
+    const hidden = () => { if (document.hidden) savePlace(); };
+    document.addEventListener('visibilitychange', hidden);
+    window.addEventListener('pagehide', savePlace);
     const back = e => {
       if (!e.state?.deskpilot) return;
       remember(); const next = e.state.deskpilot;
@@ -176,7 +267,11 @@
     };
     window.addEventListener('popstate', back);
     window.visualViewport?.addEventListener('resize', resize); resize();
-    return () => { window.removeEventListener('popstate', back); window.visualViewport?.removeEventListener('resize', resize); };
+    return () => {
+      clearTimeout(saveTimer);
+      document.removeEventListener('visibilitychange', hidden); window.removeEventListener('pagehide', savePlace);
+      window.removeEventListener('popstate', back); window.visualViewport?.removeEventListener('resize', resize);
+    };
   });
   async function unlock(e) {
     e.preventDefault();
@@ -206,6 +301,7 @@
       request++;
       if (kind === 'rename') {
         const nextName = rename.trim();
+        sessionOrder = sessionOrder.map(item => item === name ? nextName : item);
         sessions = sessions.map((item) => item.session === name ? { ...item, session: nextName } : item);
         drafts[JSON.stringify([host.origin, nextName])] = drafts[draftKey];
         route = { ...route, session: nextName };
@@ -235,18 +331,32 @@
 {#if route.view !== 'terminal'}
 <nav aria-label="Views"><button class:active={route.view === 'sessions'} onclick={() => home()}>Sessions</button>{#if caps.windows}<button class:active={route.view === 'screens'} onclick={() => navigate('screens')}>Screens</button>{/if}<button class:active={route.view === 'management'} onclick={() => navigate('management')}>Manage</button></nav>
 {:else}
-<div class="terminal-nav"><button onclick={() => { const id = `session-${route.session}`; home(); tick().then(() => document.getElementById(id)?.focus({ preventScroll: true })); }}>Back to sessions</button><button aria-expanded={menu} onclick={() => { menu = !menu; rename = route.session; }}>Session actions</button><button class="danger" disabled={connection !== 'ready' || !selected || actionBusy} onclick={() => action('kill')}>End session</button></div>
+<div class="terminal-nav"><button onclick={backFromTerminal}>{route.returnTo?.view === 'screens' ? 'Back to screens' : 'Back to sessions'}</button><button aria-expanded={menu} onclick={() => { menu = !menu; rename = route.session; }}>Session actions</button><button class="danger" disabled={connection !== 'ready' || !selected || actionBusy} onclick={() => action('kill')}>End session</button></div>
 {/if}
 {#if status}<div class:err={bad} class="feedback" role={bad ? 'alert' : 'status'}>{status}</div>{/if}
 
 {#if route.view === 'terminal' && connection === 'ready' && selected}
   {#if menu}<div class="session-menu">
     <label>Session name<input bind:value={rename} aria-label="Session name" /></label><button disabled={actionBusy || !rename.trim()} onclick={() => action('rename')}>Rename</button>
-    {#if caps.windows}<label>Desktop screen<select bind:value={target}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label><button disabled={actionBusy} onclick={() => action('attach')}>Attach to screen</button>{/if}
+    {#if caps.windows}<label>Desktop screen<select bind:value={target}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label><button disabled={actionBusy} onclick={() => action('attach')}>Open on desktop…</button>{/if}
   </div>{/if}
-  {#key draftKey}<Pane ws={selected.workspace} session={selected} windows={[]} orphans={[]} allNames={sessions.map(s => s.session)} {workspaces} active={true} {onstatus} onchanged={refresh} bind:draft={drafts[draftKey]} />{/key}
+  {#key hosts.current}<Pane ws={selected.workspace} session={selected} windows={[]} orphans={[]} allNames={sessions.map(s => s.session)} {workspaces} active={true} {onstatus} onchanged={refresh} onstep={stepSession} bind:draft={drafts[draftKey]}>
+    {#snippet navigation()}
+      <div class="session-pager" aria-label="Session navigation">
+        <button class="session-step" aria-label="Previous session" disabled={sessionIndex <= 0} onpointerdown={keepComposerFocus} onclick={() => stepSession(-1)}>‹</button>
+        <div class="session-choice">
+          <span class="name">{selected.session}</span>
+          <span class="badge">{sessionLocation(selected)}</span>
+          <select aria-label="Session" value={route.session} onchange={e => switchSession(e.currentTarget.value)}>
+            {#each sessionPages as s, i (s.session)}<option value={s.session}>{i + 1} of {sessionPages.length} · {s.session} · {sessionLocation(s)}</option>{/each}
+          </select>
+        </div>
+        <button class="session-step" aria-label="Next session" disabled={sessionIndex >= sessionPages.length - 1} onpointerdown={keepComposerFocus} onclick={() => stepSession(1)}>›</button>
+      </div>
+    {/snippet}
+  </Pane>{/key}
 {:else}
-<main bind:this={main} class:screens-view={route.view === 'screens' && caps.windows && connection === 'ready'}>
+<main bind:this={main} onscroll={scheduleSave} class:screens-view={route.view === 'screens' && caps.windows && connection === 'ready'}>
   {#if route.view === 'add'}
     <AddMachine bind:draft={pairingDraft} onpaired={paired} oncancel={cancel} />
   {:else if route.view === 'new'}
@@ -340,6 +450,15 @@ header { display:flex; gap:.6rem; align-items:end; padding:.5rem .7rem; border-b
 header button { flex:none; font-size:12px; }
 nav,.terminal-nav { display:flex; gap:.4rem; padding:.4rem .7rem; flex:none; }
 .terminal-nav button { flex:1; min-width:0; font-size:12px; padding-inline:.4rem; }
+.session-pager { display:flex; align-items:center; flex:1; min-width:0; gap:.15rem; }
+.session-step { flex:none; width:44px; padding:0; font-size:24px; border-color:transparent; }
+.session-choice { position:relative; flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; min-height:44px; padding-right:14px; }
+.session-choice::after { content:'▾'; position:absolute; right:0; color:var(--dim); pointer-events:none; }
+.session-choice select { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.session-choice:focus-within { border-radius:4px; box-shadow:var(--glow); }
+.session-choice .name,.session-choice .badge { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.session-choice .name { color:var(--ok); font-weight:600; }
+.session-choice .badge { color:var(--dim); font-size:10px; }
 .unmanaged { display:flex; flex-direction:column; gap:.5rem; }
 .unmanaged h2 { margin:.3rem 0 0; }
 .unmanaged p { margin:0; }

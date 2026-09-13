@@ -10,7 +10,7 @@
   import { canRead, readText } from "./clipboard.js";
   import { vis } from "./visible.svelte.js";
 
-  let { ws, session, windows, orphans, allNames, workspaces, active, onstatus: reportStatus, onchanged, draft = $bindable({ input: "", clip: "" }) } = $props();
+  let { ws, session, windows, orphans, allNames, workspaces, active, onstatus: reportStatus, onchanged, navigation, onstep, draft = $bindable({ input: "", clip: "" }) } = $props();
   const actionHost = viewHost();
   let mounted = true;
   onDestroy(() => mounted = false);
@@ -72,14 +72,18 @@
     ev.preventDefault();
     const text = draft.input.trim();
     if (!text || !session) return;
+    const name = session.session, sentDraft = draft;
     draft.input = "";
     // Acknowledge the tap straight away, rather than waiting for the echo to
     // come back down the socket.
     lastChange = Date.now();
     try {
-      await post("/send", { session: session.session, text });
-      onstatus(`→ ${session.session}`);
-    } catch (e) { onstatus(e.message, true); draft.input = text; }
+      await post("/send", { session: name, text });
+      if (session.session === name) onstatus(`→ ${name}`);
+    } catch (e) {
+      if (session.session === name) onstatus(e.message, true);
+      sentDraft.input = text;
+    }
   }
 
   // ---- clipboard ----
@@ -101,6 +105,13 @@
   // usually not: sending the composer submits immediately, while /api/paste
   // hands a block to tmux without Enter so it remains editable at the far end.
   let pasting = $state(false);
+  const sessionName = $derived(session?.session);
+
+  $effect(() => {
+    void sessionName;
+    lastChange = 0; showWindows = false; showKeys = false;
+    pasting = false; copying = null;
+  });
 
 
   async function openPaste() {
@@ -114,27 +125,32 @@
     // Only overwritten when there is something to overwrite it with: on a host
     // that cannot read the clipboard, closing the drawer and opening it again
     // would otherwise wipe text that was pasted in by hand and not yet sent.
+    const pasteDraft = draft;
     const c = await readText();
-    if (c) draft.clip = c;
+    if (c) pasteDraft.clip = c;
   }
 
   async function paste() {
     if (!draft.clip || !session) return;
     const text = draft.clip;
+    const name = session.session, pasteDraft = draft;
     lastChange = Date.now();
     try {
-      await post("/paste", { session: session.session, text });
-      onstatus(`pasted ${text.split("\n").length} lines`);
-      pasting = false;
-      draft.clip = "";
-    } catch (e) { onstatus(e.message, true); }
+      await post("/paste", { session: name, text });
+      if (session.session === name) {
+        onstatus(`pasted ${text.split("\n").length} lines`);
+        pasting = false;
+      }
+      if (pasteDraft.clip === text) pasteDraft.clip = "";
+    } catch (e) { if (session.session === name) onstatus(e.message, true); }
   }
 
   async function key(k) {
     if (!session) return;
+    const name = session.session;
     try {
-      await post("/send", { session: session.session, keys: [k] });
-    } catch (e) { onstatus(e.message, true); }
+      await post("/send", { session: name, keys: [k] });
+    } catch (e) { if (session.session === name) onstatus(e.message, true); }
   }
 
   // Advice for a shell is wrong advice for an agent, so the hints follow
@@ -191,8 +207,10 @@
     <!-- Transcript is the hero: it fills the pane, the composer pins to the
          bottom, and everything secondary hides behind a toggle. -->
     <div class="bar">
+      {#if navigation}{@render navigation()}{:else}
       {#if ws != null}<span class="badge">Screen {ws}</span>{/if}
       <span class="name">{session.session}</span>
+      {/if}
       {#if working}<span class="pulse" title="output changing"></span>{/if}
       <button class="sm ghost" class:on={big} title="text size"
               onclick={() => (big = !big)}>{big ? "large" : "normal"}</button>
@@ -236,7 +254,7 @@
            terminal. Silent, and exactly the wrong kind of wrong. -->
       {#key `${hosts.current}:${session.session}`}
         <Term bind:this={termRef}
-              session={session.session} {fontPx} {alive} busy={working} onactivity={activity} />
+              session={session.session} {fontPx} {alive} busy={working} onactivity={activity} {onstep} />
       {/key}
     {:else}
       <div class="idle"></div>

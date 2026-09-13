@@ -11,6 +11,9 @@ export async function fixture() {
     created: [] as any[],
     sockets: [] as string[],
     remoteBlocked: true,
+    sessionOverrides: {} as Record<string, Record<string, unknown>>,
+    sendDelay: 0,
+    sendFailure: false,
   };
   const servers = [8892, 8893, 8894].map((port, i) =>
     Deno.serve({ hostname: "127.0.0.1", port, onListen() {} }, async (req) => {
@@ -42,6 +45,9 @@ export async function fixture() {
         if (req.method === "POST" && ["/api/send", "/api/paste"].includes(u.pathname)) {
           const body = await req.json();
           state.requests.push({ port, path: u.pathname, body });
+          const fail = state.sendFailure;
+          if (state.sendDelay) await new Promise(r => setTimeout(r, state.sendDelay));
+          if (fail) return json({ error: "Fixture send failed" }, 503);
           return json({ ok: true });
         }
         if (u.pathname === "/api/devices/enroll") {
@@ -122,7 +128,7 @@ export async function fixture() {
                   }),
                 ),
                 ...state.created,
-              ],
+              ].map(s => ({ ...s, ...state.sessionOverrides[s.session] })),
           );
         }
         if (u.pathname === "/api/unmanaged") {

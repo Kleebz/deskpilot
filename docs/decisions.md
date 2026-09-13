@@ -1287,12 +1287,57 @@ machine in **Manage**, not with authorized devices: the former labels a desktop 
 while the latter identifies a browser credential on the desktop. No server mutation or API
 was needed, and old `dp_hosts` records remain valid because the new field is optional.
 
-The old eleven-page rail does not return. Sessions remain home and terminals remain
+At this stage the old eleven-page rail did not return. Sessions remained home and terminals remained
 dedicated routes. **Screens** alone is a ten-page native scroll-snap rail, with the selector
 kept as a synchronized direct jump and accessible fallback. Each page scrolls vertically;
 horizontal movement stops at screens 1 and 10, and the active screen is remembered per
 machine. Session creation receives the invoking page number directly so a scroll event
 racing the tap cannot place a new terminal on the wrong workspace.
+
+## Session swiping preserves the prompting loop
+
+The separate terminal route interrupted the old prompt → swipe → prompt workflow.
+Restoring swiping only inside Screens did not fix it: opening a terminal still left
+the screen rail. Sessions now have previous/next gestures and controls within the
+terminal view, plus a direct picker in its existing title row.
+
+The navigation unit is a named session on the selected machine. Initial ordering uses
+desktop screen number, then session name, with sessions without desktop windows last.
+Two sessions on one screen are two stops; one session displayed on several screens is
+one stop. Existing neighbours stay fixed during a browsing visit, even when polling
+changes status or placement. Closed sessions leave the sequence and new ones append.
+The Sessions overview continues to prioritize attention independently.
+
+Switching replaces the current history entry, so Back returns to the originating list
+or Screens view. Creating a session replaces its completed form entry for the same
+reason. The composer stays mounted across session switches to retain mobile keyboard
+focus; the terminal alone reconnects to the new session. Drafts and asynchronous send
+results remain bound to their originating machine and session. Only one terminal is
+mounted. Gesture direction locks after initial movement so diagonal vertical scrolling
+does not also switch sessions; short drags and cancelled gestures do not navigate.
+
+Desktop browsing still belongs to Screens. The existing attachment action is labelled
+"Open on desktop…" to describe opening a window onto an already running session.
+
+## Returning from a discarded mobile page
+
+The app previously persisted its machine keyring but kept navigation and drafts only
+in memory. Startup always selected Sessions and replaced browser history with that
+route. A browser-triggered reload therefore lost the selected terminal even when the
+user had only briefly switched apps. Visibility polling itself did not reload the page.
+
+Resume state now contains the view and session, desktop-screen selection, list scroll,
+session order, and prompt/paste/creation drafts. It is stored on the phone after edits,
+with a synchronous flush on hidden/pagehide because an eventual unload is not reliable.
+Valid browser history takes precedence over the last saved route; a fresh window uses
+the saved route and reconstructs the parent entry for Back/Cancel. Layout positions
+are restored after live data has loaded. Removed machines and malformed stored data
+are ignored, and unavailable storage does not interrupt the running app.
+
+This state excludes pairing codes, desktop passwords, terminal output, and pending
+actions. Restoring connects to the same named session but never submits anything or
+recreates a closed session. The phone may still reload the page; recovery should no
+longer require finding the session again.
 
 ## Codex: test terminal state before changing agent interfaces
 

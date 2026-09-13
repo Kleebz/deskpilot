@@ -384,6 +384,19 @@ as `Desktop` and `Laptop` without changing either hostname. Selecting a machine 
 sessions at the top; tapping any session opens its terminal, including sessions with no
 desktop window.
 
+Inside a terminal, swipe horizontally to the previous or next session on that machine.
+The arrows beside the session name do the same; tap the name to choose any session.
+Sessions start in desktop-screen order, with sessions without a window at the end.
+Their order stays steady while browsing, even when status or desktop placement changes.
+Each session keeps its own prompt and paste drafts, and swiping keeps a focused composer
+in place. Vertical drags scroll terminal output. Back returns to the list or desktop
+screen where you opened the terminal, without retracing session switches.
+The app also saves your selected session/view, desktop screen, list position, and
+unfinished prompt, paste, and session-creation drafts locally on the phone. If the
+browser reloads it after backgrounding, it restores that context and reconnects to the
+session. Restoring never submits a draft or repeats an action. Pairing codes, desktop
+passwords, and terminal output are not included in this saved UI state.
+
 **Screens** provides desktop workspace browsing and window controls on capable machines.
 Swipe horizontally between adjacent screens, or use the workspace selector to jump
 directly to one; the two controls stay synchronized.
@@ -393,6 +406,8 @@ window from Sessions and the selected workspace from Screens. Its preset selecto
 Terminal, Claude, and Codex variants while leaving the resulting command editable. Cancel
 retains the draft; Back to sessions restores the previous list position. An open terminal
 keeps **End session** visible in its navigation bar; ending remains confirmation-protected.
+**Session actions → Open on desktop…** opens a terminal window for the existing session
+on the chosen screen, without restarting its running command.
 
 Use the in-app flow even when a QR is available. A PWA and its machine list belong to the
 origin it was installed from; scanning another machine's QR in the phone camera opens that
