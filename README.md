@@ -236,6 +236,29 @@ independent.
 Verified from a clean clone: `npm install`, build, typecheck, tests and the binary all
 work with no prior state.
 
+## Starting a session at the desk
+
+To start an agent on the desktop and control that same process from the phone later:
+
+```bash
+deskpilot run codex
+deskpilot run claude
+deskpilot run aider --model sonnet
+```
+
+`deskpilot run` creates a named tmux session from the current directory and attaches the
+terminal you are already using. Leaving the desk, closing the terminal, or losing the
+phone connection does not stop the command; it remains available in Deskpilot's Sessions
+view. Name collisions receive `-2`, `-3`, and so on automatically.
+
+This is the explicit alternative to shell integration. It does not edit a shell profile
+or shadow the underlying command. Running `tmux new-session -s NAME COMMAND` directly
+also works, because Deskpilot discovers every tmux session rather than only ones it made.
+
+An arbitrary process started outside tmux cannot be moved into it later. Deskpilot can
+track supported agents in that state and show their desktop windows, but terminal capture
+and input require starting them with `deskpilot run` (or tmux itself).
+
 ## Connecting a phone
 
 deskpilot listens on loopback and expects something in front of it, so the phone has an

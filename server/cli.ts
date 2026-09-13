@@ -21,6 +21,7 @@
 import { UntarStream } from "jsr:@std/tar@^0.1.10/untar-stream";
 import { qrTerminal } from "./qr.ts";
 import { scriptsDir } from "./scripts.ts";
+import { runManaged } from "./run.ts";
 
 const REPO = "Kleebz/deskpilot";
 const HOME = Deno.env.get("HOME") ?? "";
@@ -213,6 +214,7 @@ function help() {
 
   deskpilot            run the server
   deskpilot setup      create a token, write the service, say what to run next
+  deskpilot run CMD    start a phone-controllable command in this terminal
   deskpilot pair       print a QR and complete link that pair another device
   deskpilot pair --link  print only the complete link (for agents and scripts)
   deskpilot rotate     replace this machine's shared token
@@ -236,6 +238,9 @@ export async function runCommand(args: string[], version: string): Promise<numbe
   const port = Deno.env.get("DESKPILOT_PORT") ?? "8790";
 
   switch (cmd) {
+    case "run":
+      return await runManaged(args.slice(1));
+
     case "version":
     case "--version":
     case "-v":
