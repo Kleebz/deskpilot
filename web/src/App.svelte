@@ -30,6 +30,15 @@
   const draftKey = $derived(JSON.stringify([hosts.current, route.session]));
   let restoreFocus = '';
 
+  function sessionLocation(session) {
+    const screens = session.workspaces?.length
+      ? session.workspaces
+      : session.workspace == null ? [] : [session.workspace];
+    return screens.length === 0
+      ? 'No desktop window'
+      : `${screens.length === 1 ? 'Screen' : 'Screens'} ${screens.join(', ')}`;
+  }
+
   function onstatus(text, error = false) { status = text; bad = error; }
   function remember() { if (main) positions.set(keyFor(route), main.scrollTop); }
   function alignScreen(behavior = 'auto') {
@@ -188,13 +197,31 @@
     try {
       await post(`/sessions/${kind}`, { session: name, ...(kind === 'rename' ? { name: rename.trim() } : {}), ...(kind === 'attach' ? { workspace: target } : {}) }, { host });
       if (generation !== epoch || host.origin !== hosts.current || route !== view) return;
+      // The compositor accepts a placed terminal before that window appears in
+      // its client list. An immediate refresh therefore observes the old
+      // workspace and makes a successful action look like it did nothing.
+      // Invalidate any poll that started before this response and reconcile the
+      // action locally; the regular poll confirms the authoritative state once
+      // the new client is discoverable.
+      request++;
       if (kind === 'rename') {
-        drafts[JSON.stringify([host.origin, rename.trim()])] = drafts[draftKey];
-        route = { ...route, session: rename.trim() };
+        const nextName = rename.trim();
+        sessions = sessions.map((item) => item.session === name ? { ...item, session: nextName } : item);
+        drafts[JSON.stringify([host.origin, nextName])] = drafts[draftKey];
+        route = { ...route, session: nextName };
         history.replaceState({ deskpilot: $state.snapshot(route) }, '', location.href);
       }
-      if (kind === 'kill') home();
-      menu = false; await refresh();
+      if (kind === 'attach') {
+        const workspace = Number(target);
+        sessions = sessions.map((item) => {
+          if (item.session !== name) return item;
+          const workspaces = [...new Set([...(item.workspaces ?? []), workspace])].sort((a, b) => a - b);
+          return { ...item, workspace: item.workspace ?? workspace, workspaces, attached: true };
+        });
+      }
+      if (kind === 'kill') { sessions = sessions.filter((item) => item.session !== name); home(); }
+      menu = false;
+      if (kind !== 'attach') await refresh();
       if (host.origin === hosts.current) onstatus(kind === 'attach' ? `Opening ${name} on Screen ${target}` : kind === 'kill' ? 'Session ended' : 'Session renamed');
     } catch (e) { if (generation === epoch && host.origin === hosts.current) onstatus(e.message, true); }
     finally { actionBusy = false; }
@@ -278,7 +305,7 @@
     {#each ordered as s (s.session)}
       <button id={`session-${s.session}`} class="session-row" onclick={() => open(s)}>
         <span class="row-title"><strong>{s.session}</strong><span class:err={s.state === 'blocked'} class="dim">{s.state === 'blocked' ? 'Needs you' : s.state === 'working' ? 'Working' : s.state === 'done' ? 'Ready' : 'Terminal'}</span></span>
-        <span class="dim">{s.workspace == null ? 'No desktop window' : `Screen ${s.workspace}`} · {tilde(s.path) || s.command || 'Terminal'}</span>
+        <span class="dim">{sessionLocation(s)} · {tilde(s.path) || s.command || 'Terminal'}</span>
         {#if s.state === 'blocked' && (s.tool || s.detail)}<span>{s.tool ? `${s.tool}: ` : ''}{s.detail ?? ''}</span>{/if}
       </button>
     {:else}<p>No sessions yet. Start a session to open a terminal on this machine.</p>{/each}

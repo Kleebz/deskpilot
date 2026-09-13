@@ -214,7 +214,15 @@ try {
   if (!fx.state.sockets.includes("8892:detached")) {
     throw Error("Detached terminal identity not opened");
   }
+  await click("Session actions");
+  await run(`{const el=document.querySelector('.session-menu select');el.value='4';el.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await click("Attach to screen");
+  await until(`document.querySelector('.badge')?.textContent==='Screen 4'`);
   await click("Back to sessions");
+  await check(
+    `document.getElementById('session-detached').textContent.includes('Screen 4')`,
+    "successful session action updates the session list without a manual refresh",
+  );
   for (const name of ["same-screen-a", "same-screen-b"]) {
     await run(`document.getElementById('session-${name}').click()`);
     await until(`document.querySelector('.name')?.textContent==='${name}'`);
