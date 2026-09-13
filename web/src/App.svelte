@@ -181,7 +181,7 @@
   }
   async function action(kind) {
     if (actionBusy || !selected) return;
-    if (kind === 'kill' && !confirm(`Kill session "${selected.session}"? Anything running in it is lost.`)) return;
+    if (kind === 'kill' && !confirm(`End session "${selected.session}"? Anything running in it will stop.`)) return;
     const host = currentHost(), generation = epoch, name = selected.session;
     const view = route;
     actionBusy = true;
@@ -195,7 +195,7 @@
       }
       if (kind === 'kill') home();
       menu = false; await refresh();
-      if (host.origin === hosts.current) onstatus(kind === 'attach' ? `Opening ${name} on Screen ${target}` : kind === 'kill' ? 'Session killed' : 'Session renamed');
+      if (host.origin === hosts.current) onstatus(kind === 'attach' ? `Opening ${name} on Screen ${target}` : kind === 'kill' ? 'Session ended' : 'Session renamed');
     } catch (e) { if (generation === epoch && host.origin === hosts.current) onstatus(e.message, true); }
     finally { actionBusy = false; }
   }
@@ -208,7 +208,7 @@
 {#if route.view !== 'terminal'}
 <nav aria-label="Views"><button class:active={route.view === 'sessions'} onclick={() => home()}>Sessions</button>{#if caps.windows}<button class:active={route.view === 'screens'} onclick={() => navigate('screens')}>Screens</button>{/if}<button class:active={route.view === 'management'} onclick={() => navigate('management')}>Manage</button></nav>
 {:else}
-<div class="terminal-nav"><button onclick={() => { const id = `session-${route.session}`; home(); tick().then(() => document.getElementById(id)?.focus({ preventScroll: true })); }}>Back to sessions</button><button aria-expanded={menu} onclick={() => { menu = !menu; rename = route.session; }}>Session actions</button></div>
+<div class="terminal-nav"><button onclick={() => { const id = `session-${route.session}`; home(); tick().then(() => document.getElementById(id)?.focus({ preventScroll: true })); }}>Back to sessions</button><button aria-expanded={menu} onclick={() => { menu = !menu; rename = route.session; }}>Session actions</button><button class="danger" disabled={connection !== 'ready' || !selected || actionBusy} onclick={() => action('kill')}>End session</button></div>
 {/if}
 {#if status}<div class:err={bad} class="feedback" role={bad ? 'alert' : 'status'}>{status}</div>{/if}
 
@@ -216,7 +216,6 @@
   {#if menu}<div class="session-menu">
     <label>Session name<input bind:value={rename} aria-label="Session name" /></label><button disabled={actionBusy || !rename.trim()} onclick={() => action('rename')}>Rename</button>
     {#if caps.windows}<label>Desktop screen<select bind:value={target}>{#each workspaces as n}<option value={n}>Screen {n}</option>{/each}</select></label><button disabled={actionBusy} onclick={() => action('attach')}>Attach to screen</button>{/if}
-    <button class="danger" disabled={actionBusy} onclick={() => action('kill')}>Kill session</button>
   </div>{/if}
   {#key draftKey}<Pane ws={selected.workspace} session={selected} windows={[]} orphans={[]} allNames={sessions.map(s => s.session)} {workspaces} active={true} {onstatus} onchanged={refresh} bind:draft={drafts[draftKey]} />{/key}
 {:else}
@@ -313,7 +312,7 @@ header { display:flex; gap:.6rem; align-items:end; padding:.5rem .7rem; border-b
 .picker select { width:100%; }
 header button { flex:none; font-size:12px; }
 nav,.terminal-nav { display:flex; gap:.4rem; padding:.4rem .7rem; flex:none; }
-.terminal-nav button { font-size:12px; }
+.terminal-nav button { flex:1; min-width:0; font-size:12px; padding-inline:.4rem; }
 .unmanaged { display:flex; flex-direction:column; gap:.5rem; }
 .unmanaged h2 { margin:.3rem 0 0; }
 .unmanaged p { margin:0; }

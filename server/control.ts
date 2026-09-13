@@ -20,7 +20,6 @@
 //
 // Nothing here knows what is running in the pane. Bytes in, bytes out.
 
-const DEC = new TextDecoder();
 const ENC = new TextEncoder();
 
 // tmux escapes a backslash and anything below 0x20 as a three-digit octal
@@ -50,7 +49,7 @@ export class ControlClient {
   #child: Deno.ChildProcess;
   #writer: WritableStreamDefaultWriter<Uint8Array>;
   #pending: Pending[] = [];
-  #queued: { cmd: string; p: Pending }[] = [];
+  #queued: { cmd: string; p: Pending[] }[] = [];
   #block: string[] | null = null;
   #closed = false;
   // tmux emits an unsolicited %begin/%end pair when a client attaches, before
@@ -142,24 +141,49 @@ export class ControlClient {
   // Commands go one per line on stdin. Replies come back in order, so a FIFO
   // of resolvers is enough to match them up without parsing the block number.
   send(cmd: string): Promise<string[]> {
+    return this.batch([cmd]).then((replies) => replies[0]);
+  }
+
+  // A command list runs in one tmux command-queue pass, without an intervening
+  // pane read. The completion callback runs INSIDE the parser: a promise's
+  // continuation would run after later %output lines in the same pipe chunk.
+  // Snapshots use this boundary to publish their screen before live bytes.
+  batch(commands: string[], received?: (replies: string[][]) => void): Promise<string[][]> {
     if (this.#closed) return Promise.reject(new Error("closed"));
+    if (!commands.length) return Promise.reject(new Error("empty command batch"));
     return new Promise((resolve, reject) => {
-      const p = { resolve, reject };
+      const replies: string[][] = [];
+      let failed = false;
+      const p = commands.map(() => ({
+        resolve: (lines: string[]) => {
+          replies.push(lines);
+          if (!failed && replies.length === commands.length) {
+            try { received?.(replies); resolve(replies); }
+            catch (e) { reject(e); }
+          }
+        },
+        reject: (e: Error) => { failed = true; reject(e); },
+      }));
+      const cmd = commands.join(" ; ");
       if (this.#ready) this.#write(cmd, p);
       else this.#queued.push({ cmd, p });
     });
   }
 
-  #write(cmd: string, p: Pending) {
-    this.#pending.push(p);
-    this.#writer.write(ENC.encode(cmd + "\n")).catch(p.reject);
+  #write(cmd: string, p: Pending[]) {
+    this.#pending.push(...p);
+    this.#writer.write(ENC.encode(cmd + "\n")).catch((e) => {
+      for (const pending of p) pending.reject(e);
+    });
   }
 
   async close() {
     if (this.#closed) return;
     this.#closed = true;
     for (const p of this.#pending.splice(0)) p.reject(new Error("closed"));
-    for (const { p } of this.#queued.splice(0)) p.reject(new Error("closed"));
+    for (const { p } of this.#queued.splice(0)) {
+      for (const pending of p) pending.reject(new Error("closed"));
+    }
     try { await this.#writer.close(); } catch { /* already gone */ }
     // A control client exits when its stdin closes, but do not rely on it: the
     // old pty path leaked a process for every connection because nothing

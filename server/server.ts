@@ -13,6 +13,7 @@
 
 import { loadVapid, sendPush, type Subscription } from "./push.ts";
 import { ControlClient, keysCommand } from "./control.ts";
+import { captureTerminal } from "./terminal.ts";
 import { Devices } from "./devices.ts";
 import { describe } from "./version.ts";
 import { runCommand } from "./cli.ts";
@@ -1054,17 +1055,8 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ ok: true, locked: false }));
   }
 
-  // A real terminal, rather than scraping capture-pane and re-flowing it.
-  //
-  // The whole class of wrapping and alignment problems comes from rendering a
-  // 130-column pane on a 50-column screen. Attaching tmux through a PTY sized
-  // to the phone makes the program lay out for the phone instead — it wraps its
-  // own prose, draws its own boxes to fit, and emits ANSI the browser renders.
-  //
-  // Deno has no PTY, so `script` provides one; `stty` sets its size before tmux
-  // attaches. tmux's window-size is `latest`, so the phone attaching resizes the
-  // shared window — which is fine, because if you are on the phone you are not
-  // looking at the monitor, and it snaps back when the desk client resizes.
+  // A tmux control client streams terminal bytes and resizes the shared pane
+  // for the phone. Reconnects restore terminal state before live output resumes.
   if (req.method === "GET" && path === "/api/term") {
     const name = url.searchParams.get("session") ?? "";
     if (!SAFE_NAME.test(name)) return fail("bad session name");
@@ -1090,7 +1082,7 @@ async function handle(req: Request): Promise<Response> {
 
     let closed = false;
     let active = "";                 // pane id whose output this client renders
-    let hold: string[] | null = [];  // output buffered until history is sent
+    let primed = false;
 
     const say = (msg: unknown) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
@@ -1102,8 +1094,7 @@ async function handle(req: Request): Promise<Response> {
         // one is rendered. Everything else is still running; it is just not
         // what this screen is looking at.
         if (active && pane !== active) return;
-        if (hold) hold.push(data);
-        else say({ t: "o", d: data });
+        if (primed) say({ t: "o", d: data });
       },
       exit: (reason) => { say({ t: "end", d: reason }); shutdown(); },
     });
@@ -1116,25 +1107,21 @@ async function handle(req: Request): Promise<Response> {
       try { socket.close(); } catch { /* already closed */ }
     }
 
-    // Size first, then find the pane, then prime the scrollback. Output that
-    // arrives in the meantime is held rather than dropped, so nothing is lost
-    // between attaching and the history landing.
-    (async () => {
+    // Bytes before the snapshot are already represented in its screen/history.
+    // Replaying them after the snapshot duplicates text and corrupts TUI redraws.
+    const restore = () => captureTerminal(ctl, active, (snapshot) => {
+      say(snapshot);
+      primed = true;
+    });
+    socket.onopen = async () => {
       try {
         await ctl.send(`refresh-client -C ${cols}x${rows}`);
         active = (await ctl.send(`display -p -t ${name} '#{pane_id}'`))[0] ?? "";
-        // -J unwraps lines the desk terminal wrapped at its own width, so the
-        // phone re-wraps them at its own rather than inheriting 130 columns.
-        const hist = await ctl.send(`capture-pane -p -e -J -S -1000 -t ${name}`);
-        say({ t: "hist", d: hist.join("\r\n") + "\r\n" });
-        const held = hold ?? [];
-        hold = null;
-        for (const d of held) say({ t: "o", d });
+        await restore();
       } catch {
-        hold = null;
         shutdown();
       }
-    })();
+    };
 
     socket.onmessage = (e) => {
       if (typeof e.data !== "string") return;
@@ -1150,12 +1137,7 @@ async function handle(req: Request): Promise<Response> {
         const r = Math.min(200, Math.max(10, Number(m.r) || rows));
         ctl.send(`refresh-client -C ${c}x${r}`).catch(shutdown);
       } else if (m.t === "hist") {
-        (async () => {
-          try {
-            const h = await ctl.send(`capture-pane -p -e -J -S -1000 -t ${name}`);
-            say({ t: "hist", d: h.join("\r\n") + "\r\n" });
-          } catch { /* gone */ }
-        })();
+        if (primed) restore().catch(shutdown);
       }
     };
     socket.onclose = shutdown;

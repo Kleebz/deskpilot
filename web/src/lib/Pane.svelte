@@ -182,7 +182,7 @@
     ["⌫", "BSpace"], ["^U", "C-u"], ["^W", "C-w"],
     ["←", "Left"], ["→", "Right"],
     ["⏎", "Enter"], ["esc", "Escape"], ["tab", "Tab"], ["⇧tab", "BTab"],
-    ["^C", "C-c"],
+    ["^C", "C-c"], ["^A", "C-a"],
   ];
 </script>
 

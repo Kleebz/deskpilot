@@ -246,15 +246,19 @@ try {
     "headless creation has no workspace selector",
   );
   await check(
-    `document.querySelector('input[list="commands"]')?.placeholder==='Choose a preset or type any command' && [...document.querySelectorAll('#commands option')].map(o=>o.label+':'+o.value).join('|')==='Terminal:bash|Claude:claude|Claude continue:claude --continue|Codex:codex|Codex continue:codex resume --last|Codex yolo:codex --yolo'`,
-    "creation offers agent presets in an editable command field",
+    `document.querySelector('select[aria-label="Command preset"]')?.value==='claude' && [...document.querySelectorAll('select[aria-label="Command preset"] option')].map(o=>o.textContent+':'+o.value).join('|')==='Terminal:bash|Claude:claude|Claude continue:claude --continue|Codex:codex --no-alt-screen|Codex continue:codex resume --last --no-alt-screen|Codex yolo:codex --yolo --no-alt-screen|Custom command:custom' && document.querySelector('input[placeholder="Type a command or edit the selected preset"]')?.value==='claude'`,
+    "creation shows every agent preset in a mobile-compatible selector and keeps the command editable",
   );
-  await input('input[list="commands"]', "codex --yolo");
+  await run(`{const el=document.querySelector('select[aria-label="Command preset"]');el.value='codex --yolo --no-alt-screen';el.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await check(
+    `document.querySelector('input[placeholder="Type a command or edit the selected preset"]')?.value==='codex --yolo --no-alt-screen'`,
+    "selecting a Codex preset updates the command",
+  );
   await check(
     `document.querySelector('.command-warning')?.textContent.includes('disables Codex approval prompts and sandboxing')`,
     "yolo mode warns about disabled safety controls",
   );
-  await input('input[list="commands"]', "claude");
+  await input('input[placeholder="Type a command or edit the selected preset"]', "claude");
   await check(
     `!document.querySelector('.command-warning')`,
     "yolo warning clears with a safer command",
@@ -305,7 +309,7 @@ try {
     "desktop creation exposes optional placement",
   );
   await check(
-    `document.querySelectorAll('form select')[1].value==='3'`,
+    `document.querySelector('select[aria-label="Desktop placement"]').value==='3'`,
     "Screens creation defaults to the swiped workspace",
   );
   await click("Cancel");
@@ -317,7 +321,7 @@ try {
   await click("Sessions");
   await click("New session");
   await check(
-    `document.querySelectorAll('form select')[1].selectedOptions[0].textContent==='Screen 3'`,
+    `document.querySelector('select[aria-label="Desktop placement"]').selectedOptions[0].textContent==='Screen 3'`,
     "creation draft is retained across cancellation",
   );
   await click("Cancel");
@@ -526,6 +530,10 @@ try {
     );
     await run(`document.getElementById('session-detached').click()`);
     await until(`!!document.querySelector('.composer input')`);
+    await check(
+      `[...document.querySelectorAll('.terminal-nav button')].some(b=>b.textContent==='End session' && !b.disabled)`,
+      "terminal exposes a direct session-ending action",
+    );
     await measure(`${width}×${height} terminal`, width);
     await click("paste");
     await measure(`${width}×${height} paste drawer`, width);
@@ -581,6 +589,16 @@ try {
     "form actions remain visible with reduced keyboard viewport",
   );
   await click("Cancel");
+  await run(`document.getElementById('session-detached').click()`);
+  await until(`!!document.querySelector('.terminal-nav .danger')`);
+  const killsBefore = fx.state.calls.filter((call) => call === "8892:POST:/api/sessions/kill").length;
+  await run(`window.confirm=()=>true`);
+  await click("End session");
+  await until(`document.querySelector('h1')?.textContent==='Sessions'`);
+  if (fx.state.calls.filter((call) => call === "8892:POST:/api/sessions/kill").length !== killsBefore + 1) {
+    throw Error("End session did not issue a kill request");
+  }
+  console.log("✓ direct End session action is wired to session termination");
   await check(`window.__errors.length===0`, `no browser runtime errors`);
   console.log("Screenshots: /tmp/deskpilot-mobile-review");
 } finally {

@@ -6,6 +6,7 @@
   import { token } from "./api.js";
   import { currentHost } from "./hosts.svelte.js";
   import { vis } from "./visible.svelte.js";
+  import { terminalText } from "./terminal-text.js";
 
   let { session, fontPx = 10, alive = false, busy = false, onactivity } = $props();
 
@@ -89,25 +90,11 @@
   //
   // Wrapped rows are rejoined into the logical line they came from: a phone is
   // 40-odd columns wide, so almost every real line is two or three rows here,
-  // and pasting those into anything else would arrive pre-broken. Only the
-  // final row of a line is right-trimmed — trimming a continued row would eat a
-  // space that is genuinely part of the text.
+  // and pasting those into anything else would arrive pre-broken. Trim after
+  // joining logical lines, preserving internal spaces and excluding the empty
+  // padding left when a wide character moves to the following row.
   export function bufferText() {
-    const buf = term?.buffer?.active;
-    if (!buf) return "";
-    const out = [];
-    for (let i = 0; i < buf.length; i++) {
-      const line = buf.getLine(i);
-      if (!line) continue;
-      const continued = buf.getLine(i + 1)?.isWrapped ?? false;
-      const s = line.translateToString(!continued);
-      if (line.isWrapped && out.length) out[out.length - 1] += s;
-      else out.push(s);
-    }
-    // The buffer is padded to the window height, so a short session is mostly
-    // blank rows below the cursor.
-    while (out.length && out[out.length - 1] === "") out.pop();
-    return out.join("\n");
+    return terminalText(term?.buffer?.active);
   }
 
   // Data arriving is the signal that something is happening on the other end.
@@ -176,6 +163,7 @@
       if (m.t === "hist") {
         // The scrollback the session already had, so the pane opens where the
         // work is rather than blank until something new is printed.
+        if (m.cols && m.rows) term.resize(m.cols, m.rows);
         term.reset();
         term.write(m.d);
         term.scrollToBottom();

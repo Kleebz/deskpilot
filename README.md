@@ -389,8 +389,10 @@ Swipe horizontally between adjacent screens, or use the workspace selector to ju
 directly to one; the two controls stay synchronized.
 **Manage** contains authorized devices, credentials, usage, notifications, and installation.
 **New session** opens a dedicated form: desktop placement is optional, defaulting to no
-window from Sessions and the selected workspace from Screens. Cancel retains the draft;
-Back to sessions restores the previous list position.
+window from Sessions and the selected workspace from Screens. Its preset selector includes
+Terminal, Claude, and Codex variants while leaving the resulting command editable. Cancel
+retains the draft; Back to sessions restores the previous list position. An open terminal
+keeps **End session** visible in its navigation bar; ending remains confirmation-protected.
 
 Use the in-app flow even when a QR is available. A PWA and its machine list belong to the
 origin it was installed from; scanning another machine's QR in the phone camera opens that

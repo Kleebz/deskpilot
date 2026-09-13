@@ -1293,3 +1293,23 @@ kept as a synchronized direct jump and accessible fallback. Each page scrolls ve
 horizontal movement stops at screens 1 and 10, and the active screen is remembered per
 machine. Session creation receives the invoking page number directly so a scroll event
 racing the tap cannot place a new terminal on the wrong workspace.
+
+## Codex: test terminal state before changing agent interfaces
+
+Tested 2026-09-11 with Codex CLI 0.154.0. Both default and inline mode reflowed
+correctly through phone widths, a short keyboard viewport, and a desktop-size
+round trip. Reconnects exposed a Deskpilot bug: captured text was restored without
+cursor/mode state, and a trailing newline shifted the visible screen. A confined
+state-restoration experiment fixed the measured failures, including a long
+response and approval-dialog navigation.
+
+The Hermes findings above do not establish that every TUI needs replacing.
+Codex's measurements support keeping tmux. The production implementation now
+captures state and screen in one command batch, publishes at the synchronous
+reply boundary, and preserves logical-line wrapping for copy. Regression tests
+cover terminal modes, split escape sequences, and 200 streamed records delivered
+exactly once through repeated snapshots and a reconnect. The new-session form
+offers Codex and Continue Codex in inline mode; Ctrl+A is available for approval
+details. See
+[the compatibility report](codex-compatibility.md) and
+[`tests/terminal-probe.ts`](../tests/terminal-probe.ts) for results and reproduction.
