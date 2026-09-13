@@ -378,9 +378,11 @@ worker caches the versioned application shell—not sessions, screenshots, lock 
 any API response—so a cold launch can still read the phone's machine list and switch to
 one that is available. Updates arrive when the origin machine is reachable again.
 
-**If nothing appears in the app**, the usual cause is that agents started at your desk are
-running outside tmux, where nothing can reach them. The app says so on the empty screen
-and gives you the one line that fixes it.
+**Agents started outside tmux** appear as unmanaged agents when their lifecycle hook runs.
+Deskpilot can report whether they are working, blocked or done, notify you, and correlate
+them with their desktop window for look/move/tile controls. It cannot capture or type into
+their terminal because the process has no tmux handle. The shell integration below makes
+future desktop launches fully interactive from the phone.
 
 **It asks two things**, both editing files outside deskpilot, both declinable, both
 reversible by running `setup` again:

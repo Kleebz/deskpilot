@@ -52,6 +52,15 @@ Adapters run inside the target tmux pane and should resolve the session through
 session=$(tmux display-message -p -t "$TMUX_PANE" '#S')
 ```
 
+An adapter invoked outside tmux may still report lifecycle state by setting
+`managed` to `false`, using a stable `unmanaged-<pid>` routing id for `session`,
+and including the agent process `pid` and working directory `path`. Deskpilot
+correlates that process tree with a compositor window and lists it as an
+unmanaged agent. It may report working, blocked, and done and may trigger a
+notification, but it cannot expose a transcript, accept input, or approve a
+request because there is no tmux target. The shipped adapter uses this form
+automatically.
+
 They should read the token at invocation time rather than copying it into an agent's
 world-readable settings file. They must also fail open: an unavailable Deskpilot server
 must never hold up the agent whose state it was trying to report. The shipped

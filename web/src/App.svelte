@@ -10,7 +10,7 @@
   import Management from './lib/Management.svelte';
 
   const workspaces = [1,2,3,4,5,6,7,8,9,10];
-  let sessions = $state([]), windows = $state([]), connection = $state('loading');
+  let sessions = $state([]), unmanaged = $state([]), windows = $state([]), connection = $state('loading');
   let status = $state(''), bad = $state(false), locked = $state(false);
   let route = $state({ view: 'sessions', host: hosts.current });
   let main = $state(null);
@@ -109,13 +109,14 @@
   async function refresh() {
     const host = currentHost(), generation = epoch, seq = ++request;
     try {
-      const [list, c, w, l] = await Promise.all([
-        api('/sessions', { host }), api('/capabilities', { host }),
+      const [list, agents, c, w, l] = await Promise.all([
+        api('/sessions', { host }), api('/unmanaged', { host }),
+        api('/capabilities', { host }),
         api('/desk/state', { host }).catch(() => []),
         api('/desk/locked', { host }).catch(() => ({ locked: false })),
       ]);
       if (host.origin !== hosts.current || generation !== epoch || seq !== request) return;
-      sessions = list; windows = w; locked = l.locked; setCaps(host.origin, c);
+      sessions = list; unmanaged = agents; windows = w; locked = l.locked; setCaps(host.origin, c);
       setAttention(host.origin, list);
       connection = 'ready';
     } catch (e) {
@@ -130,7 +131,7 @@
     untrack(() => {
     if (shownHost !== here) {
       screensByHost.set(shownHost, screen); screen = screensByHost.get(here) ?? 1;
-      shownHost = here; epoch++; sessions = []; windows = []; connection = 'loading';
+      shownHost = here; epoch++; sessions = []; unmanaged = []; windows = []; connection = 'loading';
       if (route.host !== here) {
         positions.set(keyFor({ host: here, view: 'sessions' }), 0);
         renderRoute({ host: here, view: 'sessions' });
@@ -269,7 +270,26 @@
         <span class="dim">{s.workspace == null ? 'No desktop window' : `Screen ${s.workspace}`} · {tilde(s.path) || s.command || 'Terminal'}</span>
         {#if s.state === 'blocked' && (s.tool || s.detail)}<span>{s.tool ? `${s.tool}: ` : ''}{s.detail ?? ''}</span>{/if}
       </button>
-    {:else}<p>No sessions yet. Start a session to open a terminal on this machine.</p>{#if caps.shellHook === false}<p class="dim">Sessions started outside tmux are not visible here.</p>{/if}{/each}
+    {:else}<p>No sessions yet. Start a session to open a terminal on this machine.</p>{/each}
+    {#if unmanaged.length}
+      <section class="unmanaged" aria-labelledby="unmanaged-title">
+        <h2 id="unmanaged-title">Unmanaged agents</h2>
+        <p class="dim">Started outside tmux. Their status can be tracked, but their terminal cannot be controlled remotely.</p>
+        {#each unmanaged as agent (agent.id)}
+          <div class="unmanaged-card">
+            <span class="row-title"><strong>{agent.path?.split('/').filter(Boolean).at(-1) || agent.agent || 'Agent'}</strong><span class:err={agent.state === 'blocked'} class="dim">{agent.state === 'blocked' ? 'Needs you' : agent.state === 'working' ? 'Working' : agent.state === 'done' ? 'Ready' : 'Unmanaged'}</span></span>
+            <span class="dim">{agent.workspace == null ? 'Desktop window not found' : `Screen ${agent.workspace}`} · {agent.agent}</span>
+            {#if agent.state === 'blocked' && (agent.tool || agent.detail)}<span>{agent.tool ? `${agent.tool}: ` : ''}{agent.detail ?? ''}</span>{/if}
+            {#if agent.address && windows.find(w => w.address === agent.address)}
+              {@const win = windows.find(w => w.address === agent.address)}
+              <WindowRow {win} {workspaces} {onstatus} onchanged={refresh} />
+            {/if}
+          </div>
+        {/each}
+      </section>
+    {:else if caps.shellHook === false}
+      <p class="dim">Sessions started outside tmux cannot be controlled remotely. Enable desktop launch integration to make future sessions managed.</p>
+    {/if}
     <button id="new-session" class="primary sticky" onclick={create}>New session</button>
   {/if}
 </main>
@@ -282,6 +302,10 @@ header { display:flex; gap:.6rem; align-items:end; padding:.5rem .7rem; border-b
 header button { flex:none; font-size:12px; }
 nav,.terminal-nav { display:flex; gap:.4rem; padding:.4rem .7rem; flex:none; }
 .terminal-nav button { font-size:12px; }
+.unmanaged { display:flex; flex-direction:column; gap:.5rem; }
+.unmanaged h2 { margin:.3rem 0 0; }
+.unmanaged p { margin:0; }
+.unmanaged-card { display:flex; flex-direction:column; gap:.35rem; padding:.6rem; border:1px dashed var(--line); border-radius:var(--radius); background:var(--panel); }
 nav button { flex:1; min-width:0; }
 .active { color:var(--ok); border-color:var(--ok); }
 main { flex:1; min-height:0; overflow:auto; padding:.7rem; display:flex; flex-direction:column; gap:.7rem; overflow-wrap:anywhere; }

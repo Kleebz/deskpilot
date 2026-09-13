@@ -125,6 +125,20 @@ export async function fixture() {
               ],
           );
         }
+        if (u.pathname === "/api/unmanaged") {
+          return json(i ? [] : [{
+            id: "unmanaged-4242",
+            pid: 4242,
+            path: "/home/test/orphan-project",
+            agent: "claude-code",
+            state: "blocked",
+            tool: "Write",
+            detail: "Review generated file",
+            workspace: 2,
+            address: "0x1",
+            managed: false,
+          }]);
+        }
         if (u.pathname === "/api/dirs") {
           return json(["/home/test", "/home/test/project"]);
         }

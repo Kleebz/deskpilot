@@ -35,6 +35,13 @@ export type Session = {
 
 type Client = { pid: number; workspace: { id: number }; address: string };
 
+export type UnmanagedProcess = {
+  id: string;
+  pid: number;
+  path: string;
+  agent: string;
+};
+
 async function run(cmd: string, args: string[]): Promise<string> {
   try {
     const r = await new Deno.Command(cmd, {
@@ -72,7 +79,7 @@ async function processParents(): Promise<Map<number, number>> {
 // Walk up from a tmux client's pid until a pid matches a compositor window.
 // Six hops covers terminal -> shell -> tmux client in every arrangement seen
 // here, and bounds the walk on a process tree that could be adversarial.
-function windowForPid(
+export function windowForPid(
   start: number,
   clients: Client[],
   parents: Map<number, number>,
@@ -146,4 +153,26 @@ export async function listSessions(): Promise<Session[]> {
   // Placed sessions first, in workspace order; detached ones after. 99 stands
   // in for "no workspace" so the sort puts them last without a second pass.
   return out.sort((a, b) => (a.workspace ?? 99) - (b.workspace ?? 99));
+}
+
+// Correlate an agent which has no tmux pane with the terminal window that owns
+// its process tree. This makes it visible and trackable without pretending it
+// has the tmux handle required for transcript capture or input.
+export async function locateUnmanaged(processes: UnmanagedProcess[]) {
+  const rawClients = await run("hyprctl", ["clients", "-j"]);
+  let clients: Array<Client & Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(rawClients || "[]");
+    if (Array.isArray(parsed)) clients = parsed;
+  } catch { /* no compositor */ }
+  const parents = await processParents();
+  return processes.map((process) => {
+    const window = windowForPid(process.pid, clients, parents);
+    return {
+      ...process,
+      alive: parents.has(process.pid),
+      workspace: window?.workspace.id ?? null,
+      address: window?.address ?? null,
+    };
+  });
 }

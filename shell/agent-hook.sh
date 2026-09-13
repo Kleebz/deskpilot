@@ -50,9 +50,20 @@ payload=$(cat 2>/dev/null || true)
 # through the attached client, which is wrong when the session is detached and
 # right only by luck when it is not — and detached is exactly when this matters.
 pane=${TMUX_PANE:-}
-[ -n "$pane" ] || exit 0
-session=$(tmux display-message -p -t "$pane" '#S' 2>/dev/null) || exit 0
-[ -n "$session" ] || exit 0
+managed=true
+agent_pid=$PPID
+agent_path=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)
+agent_path=${agent_path:-$PWD}
+if [ -n "$pane" ]; then
+  session=$(tmux display-message -p -t "$pane" '#S' 2>/dev/null) || exit 0
+  [ -n "$session" ] || exit 0
+else
+  # A process cannot be moved into tmux after it owns a terminal. Report it
+  # anyway: the server can follow this pid to its compositor window and show
+  # lifecycle state plus honest window-only controls on the phone.
+  managed=false
+  session="unmanaged-$agent_pid"
+fi
 
 [ -r "$TOKEN_FILE" ] || exit 0
 token=$(cat "$TOKEN_FILE") || exit 0
@@ -106,11 +117,26 @@ case "$KIND" in
     ;;
 esac
 
+# A synthetic routing id is useful to the server and ugly in a notification.
+# Use the working directory as the human label for an unmanaged agent.
+if [ "$managed" = false ]; then
+  agent_label=${agent_path##*/}
+  agent_label=${agent_label:-agent}
+  case "$KIND" in
+    blocked) title="$agent_label needs an answer" ;;
+    done) title="$agent_label finished" ;;
+    working) title="$agent_label started" ;;
+    *) title="$agent_label" ;;
+  esac
+fi
+
 jq -n --arg s "$session" --arg k "$KIND" --arg t "$title" --arg b "$body" \
   --arg tool "$tool" --arg id "$reqid" --arg d "$detail" \
   --arg source_session "$source_session" --argjson observed_at "${observed_at:-0}" \
+  --argjson managed "$managed" --argjson pid "$agent_pid" --arg path "$agent_path" \
   '{version:1, session:$s, state:$k, source:"claude-code-hook",
     sourceSession:$source_session, observedAt:$observed_at, agent:"claude-code",
+    managed:$managed, pid:$pid, path:$path,
     title:$t, body:$b,
     reason:{kind:(if $k == "blocked" then "permission" else "turn" end),
       tool:$tool, requestId:$id, detail:$d}}' 2>/dev/null |

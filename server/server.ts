@@ -16,7 +16,7 @@ import { ControlClient, keysCommand } from "./control.ts";
 import { Devices } from "./devices.ts";
 import { describe } from "./version.ts";
 import { runCommand } from "./cli.ts";
-import { listSessions } from "./sessions.ts";
+import { listSessions, locateUnmanaged, type UnmanagedProcess } from "./sessions.ts";
 import { ROOT, scriptsDir } from "./scripts.ts";
 import { AgentStates, isLifecycle, type LifecycleReport } from "./agent-state.ts";
 import { inputBufferName, pasteInputArgs } from "./tmux-input.ts";
@@ -288,6 +288,7 @@ const agentStates = new AgentStates(
   (name) => SAFE_NAME.test(name),
   Number(Deno.env.get("DESKPILOT_WORKING_TTL_MS") ?? "1800000"),
 );
+const unmanagedAgents = new Map<string, UnmanagedProcess>();
 
 const DIST = `${WEB}/dist`;
 
@@ -600,6 +601,21 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json(merged));
   }
 
+  if (req.method === "GET" && path === "/api/unmanaged") {
+    const located = await locateUnmanaged([...unmanagedAgents.values()]);
+    for (const x of located) {
+      if (!x.alive) {
+        unmanagedAgents.delete(x.id);
+        agentStates.remove(x.id);
+      }
+    }
+    return withCookie(json(located.filter((x) => x.alive).map(({ alive: _alive, ...x }) => ({
+      ...x,
+      ...agentStates.view(x.id),
+      managed: false,
+    }))));
+  }
+
   if (req.method === "GET" && path === "/api/capture") {
     const s = url.searchParams.get("session") ?? "";
     if (!SAFE_NAME.test(s)) return fail("bad session name");
@@ -666,6 +682,19 @@ async function handle(req: Request): Promise<Response> {
     // prose. "Bash" is not something you can answer; "Bash: rm -rf ~" is.
     const detail = String(reason?.detail ?? "").slice(0, 200);
     const canApprove = kind === "blocked" && !!reqid && SAFE_TO_APPROVE.has(tool);
+    const isUnmanaged = versioned && b?.managed === false;
+    if (isUnmanaged) {
+      const pid = Number(b?.pid);
+      if (!s.startsWith("unmanaged-") || !Number.isSafeInteger(pid) || pid < 2) {
+        return fail("bad unmanaged agent");
+      }
+      unmanagedAgents.set(s, {
+        id: s,
+        pid,
+        path: String(b?.path ?? "").slice(0, 512),
+        agent: String(b?.agent ?? "agent").slice(0, 64),
+      });
+    }
     let accepted = true;
     if (isLifecycle(kind)) {
       const report: LifecycleReport = {
@@ -674,7 +703,7 @@ async function handle(req: Request): Promise<Response> {
         sourceSession: versioned ? String(b?.sourceSession ?? "").slice(0, 128) || undefined : undefined,
         agent: versioned ? String(b?.agent ?? "").slice(0, 64) || undefined : undefined,
         observedAt: versioned ? Number(b?.observedAt) : Date.now(),
-        tool, detail, requestId: reqid, canApprove,
+        tool, detail, requestId: reqid, canApprove: !isUnmanaged && canApprove,
       };
       accepted = agentStates.report(s, report);
       if (!accepted && versioned) {
@@ -692,19 +721,21 @@ async function handle(req: Request): Promise<Response> {
     // itself. A stop is announced, so the fallback must not follow up a minute
     // later about the same one — but a turn *starting* is the opposite: the
     // session is now busy and its next stop has not been announced at all.
-    const w = watched.get(s);
+    const w = isUnmanaged ? undefined : watched.get(s);
     if (w) {
       if (kind === "working") { w.busy = true; w.notified = false; }
       else { w.notified = true; w.busy = false; }
     }
 
-    console.log(`event: ${s} ${kind}${tool ? ` ${tool}` : ""}${canApprove ? " (approvable)" : ""}`);
+    console.log(`event: ${s} ${kind}${isUnmanaged ? " (unmanaged)" : ""}${tool ? ` ${tool}` : ""}${!isUnmanaged && canApprove ? " (approvable)" : ""}`);
     // A turn starting is state, not news. Pushing it would notify on every
     // prompt, which trains you to ignore the notifications that matter.
     if (kind !== "working") {
       // The id only travels to the phone when the request is one the phone is
       // allowed to answer; otherwise there is nothing there to tap.
-      await notify({ title, body, session: s, kind, canApprove, reqid: canApprove ? reqid : "" });
+      await notify({ title, body, session: isUnmanaged ? "" : s, kind,
+        canApprove: !isUnmanaged && canApprove,
+        reqid: !isUnmanaged && canApprove ? reqid : "" });
     }
     return withCookie(json({ ok: true, accepted: true }));
   }
@@ -1322,7 +1353,7 @@ async function tick() {
   const live = rows.map(([n]) => n);
 
   // Sessions that no longer exist stop being anything.
-  agentStates.prune(live);
+  agentStates.prune([...live, ...unmanagedAgents.keys()]);
 
   for (const [s, attachedCount] of rows) {
     // A session with a client attached is on a screen in front of you, so a
