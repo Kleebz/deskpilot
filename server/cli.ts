@@ -87,7 +87,10 @@ WantedBy=default.target
 // How many devices hold a credential of their own, and would therefore survive
 // the machine's token changing. null when the server cannot be reached, which
 // is a different answer from zero and must not be reported as one.
-async function enrolledCount(port: string, token: string): Promise<number | null> {
+async function enrolledCount(
+  port: string,
+  token: string,
+): Promise<number | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/devices`, {
       headers: { authorization: `Bearer ${token}` },
@@ -143,7 +146,10 @@ async function machineAddress(port: string): Promise<Addr> {
   }
 }
 
-async function pairingCode(port: string, token: string): Promise<string | null> {
+async function pairingCode(
+  port: string,
+  token: string,
+): Promise<string | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/devices/code`, {
       method: "POST",
@@ -177,7 +183,9 @@ function ownedByAPackage(): boolean {
     for (const e of Deno.readDirSync("/var/lib/pacman/local")) {
       if (!e.isDirectory) continue;
       try {
-        const files = Deno.readTextFileSync(`/var/lib/pacman/local/${e.name}/files`);
+        const files = Deno.readTextFileSync(
+          `/var/lib/pacman/local/${e.name}/files`,
+        );
         if (/^usr\/bin\/deskpilot$/m.test(files)) return true;
       } catch { /* not every entry has a file list */ }
     }
@@ -187,7 +195,8 @@ function ownedByAPackage(): boolean {
 
 async function sha256(bytes: Uint8Array): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 // The checksum file has a fixed name, which is the only reason `latest` works:
@@ -199,7 +208,9 @@ async function latestRelease(want: string) {
   const base = want === "latest"
     ? `https://github.com/${REPO}/releases/latest/download`
     : `https://github.com/${REPO}/releases/download/v${want}`;
-  const r = await fetch(`${base}/deskpilot-checksums.txt`, { redirect: "follow" });
+  const r = await fetch(`${base}/deskpilot-checksums.txt`, {
+    redirect: "follow",
+  });
   if (!r.ok) throw new Error(`could not read the release index (${r.status})`);
   const line = (await r.text()).trim().split("\n")[0] ?? "";
   const [sha, rawName] = line.split(/\s+/);
@@ -210,10 +221,14 @@ async function latestRelease(want: string) {
 }
 
 function help() {
-  console.log(`${bold("deskpilot")} — a phone-facing remote for the machine you left running
+  console.log(
+    `${
+      bold("deskpilot")
+    } — a phone-facing remote for the machine you left running
 
   deskpilot            run the server
   deskpilot setup      create a token, write the service, say what to run next
+  deskpilot session [NAME]  open a new desktop shell available on mobile
   deskpilot run CMD    start a phone-controllable command in this terminal
   deskpilot pair       print a QR and complete link that pair another device
   deskpilot pair --link  print only the complete link (for agents and scripts)
@@ -221,23 +236,68 @@ function help() {
   deskpilot update     replace this binary with the latest release
   deskpilot version    print the version
 
-${dim("  rotate is what to run if the shared token has been seen by anyone — it")}
+${
+      dim(
+        "  rotate is what to run if the shared token has been seen by anyone — it",
+      )
+    }
 ${dim("  is printed in QR codes and pairing links, so it leaks the way a URL")}
 ${dim("  leaks. Devices holding their own credential are unaffected.")}
 
-${dim("  update takes --check to look without installing, a version to pin to,")}
-${dim("  and needs root to write /usr/bin. It steps aside if a package manager")}
+${
+      dim(
+        "  update takes --check to look without installing, a version to pin to,",
+      )
+    }
+${
+      dim(
+        "  and needs root to write /usr/bin. It steps aside if a package manager",
+      )
+    }
 ${dim("  installed this copy.")}
 
 Configuration lives in ${dim(`${CONF_DIR}/config`)}.
-`);
+`,
+  );
 }
 
-export async function runCommand(args: string[], version: string): Promise<number> {
+export async function runCommand(
+  args: string[],
+  version: string,
+): Promise<number> {
   const cmd = args[0];
   const port = Deno.env.get("DESKPILOT_PORT") ?? "8790";
 
   switch (cmd) {
+    case "session": {
+      const sessionArgs = args.slice(1);
+      if (sessionArgs.length > 1) {
+        console.error("usage: deskpilot session [NAME]");
+        return 2;
+      }
+      const executable = Deno.execPath();
+      const env = /\/deno$/.test(executable)
+        ? undefined
+        : { DESKPILOT_BIN: executable };
+      try {
+        const child = new Deno.Command(`${scriptsDir()}/session.sh`, {
+          args: sessionArgs,
+          env,
+          stdin: "null",
+          stdout: "inherit",
+          stderr: "inherit",
+        }).spawn();
+        return (await child.status).code;
+      } catch (e) {
+        console.error(
+          `could not open a Deskpilot terminal: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+        return 1;
+      }
+    }
+
     case "run":
       return await runManaged(args.slice(1));
 
@@ -313,7 +373,9 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
       try {
         token = Deno.readTextFileSync(TOKEN_FILE).trim();
       } catch {
-        console.error(`no token at ${TOKEN_FILE} — run 'deskpilot setup' first`);
+        console.error(
+          `no token at ${TOKEN_FILE} — run 'deskpilot setup' first`,
+        );
         return 1;
       }
       const code = await pairingCode(port, token);
@@ -338,7 +400,7 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
   a compiled binary may only execute the copy at the path it was built for.
   Install it there:
 
-      sudo install -Dm755 scripts/desk.sh scripts/sessions.sh -t ${SCRIPTS_DIR}/
+      sudo install -Dm755 scripts/desk.sh scripts/sessions.sh scripts/session.sh -t ${SCRIPTS_DIR}/
 
   ${dim("Running from a source checkout instead? Use shell/pair.sh — it asks the")}
   ${dim("repo's own desk.sh and has no allowlist to satisfy.")}
@@ -390,14 +452,18 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
       console.log(`
   ${bold(url)}
 
-  Scan the QR or open the complete link above. ${bold("It already contains the code;")}
+  Scan the QR or open the complete link above. ${
+        bold("It already contains the code;")
+      }
   ${bold("do not enter anything separately.")} Good for ten minutes, one device.
 
   ${bold("First Deskpilot machine on this phone?")}
   Scan the QR or open the link. It loads this machine and pairs automatically.
 
   ${bold("Already have Deskpilot installed for another machine?")}
-  Open that installed app, choose ${bold("+ add another machine")}, and paste the complete
+  Open that installed app, choose ${
+        bold("+ add another machine")
+      }, and paste the complete
   link above. Scanning it in the phone camera opens this machine as a separate
   browser app instead of adding it to the machine list you already have.
 `);
@@ -407,14 +473,33 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
       // on the browser's own "can't be reached" page. With no app installed
       // yet there is no service worker either, so our own offline page cannot
       // explain it. It reads as broken pairing rather than a missing VPN.
-      if (/^https:\/\/[^/]+\.ts\.net/i.test(addr) || /^https?:\/\/100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)) {
-        console.log(`  ${bold("First:")} get the phone onto your tailnet — install Tailscale there and`);
-        console.log(`  sign in. Until then this address does not resolve for it.\n`);
+      if (
+        /^https:\/\/[^/]+\.ts\.net/i.test(addr) ||
+        /^https?:\/\/100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)
+      ) {
+        console.log(
+          `  ${
+            bold("First:")
+          } get the phone onto your tailnet — install Tailscale there and`,
+        );
+        console.log(
+          `  sign in. Until then this address does not resolve for it.\n`,
+        );
       } else {
-        console.log(`  ${bold("First:")} the phone has to be on this network — the address above is a`);
+        console.log(
+          `  ${
+            bold("First:")
+          } the phone has to be on this network — the address above is a`,
+        );
         console.log(`  local one and does not resolve from anywhere else.\n`);
       }
-      console.log(`  ${dim("That device gets its own credential, revocable on its own from the app.")}\n`);
+      console.log(
+        `  ${
+          dim(
+            "That device gets its own credential, revocable on its own from the app.",
+          )
+        }\n`,
+      );
       return 0;
     }
 
@@ -449,34 +534,44 @@ ${bold("Rotating the shared token for this machine.")}
 `);
       if (enrolled === null) {
         console.log(
-          `  ${bold("!")} The server is not answering, so I cannot say how many devices
+          `  ${
+            bold("!")
+          } The server is not answering, so I cannot say how many devices
 ` +
-          `    hold their own credential. Those survive; anything still on the
+            `    hold their own credential. Those survive; anything still on the
 ` +
-          `    shared token will be locked out and has to pair again.
+            `    shared token will be locked out and has to pair again.
 `,
         );
       } else if (enrolled === 0) {
         console.log(
-          `  ${bold("!")} No device holds its own credential, so ${bold("every paired device")}
+          `  ${bold("!")} No device holds its own credential, so ${
+            bold("every paired device")
+          }
 ` +
-          `    ${bold("will be locked out")} and has to pair again from this machine.
+            `    ${
+              bold("will be locked out")
+            } and has to pair again from this machine.
 `,
         );
       } else {
         console.log(
-          `  ${enrolled} device${enrolled === 1 ? "" : "s"} hold${enrolled === 1 ? "s" : ""} its own credential and will keep working.
+          `  ${enrolled} device${enrolled === 1 ? "" : "s"} hold${
+            enrolled === 1 ? "s" : ""
+          } its own credential and will keep working.
 ` +
-          `  Anything still on the shared token will be locked out and has to
+            `  Anything still on the shared token will be locked out and has to
 ` +
-          `  pair again — the app's devices list is what says which is which.
+            `  pair again — the app's devices list is what says which is which.
 `,
         );
       }
 
       if (!yes) {
         if (!Deno.stdin.isTerminal()) {
-          console.error("not a terminal, and this locks devices out — re-run with --yes");
+          console.error(
+            "not a terminal, and this locks devices out — re-run with --yes",
+          );
           return 1;
         }
         const ok = prompt("  Rotate it? [y/N]")?.trim().toLowerCase();
@@ -496,8 +591,14 @@ ${bold("Rotating the shared token for this machine.")}
         Deno.writeTextFileSync(tmp, next + "\n", { mode: 0o600 });
         Deno.renameSync(tmp, TOKEN_FILE);
       } catch (e) {
-        try { Deno.removeSync(tmp); } catch { /* nothing staged */ }
-        console.error(`could not write ${TOKEN_FILE}: ${e instanceof Error ? e.message : e}`);
+        try {
+          Deno.removeSync(tmp);
+        } catch { /* nothing staged */ }
+        console.error(
+          `could not write ${TOKEN_FILE}: ${
+            e instanceof Error ? e.message : e
+          }`,
+        );
         return 1;
       }
 
@@ -563,7 +664,9 @@ ${dim("a fresh code from  deskpilot pair.")}
       console.log(`  ${running} -> ${rel.version}`);
 
       console.log("  downloading");
-      const got = await fetch(`${rel.base}/${rel.name}`, { redirect: "follow" });
+      const got = await fetch(`${rel.base}/${rel.name}`, {
+        redirect: "follow",
+      });
       if (!got.ok) {
         console.error(`  could not download ${rel.name} (${got.status})`);
         return 1;
@@ -596,6 +699,7 @@ ${dim("a fresh code from  deskpilot pair.")}
         "deskpilot": BIN_PATH,
         "scripts/desk.sh": `${SCRIPTS_DIR}/desk.sh`,
         "scripts/sessions.sh": `${SCRIPTS_DIR}/sessions.sh`,
+        "scripts/session.sh": `${SCRIPTS_DIR}/session.sh`,
       };
       const staged: [string, string][] = [];
       try {
@@ -610,7 +714,11 @@ ${dim("a fresh code from  deskpilot pair.")}
             continue;
           }
           const tmp = `${dest}.new`;
-          const f = await Deno.open(tmp, { write: true, create: true, truncate: true });
+          const f = await Deno.open(tmp, {
+            write: true,
+            create: true,
+            truncate: true,
+          });
           await entry.readable.pipeTo(f.writable);
           await Deno.chmod(tmp, 0o755);
           staged.push([tmp, dest]);

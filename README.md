@@ -238,6 +238,20 @@ work with no prior state.
 
 ## Starting a session at the desk
 
+To open a normal login shell in a new desktop window and make that shell
+available on mobile:
+
+```bash
+deskpilot session
+deskpilot session writing
+```
+
+This is an explicit alternative terminal launcher. It does not edit shell
+profiles, intercept the ordinary terminal command, or replace the login shell.
+The new window runs the same login shell inside a tmux session named `desk` (or
+the name supplied); collisions receive `-2`, `-3`, and so on. Closing the window
+detaches it, while exiting the shell ends it.
+
 To start an agent on the desktop and control that same process from the phone later:
 
 ```bash

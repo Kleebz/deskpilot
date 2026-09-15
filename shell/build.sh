@@ -5,9 +5,9 @@
 #   shell/build.sh [outdir]
 #
 # Produces dist/deskpilot — the runtime, the server and the built web UI in one
-# file, so a target machine needs neither deno nor npm. desk.sh is copied
-# beside it rather than embedded: it is the compositor-specific half, and
-# keeping it as readable shell is what makes a second compositor a contribution
+# file, so a target machine needs neither deno nor npm. Runtime helper scripts
+# are copied beside it rather than embedded: desk.sh is the compositor-specific
+# half, and keeping it readable is what makes another compositor a contribution
 # rather than a rewrite.
 #
 # The commit is baked in, so a binary can say exactly what it is even though it
@@ -54,7 +54,7 @@ deno compile \
   --allow-read \
   --allow-env \
   --allow-write \
-  --allow-run=tmux,ps,hyprctl,"$SCRIPTS_TARGET/desk.sh" \
+  --allow-run=tmux,ps,hyprctl,"$SCRIPTS_TARGET/desk.sh","$SCRIPTS_TARGET/session.sh" \
   server/server.ts
 rc=$?
 mv "$INFO.orig" "$INFO"
@@ -66,12 +66,13 @@ mv "$INFO.orig" "$INFO"
 # here" with a working desk.sh in plain sight.
 cp "$REPO/scripts/desk.sh" "$OUT/scripts/desk.sh"
 cp "$REPO/scripts/sessions.sh" "$OUT/scripts/sessions.sh"
+cp "$REPO/scripts/session.sh" "$OUT/scripts/session.sh"
 chmod +x "$OUT/scripts/"*.sh
 echo "    (install these to $SCRIPTS_TARGET — the binary can execute no other copy)"
 
 echo
 echo "  $OUT/deskpilot        $(du -h "$OUT/deskpilot" | cut -f1)"
-echo "  $OUT/scripts/desk.sh  (not embedded, on purpose)"
+echo "  $OUT/scripts/*.sh     (runtime helpers, not embedded)"
 echo
 echo "Install the scripts before running it — the binary's allowlist is fixed at"
 echo "compile time, so $SCRIPTS_TARGET/desk.sh is the only copy it may execute:"

@@ -49,6 +49,7 @@ package() {
   # binary was compiled to allow itself to execute — it can run no other copy.
   install -Dm755 scripts/desk.sh "$pkgdir/usr/share/deskpilot/scripts/desk.sh"
   install -Dm755 scripts/sessions.sh "$pkgdir/usr/share/deskpilot/scripts/sessions.sh"
+  install -Dm755 scripts/session.sh "$pkgdir/usr/share/deskpilot/scripts/session.sh"
 
   # How this copy got here. `deskpilot update` reads this and steps aside rather
   # than replacing a file pacman owns: an overwrite leaves a checksum mismatch

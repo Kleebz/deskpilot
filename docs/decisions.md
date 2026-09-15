@@ -1358,3 +1358,17 @@ offers Codex and Continue Codex in inline mode; Ctrl+A is available for approval
 details. See
 [the compatibility report](codex-compatibility.md) and
 [`tests/terminal-probe.ts`](../tests/terminal-probe.ts) for results and reproduction.
+
+## Desktop shells are available remotely only through an explicit launcher
+
+An ordinary terminal owns the pseudo-terminal created for its shell. A running
+shell cannot be safely moved under tmux afterward, so making every desktop shell
+remotely attachable would require changing the default terminal or shell startup
+behavior.
+
+`deskpilot session [NAME]` is the explicit boundary. It opens the configured
+terminal with the user's normal login shell inside a uniquely named tmux
+session. Installation does not edit shell profiles, replace the login shell, or
+intercept the ordinary terminal shortcut. The lifecycle difference is visible
+and chosen: closing this window detaches the session so mobile can continue it;
+exiting its shell ends the session.
