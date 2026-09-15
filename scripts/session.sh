@@ -29,5 +29,6 @@ command -v "$runner" >/dev/null 2>&1 \
 # The emulator is intentionally detached from this short-lived launcher. The
 # tmux session keeps the login shell alive if its window closes, until the user
 # exits the shell or ends the session in Deskpilot.
+unset TMUX TMUX_PANE
 "$terminal" -e "$runner" run --name "$name" -- "$shell" -l >/dev/null 2>&1 &
 echo "opening Deskpilot terminal ($name)"

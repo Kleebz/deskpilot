@@ -8,7 +8,7 @@ Deno.test("desktop session launcher preserves shell argv and explicit name", asy
     const capture = `${temp}/args`;
     await Deno.writeTextFile(
       terminal,
-      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$CAPTURE"\n',
+      '#!/bin/sh\nprintf \'%s\\n\' "${TMUX-unset}" > "$CAPTURE_ENV"\nprintf \'%s\\n\' "$@" > "$CAPTURE"\n',
       { mode: 0o700 },
     );
     await Deno.writeTextFile(runner, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
@@ -21,6 +21,8 @@ Deno.test("desktop session launcher preserves shell argv and explicit name", asy
         DESKPILOT_BIN: runner,
         SHELL: "/bin/bash",
         CAPTURE: capture,
+        CAPTURE_ENV: `${temp}/environment`,
+        TMUX: "/tmp/existing,1,0",
       },
       stdout: "piped",
       stderr: "piped",
@@ -44,6 +46,10 @@ Deno.test("desktop session launcher preserves shell argv and explicit name", asy
       "/bin/bash",
       "-l",
     ]);
+    assertEquals(
+      (await Deno.readTextFile(`${temp}/environment`)).trim(),
+      "unset",
+    );
   } finally {
     await Deno.remove(temp, { recursive: true });
   }
