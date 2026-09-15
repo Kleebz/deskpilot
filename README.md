@@ -11,16 +11,30 @@ and — on Hyprland — look at the screen and move windows.
 It runs entirely on your own hardware. There is no service in the middle, no account, and
 nothing leaves your machine except the notifications you asked for.
 
-```
-┌─ machines ────────────────────┐
-│  ● desk       needs you       │   a session blocked on a permission prompt,
-│  ○ buildbox                   │   sorted to the top, saying what it is asking
-├─ sessions ────────────────────┤
-│  ws2  api        Bash?  rm -rf│
-│  ws6  deskpilot  working      │
-│  ws7  notes                   │
-└───────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/images/deskpilot-mobile.jpg" width="390" alt="Deskpilot mobile app showing a live Codex terminal session">
+</p>
+
+From the phone you can:
+
+- read and control live tmux terminals;
+- see which agents are working, blocked, or done;
+- move between several machines and sessions;
+- start work, paste text, copy output, and answer safe permission prompts; and
+- inspect screens and move windows when the desktop supports it.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation options](#installation-options)
+- [Starting desktop sessions](#starting-desktop-sessions)
+- [Connecting a phone](#connecting-a-phone)
+- [Updating](#updating)
+- [Uninstalling](#uninstalling)
+- [Security](#security)
+- [Development and releases](#development-and-releases)
 
 ## Quick start
 
@@ -62,16 +76,15 @@ missing, `deskpilot pair` says so instead of printing a QR that leads nowhere.
 
 Want an agent to do it? See [installing with an agent](#installing-with-an-agent).
 
-## What it is not
+## How it works
 
-Not a remote desktop. Streaming pixels to a phone is expensive and unreadable; a screen of
-terminal output is about 2 KB of text where a screenshot of the same thing is 130–210 KB.
-So the cheap path is the main one: state as text, a cropped still only when pixels are
-genuinely the content, and no video at all.
+Deskpilot sends terminal text rather than streaming a remote desktop. A screen of terminal
+output is roughly 2 KB of text where a screenshot of the same thing is often 130–210 KB.
+It uses a cropped still only when the pixels themselves matter, and it sends no video.
 
-Not tied to one agent, either. A session is a tmux session and what runs inside it is not
-this project's business — Claude Code, Codex, Aider, or a bare shell all work the same
-way, because typing into a terminal does not care what is reading.
+A session is a tmux session, so Claude Code, Codex, Aider, and ordinary shells all work
+through the same interface. tmux also keeps them alive when the browser disconnects or the
+Deskpilot service restarts.
 
 ## Requirements
 
@@ -112,7 +125,7 @@ asserts that the server starts, lists tmux sessions with `workspace: null`, upgr
 terminal WebSocket, pairs a device and reports `compositor: none` instead of erroring. CI
 runs it on every commit and the release workflow refuses to ship a binary that fails it.
 
-## Install
+## Installation options
 
 Every release ships a single binary — the server and the web UI in one file, so the
 target needs neither Deno nor npm. Released builds are **x86_64 only**; on anything else
@@ -141,9 +154,8 @@ sudo install -Dm755 deskpilot /usr/bin/deskpilot
 sudo install -Dm755 scripts/*.sh -t /usr/share/deskpilot/scripts/
 ```
 
-That path is not cosmetic. The binary's subprocess allowlist is fixed when it is built, so
-`/usr/share/deskpilot/scripts/desk.sh` is the only copy it may execute — a copy elsewhere
-is found and then refused, which looks exactly like "this machine has no compositor".
+That path is part of the binary's subprocess allowlist, which is fixed at build time.
+Runtime helpers installed elsewhere will be refused.
 
 Then set it up and start it:
 
@@ -157,18 +169,12 @@ systemctl --user enable --now deskpilot
 `systemctl` for you nowhere — that would mean adding it to the server's subprocess
 allowlist, which is not a trade worth making to save you a paste.
 
-An Arch package is generated with every release — `PKGBUILD` is attached alongside the
-tarball — and building it by hand is the Arch route for now:
+Every release includes a generated `PKGBUILD` for Arch:
 
 ```
 gh release download vX.Y.Z -p PKGBUILD
 makepkg -si
 ```
-
-It is not in the AUR, and that is not a matter of getting round to it: AUR account
-registration is disabled upstream at the moment, in response to the volume of automated
-scraping the site has been absorbing, with no date on it. The package above is the same
-one that would be published there, so nothing is missing except the one-command install.
 
 ### Installing with an agent
 
@@ -236,7 +242,7 @@ independent.
 Verified from a clean clone: `npm install`, build, typecheck, tests and the binary all
 work with no prior state.
 
-## Starting a session at the desk
+## Starting desktop sessions
 
 To open a normal login shell in a new desktop window and make that shell
 available on mobile:
@@ -246,12 +252,11 @@ deskpilot session
 deskpilot session writing
 ```
 
-This is an explicit alternative terminal launcher. It does not edit shell
-profiles, intercept the ordinary terminal command, or replace the login shell.
-The new window runs the same login shell inside a tmux session named `desk` (or
-the name supplied); collisions receive `-2`, `-3`, and so on. Closing the window
-detaches it, while exiting the shell ends it. Installed desktops also expose a
-**Deskpilot Terminal** entry in the application launcher.
+This explicit launcher does not edit shell profiles, intercept the ordinary terminal
+command, or replace the login shell. The new window runs the same login shell inside a
+tmux session named `desk` (or the supplied name); collisions receive `-2`, `-3`, and so
+on. Closing the window detaches it, while exiting the shell ends it. Installed desktops
+also expose **Deskpilot Terminal** in the application launcher.
 
 To start an agent on the desktop and control that same process from the phone later:
 
@@ -276,30 +281,18 @@ and input require starting them with `deskpilot run` (or tmux itself).
 
 ## Connecting a phone
 
-deskpilot listens on loopback and expects something in front of it, so the phone has an
-address to reach. **This step is not optional** — until something fronts it there is no
-address for a phone to open at all. Today that is [Tailscale](https://tailscale.com):
+Deskpilot listens on loopback, so [Tailscale](https://tailscale.com) must provide the
+phone-facing HTTPS address:
 
 ```
 shell/use-https.sh          # from a checkout
 tailscale serve --bg --yes 8790   # or by hand, on a release install
 ```
 
-That puts Tailscale Serve in front, which gives a real certificate — needed for the app to
-be installable — and keeps the port closed on every interface. On the same network you can
-skip it and use the machine's LAN address, but you will not get the PWA.
-
-**Serve needs HTTPS certificates enabled once for your tailnet**, at
-[login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns) — the **Enable
-HTTPS** button. It is a per-tailnet setting, not per-machine, so it may already be on. If
-it is not, `tailscale serve` has no certificate to use and says so.
-
-**The phone needs Tailscale too, and signed in before you scan anything.** The address
-above is a tailnet name; a device that is not on the tailnet cannot resolve it, so a scan
-lands on the browser's own "can't be reached" page. On a device that has never loaded the
-app there is no service worker yet either, so deskpilot's own offline page cannot explain
-it — it reads as broken pairing rather than a missing VPN. Install Tailscale on the phone,
-sign in, then pair.
+Enable HTTPS certificates once in the
+[Tailscale DNS settings](https://login.tailscale.com/admin/dns). Install Tailscale on the
+phone and sign into the same tailnet before scanning anything; otherwise its private host
+name will not resolve.
 
 Then, on the machine:
 
@@ -307,152 +300,39 @@ Then, on the machine:
 deskpilot pair
 ```
 
-That prints a QR and a complete link containing an eight-character code good for ten
-minutes and one device:
+The QR and link contain an eight-character, single-use code valid for ten minutes. Scan or
+open either one; there is no second code to enter. `deskpilot pair --link` prints only the
+link for scripts or agents to relay.
 
-```
-  [QR]
-
-  https://yourbox.tailnet.ts.net/?code=K7MQ3FDN
-
-```
-
-Scan it with the phone's camera or open the complete link and pairing is done. The code is
-already in both, so there is no second field to fill in. When another program or agent is
-relaying the result, `deskpilot pair --link` prints only that complete link, without the
-terminal QR or duplicate prose.
-
-Opening another QR for a machine already paired in that browser/PWA selects its existing
-credential instead of enrolling it again. The **devices** count is a count of browser/PWA
-credentials accepted by this machine; the machine itself is the server and is not included.
-Device names can be changed in that panel if the browser only supplies a generic platform
-name.
-
-That scan/open path is for the first Deskpilot machine on a phone. If Deskpilot is already
-installed from another machine, open the installed app, choose **+ add another machine**, and
-paste the complete link there. Scanning the new machine's QR in the phone camera opens its
-origin separately in the browser; browser storage is origin-scoped, so it cannot add
-itself to the machine list stored by the already-installed app.
+For the first machine, open the link directly and install the app. To add another machine,
+open the installed app, choose **Add machine**, and paste the new machine's pairing link.
+Each phone or browser receives its own revocable credential.
 
 Two things it can say instead of printing a QR, and they are not the same problem:
 
-- **nothing answered on an address a phone could reach** — Tailscale Serve is not
-  running. deskpilot listens on loopback, so until something fronts it there is no
-  address to print. Run `tailscale serve --bg --yes 8790` and try again.
-- **I could not run desk.sh** — the binary cannot find the script it asks for the
-  address, and it prints the path it looked at. A compiled binary's `--allow-run`
-  allowlist is fixed at build time, so it may only execute that one copy; install it
-  there. This says nothing about whether Serve is working, and restarting Serve will
-  not fix it.
-
-**From a source checkout this is the same command.** `shell/setup.sh` installs a
-`deskpilot` shim at `~/.local/bin/deskpilot` that dispatches to `shell/`, so `pair`,
-`setup`, `rotate`, `update` and `check` all work by the documented name. `shell/pair.sh`
-still works directly if `~/.local/bin` is not on your PATH.
+- **nothing answered on an address a phone could reach** — start Tailscale Serve and try
+  again;
+- **I could not run desk.sh** — install the runtime helpers at the path printed by the
+  command.
 
 ### Installing it on the phone
 
-It is a web app, so there is nothing to download. Open the address and the app offers to
-install itself:
+Deskpilot is a progressive web app:
 
-- **Android / Chrome** — a bar appears saying *"Add to your home screen for a full-screen
-  app"* with an **install** button. Tapping it is the whole process. If you dismissed it,
-  the browser's ⋮ menu has **Add to Home screen**.
-- **iOS / Safari** — Safari gives no install button, so the app tells you what to do
-  instead: tap **Share**, then **Add to Home Screen**. Use Safari; other iOS browsers are
-  less reliable at this.
+- **Android / Chrome:** use **Install** or **Add to Home screen** from the browser menu.
+- **iOS / Safari:** tap **Share**, then **Add to Home Screen**.
 
-**Installing is worth doing rather than bookmarking.** It runs full-screen without browser
-chrome, it keeps its own storage so you are not re-pairing after a browser clean-up, and
-push notifications only work from an installed app on iOS.
+Installation provides full-screen use, durable local settings, offline access to the
+machine picker, and iOS push notifications. It requires HTTPS.
 
-It needs HTTPS to be installable at all — a plain `http://` address is not a secure
-context and browsers will not offer it. That is what `shell/use-https.sh` is for.
+The machine picker switches between paired hosts. Swipe horizontally between terminals,
+or tap the session name to jump directly. **Screens** provides workspace and window
+controls where supported. **Manage** contains devices, credentials, notifications, and
+machine labels. Drafts and the current view are restored after backgrounding without
+submitting or repeating an action.
 
-You can open the same address from a desktop browser too; it is the same app, and Chrome
-will offer to install it there as well. Useful for a look without reaching for your phone,
-though the layout is built for a phone.
-
-That device now has **its own credential**, not a copy of the machine's key. Lose the
-phone and you revoke that one device from the app; everything else stays paired.
-
-**Adding more devices** happens at the machine: `deskpilot pair` prints a QR carrying the
-address and the code together, and that is the only place a code is minted. The app used
-to mint one too and draw its own QR, which meant two pairing flows for one job and two
-near-identical panels above your sessions. There is one now.
-
-The app's **devices** panel is what you cannot do from a terminal you cannot reach: it
-lists what is paired and revokes any of it, one device at a time, which is the thing that
-makes a lost phone survivable. It is also where a device still on the old shared token
-upgrades itself — it says so in the list, and one tap swaps the shared credential for one
-of its own without re-pairing anything else. Each browser/PWA credential is one row; the
-desktop machine serving the app is not a paired-device row. The name is editable because
-privacy-reduced browser data sometimes identifies only the platform rather than the phone
-model.
-
-**Adding more machines** works from the app. Install deskpilot on the second machine, run
-`deskpilot pair --link` there, then tap **Add machine** beside the persistent machine
-picker and paste the complete link. You can also scan its QR or enter an address and code
-separately. The picker shows attention counts for all paired machines. A machine's label can
-be renamed under **Manage** on this phone, so two hosts that both report `omarchy` can read
-as `Desktop` and `Laptop` without changing either hostname. Selecting a machine opens its
-sessions at the top; tapping any session opens its terminal, including sessions with no
-desktop window.
-
-Inside a terminal, swipe horizontally to the previous or next session on that machine.
-The arrows beside the session name do the same; tap the name to choose any session.
-Sessions start in desktop-screen order, with sessions without a window at the end.
-Their order stays steady while browsing, even when status or desktop placement changes.
-Each session keeps its own prompt and paste drafts, and swiping keeps a focused composer
-in place. Vertical drags scroll terminal output. Back returns to the list or desktop
-screen where you opened the terminal, without retracing session switches.
-The app also saves your selected session/view, desktop screen, list position, and
-unfinished prompt, paste, and session-creation drafts locally on the phone. If the
-browser reloads it after backgrounding, it restores that context and reconnects to the
-session. Restoring never submits a draft or repeats an action. Pairing codes, desktop
-passwords, and terminal output are not included in this saved UI state.
-
-**Screens** provides desktop workspace browsing and window controls on capable machines.
-Swipe horizontally between adjacent screens, or use the workspace selector to jump
-directly to one; the two controls stay synchronized.
-**Manage** contains authorized devices, credentials, usage, notifications, and installation.
-**New session** opens a dedicated form: desktop placement is optional, defaulting to no
-window from Sessions and the selected workspace from Screens. Its preset selector includes
-Terminal, Claude, and Codex variants while leaving the resulting command editable. Cancel
-retains the draft; Back to sessions restores the previous list position. An open terminal
-keeps **End session** visible in its navigation bar; ending remains confirmation-protected.
-**Session actions → Open on desktop…** opens a terminal window for the existing session
-on the chosen screen, without restarting its running command.
-
-Use the in-app flow even when a QR is available. A PWA and its machine list belong to the
-origin it was installed from; scanning another machine's QR in the phone camera opens that
-other origin in the browser instead of inserting it into the installed app's list.
-
-The machine that supplied the installed PWA does not have to remain online. The service
-worker caches the versioned application shell—not sessions, screenshots, lock state, or
-any API response—so a cold launch can still read the phone's machine list and switch to
-one that is available. Updates arrive when the origin machine is reachable again.
-
-**Agents started outside tmux** appear as unmanaged agents when their lifecycle hook runs.
-Deskpilot can report whether they are working, blocked or done, notify you, and correlate
-them with their desktop window for look/move/tile controls. It cannot capture or type into
-their terminal because the process has no tmux handle. The shell integration below makes
-future desktop launches fully interactive from the phone.
-
-**It asks two things**, both editing files outside deskpilot, both declinable, both
-reversible by running `setup` again:
-
-- one line in your shell profile, so agents you start at your desk are visible to your
-  phone rather than running where nothing can reach them
-- notification hooks and permission rules in `~/.claude/settings.json`
-
-`--yes` accepts both for a scripted install; `--no-shell` and `--no-claude` refuse them
-individually. With no terminal attached it declines rather than assuming.
-
-Requiring Tailscale means a VPN client on the phone, which is a real cost and an honest
-one. Removing it means WebRTC with a signalling server — designed, not built.
-[decisions.md](docs/decisions.md) has the reasoning, including why a relay that could read
-your traffic was rejected twice.
+More operational detail and troubleshooting live in [docs/setup.md](docs/setup.md). The
+transport and trust decisions are recorded in [docs/decisions.md](docs/decisions.md).
 
 ## Updating
 
@@ -460,11 +340,8 @@ your traffic was rejected twice.
 so a restart leaves every session attached and running — verified when the service
 crash-looped for thirty seconds and everything was still there afterwards.
 
-On a release or package install, `deskpilot version` says what you are running; from a
-checkout there is no such command, and `shell/check.sh` reports the running version
-instead. The app shows it per machine in **Manage** for the selected machine — which is the one that matters once a phone
-holds more than one, since the question stops being "what am I running" and becomes "which
-of these is behind".
+`deskpilot version` says what the command will run, and `shell/check.sh` verifies the live
+service. The app also shows the version of each selected machine under **Manage**.
 
 **From a release** — the `install.sh` path:
 
@@ -473,11 +350,10 @@ sudo deskpilot update
 systemctl --user restart deskpilot
 ```
 
-`update` fetches the release index, verifies the published sha256 **before touching
-anything on disk**, and replaces the binary and both scripts together — staged beside
-each destination and renamed, so a failure halfway cannot leave a new binary next to an
-old `desk.sh`. `deskpilot update --check` looks without installing, and a version
-argument pins it (`sudo deskpilot update 0.1.2`).
+`update` fetches the release index, verifies the published SHA-256 **before touching
+anything on disk**, and stages the binary, runtime helpers, and application launcher
+together. `deskpilot update --check` looks without installing, and a version argument
+pins it (`sudo deskpilot update 0.1.15`).
 
 It steps aside if a package manager owns the install, because overwriting a pacman-owned
 file leaves a mismatch that the next `pacman -Syu` silently reverts.
@@ -494,10 +370,8 @@ The restart is not optional in either case. Replacing the file does not disturb 
 process already running — it holds the old one open until something restarts it — so an
 update that stops before this appears to work and has changed nothing.
 
-**From the PKGBUILD**, which is where Arch users are for as long as AUR registration stays
-closed.
-Each release attaches a `PKGBUILD` with that version and checksum already filled in, so
-this is a download rather than an edit:
+**From the PKGBUILD.** Each release attaches one with the version and checksum already
+filled in:
 
 ```
 gh release download vX.Y.Z -p PKGBUILD --clobber
@@ -505,10 +379,8 @@ makepkg -si
 systemctl --user restart deskpilot
 ```
 
-This route makes pacman the owner of the binary, so `deskpilot update` will decline it and
-send you back here — deliberately, since replacing a pacman-owned file leaves a mismatch
-the next `-Syu` silently reverts. If the package ever reaches the AUR, this all becomes
-`pacman -Syu` like anything else.
+This route makes pacman the owner of the binary, so `deskpilot update` declines it. Update
+through pacman again to avoid leaving package metadata out of sync with installed files.
 
 **From a source checkout:**
 
@@ -524,11 +396,9 @@ activation restores the previous commit and UI before restarting the old service
 
 ### If the desk half goes quiet after an update
 
-`desk.sh` ships beside the binary rather than inside it, and the two move together. Update
-the binary alone and a new server can be talking to an old script, which surfaces as
-window and screenshot controls disappearing — the app reports the machine as having no
-compositor. `install.sh` and the package both replace the pair; a hand-unpacked tarball is
-the case to watch. `shell/check.sh` will say so.
+Runtime helpers ship beside the binary rather than inside it. Updating the binary alone
+can pair a new server with an old helper and hide desktop capabilities. The installer,
+self-updater, and package replace the complete set; `shell/check.sh` detects a mismatch.
 
 ### Recovery data
 
@@ -610,7 +480,7 @@ plainly rather than burying.
   installed is not the same as consenting to it being reachable. Attempts are rate
   limited.
 - **The sandbox is narrow.** The server runs under Deno with subprocess access scoped to
-  one script and three binaries — an injection bug cannot reach `rm`, `ssh` or `curl`.
+  fixed runtime helpers and three binaries — an injection bug cannot reach `rm`, `ssh` or `curl`.
   That scoping is why this is Deno rather than anything with an all-or-nothing model.
 - **Screenshots refuse when the screen is locked.** `grim` will happily photograph a lock
   screen and return it as a valid image, so the guard fails closed on "unknown" as well as
@@ -633,7 +503,7 @@ The short version:
 - **Capabilities are asked for, never assumed.** Which is what lets one phone hold several
   machines that are not alike.
 
-## Development
+## Development and releases
 
 ```
 deno test --allow-read --allow-write --allow-env tests/   # unit tests
@@ -657,20 +527,20 @@ number, so the order matters:
 
 ```
 # bump VERSION in server/version.ts, then
-git commit -am "Release 0.1.3"
-git tag v0.1.3 && git push origin main v0.1.3
+git commit -am "Release X.Y.Z"
+git tag vX.Y.Z && git push origin main vX.Y.Z
 ```
 
 The release workflow refuses to build if the tag and the constant disagree. That check
 exists because the failure is otherwise silent and lands on the user: `update` compares
 the running version against the one in the release filename by string equality, so an
-artifact tagged `0.1.3` containing a binary that says `0.1.2` tells every install there is
-an update, forever, and taking it changes nothing.
+artifact whose tag and embedded version disagree can leave every install in a permanent
+update loop.
 
 ## Status
 
-Early. It has run daily on one Arch/Hyprland machine since August 2026, and CI exercises
-the headless path on every commit. It has not been run on a second compositor, and the
-packaging has been installed by exactly one person.
+Early. It has run daily on Arch/Hyprland since August 2026, and CI exercises the headless
+path on every commit. Other compositors currently receive the portable tmux features but
+not desktop window controls.
 
 Licensed under the [MIT License](LICENSE).
