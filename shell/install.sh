@@ -125,6 +125,8 @@ $SUDO install -Dm755 deskpilot "$BIN_DIR/deskpilot"
 $SUDO install -Dm755 scripts/desk.sh "$SCRIPTS_DIR/desk.sh"
 $SUDO install -Dm755 scripts/sessions.sh "$SCRIPTS_DIR/sessions.sh"
 $SUDO install -Dm755 scripts/session.sh "$SCRIPTS_DIR/session.sh"
+$SUDO install -Dm644 deskpilot-terminal.desktop \
+  /usr/share/applications/deskpilot-terminal.desktop
 [ -f LICENSE ] && $SUDO install -Dm644 LICENSE /usr/share/licenses/deskpilot/LICENSE
 printf 'installer\n' | $SUDO tee "$METHOD_FILE" >/dev/null
 

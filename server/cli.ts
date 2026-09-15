@@ -700,6 +700,7 @@ ${dim("a fresh code from  deskpilot pair.")}
         "scripts/desk.sh": `${SCRIPTS_DIR}/desk.sh`,
         "scripts/sessions.sh": `${SCRIPTS_DIR}/sessions.sh`,
         "scripts/session.sh": `${SCRIPTS_DIR}/session.sh`,
+        "deskpilot-terminal.desktop": "/usr/share/applications/deskpilot-terminal.desktop",
       };
       const staged: [string, string][] = [];
       try {

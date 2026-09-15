@@ -148,6 +148,7 @@ fi
 say "Command"
 BIN="$HOME/.local/bin"
 SHIM="$BIN/deskpilot"
+SHIM_READY=0
 if [ -e "$SHIM" ] && ! grep -qs "deskpilot shim" "$SHIM"; then
   same "$SHIM exists and is not ours — leaving it alone"
 else
@@ -200,6 +201,7 @@ USAGE
 esac
 SHIMEOF
   if [ -s "$SHIM" ] && chmod +x "$SHIM"; then
+    SHIM_READY=1
     good "deskpilot -> $SHIM"
     case ":$PATH:" in
       *":$BIN:"*) ;;
@@ -215,6 +217,31 @@ SHIMEOF
   else
     bad "could not write $SHIM"
   fi
+fi
+
+say "Application launcher"
+APP_DIR="$HOME/.local/share/applications"
+APP="$APP_DIR/deskpilot-terminal.desktop"
+if [ "$SHIM_READY" = 1 ]; then
+  mkdir -p "$APP_DIR"
+  cat > "$APP" <<APPEOF
+[Desktop Entry]
+Type=Application
+Name=Deskpilot Terminal
+Comment=Open a terminal session available in Deskpilot
+Exec=$SHIM session
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupNotify=true
+APPEOF
+  if [ -s "$APP" ] && chmod 644 "$APP"; then
+    good "Deskpilot Terminal -> $APP"
+  else
+    bad "could not write $APP"
+  fi
+else
+  same "not installed because $SHIM is owned by another program"
 fi
 
 say "Service"

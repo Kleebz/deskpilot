@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Deskpilot Terminal
+Comment=Open a terminal session available in Deskpilot
+Exec=deskpilot session
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupNotify=true

@@ -250,7 +250,8 @@ This is an explicit alternative terminal launcher. It does not edit shell
 profiles, intercept the ordinary terminal command, or replace the login shell.
 The new window runs the same login shell inside a tmux session named `desk` (or
 the name supplied); collisions receive `-2`, `-3`, and so on. Closing the window
-detaches it, while exiting the shell ends it.
+detaches it, while exiting the shell ends it. Installed desktops also expose a
+**Deskpilot Terminal** entry in the application launcher.
 
 To start an agent on the desktop and control that same process from the phone later:
 

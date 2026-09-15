@@ -75,7 +75,7 @@ echo "  $OUT/deskpilot        $(du -h "$OUT/deskpilot" | cut -f1)"
 echo "  $OUT/scripts/*.sh     (runtime helpers, not embedded)"
 echo
 echo "Install the scripts before running it — the binary's allowlist is fixed at"
-echo "compile time, so $SCRIPTS_TARGET/desk.sh is the only copy it may execute:"
+echo "compile time, so only helper copies under $SCRIPTS_TARGET may execute:"
 echo
 echo "  sudo install -Dm755 $OUT/scripts/*.sh -t $SCRIPTS_TARGET/"
 echo "  $OUT/deskpilot setup"
