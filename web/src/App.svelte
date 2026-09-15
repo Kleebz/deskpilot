@@ -14,7 +14,14 @@
   const origins = hosts.list.map(h => h.origin);
   const resumed = readResume(localStorage, origins);
   const previousEntry = resumeRoute(history.state?.deskpilot, origins);
-  const initialRoute = previousEntry ?? resumed?.route ?? { view: 'sessions', host: hosts.current };
+  const notificationParams = new URLSearchParams(location.search);
+  const notificationHost = notificationParams.get('machine');
+  const notificationSession = notificationParams.get('session');
+  const notificationRoute = notificationHost && notificationSession && hosts.list.some(h => h.origin === notificationHost)
+    ? { view: 'terminal', host: notificationHost, session: notificationSession, returnTo: { view: 'sessions', host: notificationHost } }
+    : null;
+  if (notificationHost || notificationSession) history.replaceState(null, '', location.pathname);
+  const initialRoute = notificationRoute ?? previousEntry ?? resumed?.route ?? { view: 'sessions', host: hosts.current };
   if (initialRoute.host !== hosts.current) switchTo(initialRoute.host);
   let sessions = $state([]), unmanaged = $state([]), windows = $state([]), connection = $state('loading');
   let status = $state(''), bad = $state(false), locked = $state(false);

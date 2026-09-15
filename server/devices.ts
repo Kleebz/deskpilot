@@ -24,7 +24,7 @@ const ENC = new TextEncoder();
 export type Device = {
   id: string;
   name: string;
-  hash: string;      // sha256 of the token, hex
+  hash: string; // sha256 of the token, hex
   created: number;
   lastSeen: number;
 };
@@ -34,9 +34,20 @@ export type Enrollment = {
   expires: number;
 };
 
+export class DeviceStoreError extends Error {
+  committed: boolean;
+
+  constructor(message: string, committed = false, cause?: unknown) {
+    super(message, { cause });
+    this.name = "DeviceStoreError";
+    this.committed = committed;
+  }
+}
+
 async function sha256(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", ENC.encode(s));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function randomHex(bytes: number): string {
@@ -70,34 +81,106 @@ export class Devices {
   #pending: Enrollment[] = [];
   // Failed enrollment attempts, so a short code cannot be brute-forced.
   #fails: number[] = [];
+  #syncDirectory: (path: string) => void;
 
-  constructor(path: string) {
+  constructor(
+    path: string,
+    options: { syncDirectory?: (path: string) => void } = {},
+  ) {
     this.#path = path;
+    this.#syncDirectory = options.syncDirectory ?? ((dir) => {
+      const parent = Deno.openSync(dir, { read: true });
+      try {
+        parent.syncSync();
+      } finally {
+        parent.close();
+      }
+    });
     try {
       const raw = JSON.parse(Deno.readTextFileSync(path));
-      if (Array.isArray(raw)) this.#list = raw;
-    } catch { /* first run */ }
+      if (!Array.isArray(raw)) throw new Error("root value is not an array");
+      for (const [i, d] of raw.entries()) {
+        if (
+          !d || typeof d !== "object" || typeof d.id !== "string" ||
+          typeof d.name !== "string" || typeof d.hash !== "string" ||
+          typeof d.created !== "number" || typeof d.lastSeen !== "number"
+        ) throw new Error(`invalid device record at index ${i}`);
+      }
+      this.#list = raw;
+      // Older versions created this with the process umask. Tighten an existing
+      // valid store on load as well as every newly written replacement.
+      Deno.chmodSync(path, 0o600);
+    } catch (e) {
+      if (e instanceof Deno.errors.NotFound) return; // genuine first run
+      throw new DeviceStoreError(
+        `devices: cannot load existing credential store ${path}: ${
+          e instanceof Error ? e.message : e
+        }`,
+        false,
+        e,
+      );
+    }
   }
 
   get list(): Device[] {
     return this.#list;
   }
 
+  has(id: string): boolean {
+    return this.#list.some((d) => d.id === id);
+  }
+
   // Written synchronously. It was fire-and-forget, which left a window where a
   // token had been handed out but not recorded: a crash in that window gives
   // someone a credential the server will never recognise. The file is a few
   // hundred bytes and this happens on enrol and revoke, not per request.
-  #save() {
+  #save(candidate: Device[]) {
+    const slash = this.#path.lastIndexOf("/");
+    const dir = slash >= 0 ? this.#path.slice(0, slash) || "/" : ".";
+    const base = slash >= 0 ? this.#path.slice(slash + 1) : this.#path;
+    let temp = "";
+    let committed = false;
     try {
-      Deno.writeTextFileSync(this.#path, JSON.stringify(this.#list, null, 2));
+      temp = Deno.makeTempFileSync({
+        dir,
+        prefix: `.${base}.`,
+        suffix: ".tmp",
+      });
+      Deno.chmodSync(temp, 0o600);
+      const file = Deno.openSync(temp, { write: true, truncate: true });
+      try {
+        const data = ENC.encode(JSON.stringify(candidate, null, 2) + "\n");
+        let offset = 0;
+        while (offset < data.length) {
+          const written = file.writeSync(data.subarray(offset));
+          if (written <= 0) {
+            throw new Error("short write to credential temporary file");
+          }
+          offset += written;
+        }
+        file.syncSync();
+      } finally {
+        file.close();
+      }
+      Deno.renameSync(temp, this.#path);
+      temp = "";
+      committed = true;
+      Deno.chmodSync(this.#path, 0o600);
+      // Persist the directory entry as well as the file contents. This is what
+      // makes an acknowledged rename survive a sudden power loss on Unix.
+      this.#syncDirectory(dir);
     } catch (e) {
-      // Loudly. This used to be swallowed, and the failure it hid was a device
-      // enrolling successfully, working until the next restart, and then not
-      // existing — with nothing anywhere saying why. A credential store that
-      // cannot persist is worth a line in the log every time.
-      console.error(
-        `devices: could not write ${this.#path} — pairings will not survive a ` +
-        `restart: ${e instanceof Error ? e.message : e}`,
+      if (temp) {
+        try {
+          Deno.removeSync(temp);
+        } catch { /* best effort cleanup */ }
+      }
+      throw new DeviceStoreError(
+        `devices: could not persist ${this.#path}: ${
+          e instanceof Error ? e.message : e
+        }`,
+        committed,
+        e,
       );
     }
   }
@@ -116,8 +199,16 @@ export class Devices {
     // Once a minute is enough to answer "is this device still in use" without
     // writing the file on every request.
     if (now - d.lastSeen < 60_000) return;
+    const previous = d.lastSeen;
     d.lastSeen = now;
-    this.#save();
+    try {
+      this.#save(this.#list);
+    } catch (e) {
+      if (!(e instanceof DeviceStoreError) || !e.committed) {
+        d.lastSeen = previous;
+      }
+      console.error(e instanceof Error ? e.message : e);
+    }
   }
 
   // A code is good for ten minutes and one use. Long enough to walk to another
@@ -143,9 +234,14 @@ export class Devices {
 
   // Consumes the code and mints a token. The token is returned once, here, and
   // never stored — only its hash is kept.
-  async enroll(code: string, name: string): Promise<{ token: string; device: Device } | null> {
+  async enroll(
+    code: string,
+    name: string,
+  ): Promise<{ token: string; device: Device } | null> {
     this.#sweep();
-    const i = this.#pending.findIndex((e) => e.code === code.toUpperCase().trim());
+    const i = this.#pending.findIndex((e) =>
+      e.code === code.toUpperCase().trim()
+    );
     if (i < 0) {
       this.#fails.push(Date.now());
       return null;
@@ -160,24 +256,43 @@ export class Devices {
       created: Date.now(),
       lastSeen: Date.now(),
     };
-    this.#list.push(device);
-    this.#save();
+    const next = [...this.#list, device];
+    try {
+      this.#save(next);
+      this.#list = next;
+    } catch (e) {
+      if (e instanceof DeviceStoreError && e.committed) this.#list = next;
+      throw e;
+    }
     return { token, device };
   }
 
   revoke(id: string): boolean {
-    const before = this.#list.length;
-    this.#list = this.#list.filter((d) => d.id !== id);
-    if (this.#list.length === before) return false;
-    this.#save();
+    const next = this.#list.filter((d) => d.id !== id);
+    if (next.length === this.#list.length) return false;
+    try {
+      this.#save(next);
+      this.#list = next;
+    } catch (e) {
+      if (e instanceof DeviceStoreError && e.committed) this.#list = next;
+      throw e;
+    }
     return true;
   }
 
   rename(id: string, name: string): boolean {
     const d = this.#list.find((x) => x.id === id);
     if (!d) return false;
-    d.name = name.slice(0, 40);
-    this.#save();
+    const next = this.#list.map((x) =>
+      x.id === id ? { ...x, name: name.slice(0, 40) } : x
+    );
+    try {
+      this.#save(next);
+      this.#list = next;
+    } catch (e) {
+      if (e instanceof DeviceStoreError && e.committed) this.#list = next;
+      throw e;
+    }
     return true;
   }
 }

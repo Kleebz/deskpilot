@@ -24,14 +24,40 @@
   let mode = $state("checking");   // checking | unsupported | off | on | denied
   let busy = $state(false);
 
+  function scopeFor(origin) {
+    return `/push/${encodeURIComponent(origin)}/`;
+  }
+
+  async function activeRegistration(reg) {
+    for (let i = 0; i < 50 && !reg.active; i++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if (!reg.active) throw new Error("notification worker did not become ready");
+    return reg;
+  }
+
+  async function registration() {
+    const scope = scopeFor(actionHost.origin);
+    const existing = await navigator.serviceWorker.getRegistration(scope);
+    if (existing) return activeRegistration(existing);
+    const reg = await navigator.serviceWorker.register(
+      `/sw.js?machine=${encodeURIComponent(actionHost.origin)}`,
+      { scope },
+    );
+    return activeRegistration(reg);
+  }
+
   $effect(() => { look(); });
 
   async function look() {
     if (!supported) { mode = "unsupported"; return; }
     if (Notification.permission === "denied") { mode = "denied"; return; }
     try {
-      const reg = await navigator.serviceWorker.ready;
-      mode = (await reg.pushManager.getSubscription()) ? "on" : "off";
+      const reg = await registration();
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) { mode = "off"; return; }
+      const status = await api(`/push/status?endpoint=${encodeURIComponent(sub.endpoint)}`);
+      mode = status.registered ? "on" : "repair";
     } catch {
       mode = "off";
     }
@@ -56,12 +82,25 @@
         return;
       }
       const { key } = await api("/push/key");
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await registration();
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: keyBytes(key),
       });
-      const r = await post("/push/subscribe", sub.toJSON());
+      // Before per-machine scopes there was one root subscription. It could
+      // only have used the serving machine's VAPID key, so migrate that exact
+      // case and retire the duplicate after the owned registration is durable.
+      const rootReg = actionHost.origin === location.origin
+        ? await navigator.serviceWorker.getRegistration("/")
+        : null;
+      const old = rootReg && rootReg.scope !== reg.scope
+        ? await rootReg.pushManager.getSubscription()
+        : null;
+      const r = await post("/push/subscribe", {
+        ...sub.toJSON(), machine: actionHost.origin,
+        ...(old ? { replaceEndpoint: old.endpoint } : {}),
+      });
+      if (old) await old.unsubscribe();
       mode = "on";
       onstatus(`notifications on · ${r.devices} device${r.devices === 1 ? "" : "s"}`);
     } catch (e) {
@@ -75,7 +114,7 @@
   async function disable() {
     busy = true;
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await registration();
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
         await post("/push/unsubscribe", { endpoint: sub.endpoint });
@@ -109,8 +148,9 @@
       <button class="sm" disabled={busy} onclick={disable}>turn off</button>
     {:else}
       <button class="sm go" disabled={busy} onclick={enable}>
-        {busy ? "…" : "turn on"}
+        {busy ? "…" : mode === "repair" ? "repair" : "turn on"}
       </button>
+      {#if mode === "repair"}<span class="hint">browser subscription is missing on this machine</span>{/if}
     {/if}
   </div>
 {/if}

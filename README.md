@@ -501,9 +501,11 @@ the next `-Syu` silently reverts. If the package ever reaches the AUR, this all 
 shell/update.sh
 ```
 
-It refuses to clobber uncommitted work, fast-forwards, rebuilds the UI *before* restarting
-— the server serves `web/dist` straight off disk, so a rebuild goes live the moment it
-compiles — typechecks the server, and stops rather than restarting if either fails.
+It refuses to clobber uncommitted work and creates a disposable worktree at the incoming
+revision. `npm ci`, the UI build, and the server typecheck all run there before the live
+checkout changes. The complete built UI is switched into place as a directory, then the
+service is restarted and its authenticated capabilities endpoint must answer. A failed
+activation restores the previous commit and UI before restarting the old service.
 
 ### If the desk half goes quiet after an update
 
@@ -512,6 +514,20 @@ the binary alone and a new server can be talking to an old script, which surface
 window and screenshot controls disappearing — the app reports the machine as having no
 compositor. `install.sh` and the package both replace the pair; a hand-unpacked tarball is
 the case to watch. `shell/check.sh` will say so.
+
+### Recovery data
+
+Preserve `~/.config/deskpilot/` and `~/.local/state/deskpilot/` when repairing or
+reinstalling. The first contains the shared recovery token and configuration. The second
+contains per-device hashes, push identity and subscriptions, and agent state. The tmux
+server is separate from both and survives a Deskpilot service restart because the unit
+uses `KillMode=process`.
+
+If an update cannot start, a source update restores its previous checkout and built UI
+automatically. For a packaged install, reinstall the previous verified release, keep the
+two directories above, run `systemctl --user restart deskpilot`, then run
+`shell/check.sh`. If credential state is corrupt, copy the damaged file aside before
+repairing it; the server refuses to treat an unreadable existing store as a fresh install.
 
 ## Uninstalling
 

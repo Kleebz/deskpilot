@@ -92,7 +92,7 @@ cat > "$BOX/start.sh" <<EOF
 # test's own, so this cannot see or disturb the host's tmux server.
 tmux new-session -d -s headless 'exec bash --norc'
 tmux send-keys -t headless 'echo SANDBOX_OK' Enter
-exec $BOXROOT/deskpilot
+exec env DESKPILOT_PUSH_TIMEOUT_MS=300 $BOXROOT/deskpilot
 EOF
 chmod +x "$BOX/start.sh"
 
@@ -208,6 +208,43 @@ case "$WS" in
               "the wrapper around the handler probably read the request after awaiting it" ;;
   *)     fail "/api/term did not upgrade" "$WS" ;;
 esac
+
+echo
+echo "==> complete device revocation"
+if deno run -A "$REPO/tests/revocation.ts" \
+  --url "http://127.0.0.1:$PORT" --token "$TOKEN" --session headless \
+  --evidence "$BOX/revocation-evidence.json"; then
+  pass "revocation closes sockets while preserving the session and another device"
+else
+  fail "complete revocation regression failed" "active terminal or peer isolation did not hold"
+fi
+
+# Reload the stores in a new server process. This catches a revocation that was
+# correct only in memory, or a subscription removal that was never made durable.
+if [ -s "$BOX/revocation-evidence.json" ]; then
+  kill "$BOX_PID" 2>/dev/null
+  wait "$BOX_PID" 2>/dev/null
+  box "$BOXROOT/start.sh" >> "$BOX/log" 2>&1 &
+  BOX_PID=$!
+  for _ in $(seq 1 30); do
+    sleep 0.2
+    curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" && break
+  done
+  LOST_ENDPOINT=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["lostEndpoint"])' "$BOX/revocation-evidence.json")
+  KEPT_ENDPOINT=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["keptEndpoint"])' "$BOX/revocation-evidence.json")
+  LOST_STATUS=$(curl -s -m 6 -G -H "authorization: Bearer $TOKEN" \
+    --data-urlencode "endpoint=$LOST_ENDPOINT" "http://127.0.0.1:$PORT/api/push/status")
+  KEPT_STATUS=$(curl -s -m 6 -G -H "authorization: Bearer $TOKEN" \
+    --data-urlencode "endpoint=$KEPT_ENDPOINT" "http://127.0.0.1:$PORT/api/push/status")
+  case "$LOST_STATUS:$KEPT_STATUS" in
+    *'"registered":false'*:*'"registered":true'*)
+      pass "restart preserves revoked subscription removal and peer ownership" ;;
+    *)
+      fail "restart must preserve notification ownership" "$LOST_STATUS / $KEPT_STATUS" ;;
+  esac
+else
+  fail "revocation evidence was not written" "the restart check could not run"
+fi
 
 # Writing is the one that a compiled binary can get wrong invisibly: the
 # --allow-write path is fixed when the binary is built, so a different $HOME

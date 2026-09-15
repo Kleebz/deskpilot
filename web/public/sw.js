@@ -98,8 +98,10 @@ self.addEventListener("push", (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { /* keep the default */ }
   const session = d.session || "";
+  const machine = d.machine || "";
   const reqid = d.reqid || "";
-  const approvable = d.kind === "blocked" && d.canApprove === true && !!reqid;
+  const approvable = d.kind === "blocked" && d.canApprove === true && !!reqid &&
+    machine === self.location.origin;
 
   const actions = [];
   if (approvable) actions.push({ action: "yes", title: "Approve" });
@@ -107,23 +109,28 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(self.registration.showNotification(d.title || "deskpilot", {
     body: d.body || "",
-    tag: session || "deskpilot",     // one live notification per session
+    tag: `${machine}:${session || "deskpilot"}`,
     renotify: true,
-    data: { session, reqid },
+    data: { machine, session, reqid },
     actions,
   }));
 });
 
-async function surface() {
+async function surface(machine = "", session = "") {
+  const route = new URL("/", self.location.origin);
+  if (machine) route.searchParams.set("machine", machine);
+  if (session) route.searchParams.set("session", session);
   const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   for (const c of all) {
+    if ("navigate" in c) await c.navigate(route.href);
     if ("focus" in c) return c.focus();
   }
-  return self.clients.openWindow("/");
+  return self.clients.openWindow(route.href);
 }
 
 self.addEventListener("notificationclick", (event) => {
   const session = event.notification.data?.session || "";
+  const machine = event.notification.data?.machine || "";
   const reqid = event.notification.data?.reqid || "";
   event.notification.close();
 
@@ -135,7 +142,7 @@ self.addEventListener("notificationclick", (event) => {
   //
   // A refusal opens the app instead of failing quietly: the request still needs
   // an answer, and silence here reads as "approved" from the outside.
-  if (event.action === "yes" && session && reqid) {
+  if (event.action === "yes" && session && reqid && machine === self.location.origin) {
     event.waitUntil((async () => {
       try {
         const res = await fetch("/api/approve", {
@@ -146,12 +153,12 @@ self.addEventListener("notificationclick", (event) => {
         });
         if (res.ok) return;
       } catch { /* offline, or the server is gone — same answer */ }
-      return surface();
+      return surface(machine, session);
     })());
     return;
   }
 
   // Otherwise surface the app, reusing a window if one is already open rather
   // than stacking up new ones every time a notification is tapped.
-  event.waitUntil(surface());
+  event.waitUntil(surface(machine, session));
 });

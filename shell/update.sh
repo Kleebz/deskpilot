@@ -31,6 +31,7 @@ say()  { printf '  %s\n' "$*"; }
 fail() { printf '  \033[31m%s\033[0m\n' "$*" >&2; exit 1; }
 
 was=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+was_full=$(git rev-parse HEAD 2>/dev/null || echo unknown)
 say "at $was"
 
 # --- refuse to clobber local work ------------------------------------------
@@ -47,23 +48,39 @@ if [ "$behind" = 0 ]; then
 fi
 say "$behind commit(s) behind"
 
+command -v npm >/dev/null || fail "npm is required to install locked web dependencies"
+command -v deno >/dev/null || fail "deno is required to validate the server"
+
+# Build the candidate in a disposable worktree. Nothing under the live checkout
+# changes until dependencies, UI build, and server typecheck have all passed.
+stage=$(mktemp -d)
+cleanup() {
+  git worktree remove --force "$stage" >/dev/null 2>&1 || true
+  rm -rf "$stage"
+}
+trap cleanup EXIT
+git worktree add --detach "$stage" @{u} --quiet || fail "could not stage the incoming revision"
+npm --prefix "$stage/web" ci >/dev/null 2>&1 \
+  || fail "locked dependency installation failed — current deployment left active"
+npm --prefix "$stage/web" run build >/dev/null 2>&1 \
+  || fail "the staged UI build failed — current deployment left active"
+(cd "$stage" && deno check server/server.ts >/dev/null 2>&1) \
+  || fail "the staged server does not typecheck — current deployment left active"
+say "candidate dependencies, UI and server validated"
+
+# Stage the complete built shell beside the live one, then switch directory
+# entries. Browsers see the old shell or the new shell, never a half-built mix.
+rm -rf web/dist.new web/dist.previous
+cp -a "$stage/web/dist" web/dist.new || fail "could not stage the built UI"
 git merge --ff-only @{u} --quiet || fail "cannot fast-forward — your branch has diverged"
 now=$(git rev-parse --short HEAD)
+if [ -d web/dist ]; then mv web/dist web/dist.previous; fi
+if ! mv web/dist.new web/dist; then
+  git reset --hard "$was_full" >/dev/null 2>&1 || true
+  if [ -d web/dist.previous ]; then mv web/dist.previous web/dist; fi
+  fail "could not activate the staged UI — previous checkout and UI restored"
+fi
 say "now at $now"
-
-# --- build the UI before anything restarts ---------------------------------
-if [ -d web/node_modules ]; then
-  (cd web && npm run build >/dev/null 2>&1) || fail "the UI build failed — not restarting"
-  say "UI rebuilt"
-else
-  say "web/node_modules missing — run 'npm install' in web/ first" >&2
-fi
-
-# --- typecheck before handing the service a broken server ------------------
-if command -v deno >/dev/null; then
-  deno check server/server.ts >/dev/null 2>&1 || fail "server does not typecheck — not restarting"
-  say "server typechecks"
-fi
 
 # --- restart ---------------------------------------------------------------
 if systemctl --user is-active --quiet deskpilot; then
@@ -73,14 +90,29 @@ if systemctl --user is-active --quiet deskpilot; then
     cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/deskpilot.service/cgroup.procs" 2>/dev/null | wc -l)
   [ "${procs:-1}" -gt 1 ] && say "note: $procs processes in the service cgroup"
 
-  systemctl --user restart deskpilot || fail "restart failed"
+  rollback() {
+    say "activation failed — restoring $was"
+    git reset --hard "$was_full" >/dev/null 2>&1 || true
+    rm -rf web/dist
+    if [ -d web/dist.previous ]; then mv web/dist.previous web/dist; fi
+    systemctl --user restart deskpilot >/dev/null 2>&1 || true
+    fail "the update was rolled back; inspect: systemctl --user status deskpilot"
+  }
+  systemctl --user restart deskpilot || rollback
   sleep 2
   systemctl --user is-active --quiet deskpilot \
-    || { systemctl --user status deskpilot --no-pager -n 15; fail "service did not come back"; }
+    || rollback
+  # A live process is insufficient: require the authenticated API to answer.
+  token_file=${DESKPILOT_TOKEN_FILE:-"$HOME/.config/deskpilot/token"}
+  token=$(tr -d '\n' < "$token_file" 2>/dev/null) || rollback
+  curl -fsS --max-time 5 -H "Authorization: Bearer $token" \
+    "http://127.0.0.1:${DESKPILOT_PORT:-8790}/api/capabilities" >/dev/null || rollback
   say "service restarted"
 else
   say "service is not running — start it with: systemctl --user start deskpilot"
 fi
+
+rm -rf web/dist.previous
 
 echo
 say "sessions still running: $(tmux list-sessions 2>/dev/null | wc -l)"

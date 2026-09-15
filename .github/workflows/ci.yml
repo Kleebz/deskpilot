@@ -50,6 +50,9 @@ jobs:
       - name: Build the binary
         run: shell/build.sh dist /usr/share/deskpilot/scripts
 
+      - name: Real tmux terminal recovery
+        run: deno run -A tests/terminal-recovery.ts
+
       - name: A host with no desktop
         # The ubuntu runner has no compositor at all, so this is the real case
         # rather than a simulation of it.

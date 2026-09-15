@@ -454,3 +454,28 @@ error rather than doing nothing silently.
 
 Remote Control was evaluated and rejected — see decisions.md. It is not part of this
 setup and you never need the Claude mobile app.
+
+## Notification ownership and multiple machines
+
+Each paired device registration is stored with its device id. Revoking that device closes
+its live terminal sockets and removes its subscriptions before the credential is removed.
+Subscriptions created with the legacy shared token remain shared and cannot honestly be
+revoked as one device; rotate the shared token and re-pair to replace them.
+The older single root-scope browser subscription is migrated when notifications are next
+enabled for the machine serving the app. A legacy subscription on another machine has no
+trustworthy owner metadata; turn it off there or rotate and re-pair rather than guessing.
+
+A browser origin can hold several push subscriptions by using a separate service-worker
+registration scope for each machine. This lets each machine keep its own VAPID key. The
+Manage screen checks both halves of the state: a browser subscription that is missing on
+the selected server is shown as repairable rather than enabled. Turning notifications off
+for one machine removes only that machine's scoped subscription.
+
+Notification payloads and tags include the machine origin as well as the session. Tapping
+Open selects that machine and session, including from a cold launch. A request from the
+machine that serves the app may still use the request-specific authenticated Approve
+action. A request from another machine opens the exact machine/session for review because
+the service worker does not hold that machine's bearer token.
+
+Revocation prevents future local sends. A notification already delivered to a browser,
+or a delivery already accepted by a push provider, cannot be recalled.

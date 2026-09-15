@@ -287,17 +287,17 @@ async function cachedAppRoutes(cdp: Cdp, dist: string): Promise<number> {
   const out = await p.run(`(() => ({
     title: document.title,
     offlineDocument: !!document.querySelector("#others"),
-    machines: [...document.querySelectorAll("nav.machines button.machine")].map((b) => ({
-      label: b.innerText.replace(/\\s+/g, " ").trim(),
-      origin: b.title,
-      tall: Math.round(b.getBoundingClientRect().height),
+    machines: [...(document.querySelector('select[aria-label="Machine"]')?.options || [])].map((o) => ({
+      label: o.textContent.replace(/\\s+/g, " ").trim(),
+      origin: o.value,
+      tall: Math.round(document.querySelector('select[aria-label="Machine"]').getBoundingClientRect().height),
     })),
   }))()`);
   const selected = await p.run(`(() => {
-    const b = [...document.querySelectorAll("nav.machines button.machine")]
-      .find((x) => x.title === "https://framework.example.ts.net");
-    if (!b) return "";
-    b.click();
+    const picker = document.querySelector('select[aria-label="Machine"]');
+    if (!picker || ![...picker.options].some((x) => x.value === "https://framework.example.ts.net")) return "";
+    picker.value = "https://framework.example.ts.net";
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
     return localStorage.getItem("dp_host") || "";
   })()`);
   await p.close();

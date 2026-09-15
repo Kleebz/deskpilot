@@ -7,12 +7,20 @@
 //
 // Run: deno test --allow-read --allow-write --allow-env tests/
 
-import { assert, assertEquals, assertNotEquals } from "jsr:@std/assert@1";
-import { Devices, makeCode } from "../server/devices.ts";
+import {
+  assert,
+  assertEquals,
+  assertNotEquals,
+  assertThrows,
+} from "jsr:@std/assert@1";
+import { Devices, DeviceStoreError, makeCode } from "../server/devices.ts";
 
 function tempStore(): { path: string; cleanup: () => void } {
-  const path = Deno.makeTempFileSync({ suffix: ".json" });
-  return { path, cleanup: () => Deno.removeSync(path) };
+  const dir = Deno.makeTempDirSync();
+  return {
+    path: `${dir}/devices.json`,
+    cleanup: () => Deno.removeSync(dir, { recursive: true }),
+  };
 }
 
 Deno.test("a minted code enrolls exactly once", async () => {
@@ -68,7 +76,11 @@ Deno.test("revoking one device leaves the others working", async () => {
 
   assert(d.revoke(a.device.id));
   assertEquals(await d.match(a.token), null, "revoked token must stop working");
-  assertEquals((await d.match(b.token))?.id, b.device.id, "the other must be untouched");
+  assertEquals(
+    (await d.match(b.token))?.id,
+    b.device.id,
+    "the other must be untouched",
+  );
   assertEquals(d.revoke(a.device.id), false, "revoking twice is not a success");
   cleanup();
 });
@@ -82,6 +94,113 @@ Deno.test("devices survive a restart", async () => {
   // A new instance over the same file is what a service restart looks like.
   const second = new Devices(path);
   assertEquals((await second.match(made.token))?.id, made.device.id);
+  cleanup();
+});
+
+Deno.test("acknowledged revocation survives a restart", async () => {
+  const { path, cleanup } = tempStore();
+  const first = new Devices(path);
+  const made = await first.enroll(first.newCode(), "phone");
+  assert(made);
+  assert(first.revoke(made.device.id));
+
+  const second = new Devices(path);
+  assertEquals(await second.match(made.token), null);
+  cleanup();
+});
+
+Deno.test("a failed enrollment does not leave a usable in-memory credential", async () => {
+  const { path, cleanup } = tempStore();
+  const d = new Devices(path);
+  const code = d.newCode();
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  const moved = `${dir}.moved`;
+  Deno.renameSync(dir, moved);
+  try {
+    let error: unknown;
+    try {
+      await d.enroll(code, "phone");
+    } catch (e) {
+      error = e;
+    }
+    assert(error instanceof DeviceStoreError);
+    assertEquals(d.list.length, 0);
+  } finally {
+    Deno.renameSync(moved, dir);
+    cleanup();
+  }
+});
+
+Deno.test("a failed revoke remains authorized after restart and is not acknowledged", async () => {
+  const { path, cleanup } = tempStore();
+  const d = new Devices(path);
+  const made = await d.enroll(d.newCode(), "phone");
+  assert(made);
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  const moved = `${dir}.moved`;
+  Deno.renameSync(dir, moved);
+  try {
+    assertThrows(() => d.revoke(made.device.id), DeviceStoreError);
+    assertEquals((await d.match(made.token))?.id, made.device.id);
+  } finally {
+    Deno.renameSync(moved, dir);
+  }
+  assertEquals((await new Devices(path).match(made.token))?.id, made.device.id);
+  cleanup();
+});
+
+Deno.test("credential files are private and replacement leaves no temporary file", async () => {
+  const { path, cleanup } = tempStore();
+  const d = new Devices(path);
+  assert(await d.enroll(d.newCode(), "phone"));
+  assertEquals(Deno.statSync(path).mode! & 0o777, 0o600);
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  assertEquals(
+    [...Deno.readDirSync(dir)].filter((e) => e.name.endsWith(".tmp")).length,
+    0,
+  );
+  // A second atomic replacement must remain complete JSON.
+  assert(await d.enroll(d.newCode(), "laptop"));
+  assertEquals(JSON.parse(Deno.readTextFileSync(path)).length, 2);
+  cleanup();
+});
+
+Deno.test("corrupt existing state is reported instead of treated as first run", () => {
+  const { path, cleanup } = tempStore();
+  Deno.writeTextFileSync(path, "not json");
+  assertThrows(
+    () => new Devices(path),
+    DeviceStoreError,
+    "cannot load existing credential store",
+  );
+  assertEquals(
+    Deno.readTextFileSync(path),
+    "not json",
+    "damaged state is preserved for recovery",
+  );
+  cleanup();
+});
+
+Deno.test("a post-rename durability failure keeps the committed safer state", async () => {
+  const { path, cleanup } = tempStore();
+  const first = new Devices(path);
+  const made = await first.enroll(first.newCode(), "phone");
+  assert(made);
+
+  const failing = new Devices(path, {
+    syncDirectory: () => {
+      throw new Error("injected directory sync failure");
+    },
+  });
+  let error: unknown;
+  try {
+    failing.revoke(made.device.id);
+  } catch (e) {
+    error = e;
+  }
+  assert(error instanceof DeviceStoreError && error.committed);
+  assertEquals(await failing.match(made.token), null);
+  assertEquals(await new Devices(path).match(made.token), null);
   cleanup();
 });
 

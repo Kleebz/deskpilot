@@ -59,6 +59,7 @@ export class ControlClient {
   // is sent, and no block is treated as a reply, until the attach has settled.
   #ready = false;
   #on: ControlEvents;
+  static readonly MAX_PENDING = 64;
 
   constructor(session: string, on: ControlEvents) {
     this.#on = on;
@@ -151,6 +152,11 @@ export class ControlClient {
   batch(commands: string[], received?: (replies: string[][]) => void): Promise<string[][]> {
     if (this.#closed) return Promise.reject(new Error("closed"));
     if (!commands.length) return Promise.reject(new Error("empty command batch"));
+    const queued = this.#pending.length +
+      this.#queued.reduce((n, item) => n + item.p.length, 0);
+    if (queued + commands.length > ControlClient.MAX_PENDING) {
+      return Promise.reject(new Error("command queue full"));
+    }
     return new Promise((resolve, reject) => {
       const replies: string[][] = [];
       let failed = false;

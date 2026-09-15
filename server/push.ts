@@ -22,6 +22,23 @@ export type Subscription = {
   keys: { p256dh: string; auth: string };
 };
 
+export function validateSubscription(sub: unknown): sub is Subscription {
+  if (!sub || typeof sub !== "object") return false;
+  const s = sub as Subscription;
+  try {
+    const endpoint = new URL(s.endpoint);
+    if (
+      endpoint.protocol !== "https:" && endpoint.hostname !== "127.0.0.1" &&
+      endpoint.hostname !== "localhost"
+    ) return false;
+    const publicKey = b64urlDecode(s.keys?.p256dh);
+    const auth = b64urlDecode(s.keys?.auth);
+    return publicKey.length === 65 && publicKey[0] === 4 && auth.length === 16;
+  } catch {
+    return false;
+  }
+}
+
 // ---- base64url ----
 
 // WebCrypto's TypeScript surface wants a BufferSource backed by a real
@@ -45,9 +62,14 @@ function b64urlDecode(s: string): Bytes {
 }
 
 function concat(...parts: Bytes[]): Bytes {
-  const out = new Uint8Array(new ArrayBuffer(parts.reduce((n, p) => n + p.length, 0)));
+  const out = new Uint8Array(
+    new ArrayBuffer(parts.reduce((n, p) => n + p.length, 0)),
+  );
   let at = 0;
-  for (const p of parts) { out.set(p, at); at += p.length; }
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
   return out;
 }
 
@@ -66,24 +88,70 @@ export async function loadVapid(path: string): Promise<Vapid> {
   if (vapid) return vapid;
   try {
     vapid = JSON.parse(await Deno.readTextFile(path)) as Vapid;
+    if (!vapid?.publicKey || !vapid?.privateJwk?.d) {
+      throw new Error("invalid VAPID key file");
+    }
+    await Deno.chmod(path, 0o600);
     return vapid;
-  } catch {
+  } catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) throw e;
     const pair = await crypto.subtle.generateKey(
       { name: "ECDSA", namedCurve: "P-256" },
       true,
       ["sign", "verify"],
     ) as CryptoKeyPair;
-    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+    const raw = new Uint8Array(
+      await crypto.subtle.exportKey("raw", pair.publicKey),
+    );
     vapid = {
       publicKey: b64urlEncode(raw),
       privateJwk: await crypto.subtle.exportKey("jwk", pair.privateKey),
     };
-    await Deno.writeTextFile(path, JSON.stringify(vapid, null, 2));
+    const slash = path.lastIndexOf("/");
+    const dir = slash >= 0 ? path.slice(0, slash) || "/" : ".";
+    const temp = await Deno.makeTempFile({
+      dir,
+      prefix: ".vapid.",
+      suffix: ".tmp",
+    });
+    try {
+      await Deno.chmod(temp, 0o600);
+      const file = await Deno.open(temp, { write: true, truncate: true });
+      try {
+        const data = bytes(JSON.stringify(vapid, null, 2) + "\n");
+        let offset = 0;
+        while (offset < data.length) {
+          const written = await file.write(data.subarray(offset));
+          if (written <= 0) {
+            throw new Error("short write to VAPID temporary file");
+          }
+          offset += written;
+        }
+        await file.sync();
+      } finally {
+        file.close();
+      }
+      await Deno.rename(temp, path);
+      const parent = await Deno.open(dir, { read: true });
+      try {
+        await parent.sync();
+      } finally {
+        parent.close();
+      }
+    } catch (writeError) {
+      vapid = null;
+      await Deno.remove(temp).catch(() => {});
+      throw writeError;
+    }
     return vapid;
   }
 }
 
-async function signJwt(v: Vapid, audience: string, subject: string): Promise<string> {
+async function signJwt(
+  v: Vapid,
+  audience: string,
+  subject: string,
+): Promise<string> {
   const key = await crypto.subtle.importKey(
     "jwk",
     v.privateJwk,
@@ -91,7 +159,9 @@ async function signJwt(v: Vapid, audience: string, subject: string): Promise<str
     false,
     ["sign"],
   );
-  const header = b64urlEncode(bytes(JSON.stringify({ typ: "JWT", alg: "ES256" })));
+  const header = b64urlEncode(
+    bytes(JSON.stringify({ typ: "JWT", alg: "ES256" })),
+  );
   // Twelve hours: comfortably inside the 24h ceiling push services enforce,
   // and long enough that a burst of notifications reuses one signature.
   const body = b64urlEncode(bytes(JSON.stringify({
@@ -116,7 +186,9 @@ async function hkdf(
   info: Bytes,
   len: number,
 ): Promise<Bytes> {
-  const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+  const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, [
+    "deriveBits",
+  ]);
   const bits = await crypto.subtle.deriveBits(
     { name: "HKDF", hash: "SHA-256", salt, info },
     key,
@@ -125,7 +197,10 @@ async function hkdf(
   return new Uint8Array(bits);
 }
 
-async function encryptPayload(sub: Subscription, plaintext: string): Promise<Bytes> {
+async function encryptPayload(
+  sub: Subscription,
+  plaintext: string,
+): Promise<Bytes> {
   const uaPublic = b64urlDecode(sub.keys.p256dh);
   const authSecret = b64urlDecode(sub.keys.auth);
 
@@ -136,7 +211,9 @@ async function encryptPayload(sub: Subscription, plaintext: string): Promise<Byt
     true,
     ["deriveBits"],
   ) as CryptoKeyPair;
-  const asPublic = new Uint8Array(await crypto.subtle.exportKey("raw", eph.publicKey));
+  const asPublic = new Uint8Array(
+    await crypto.subtle.exportKey("raw", eph.publicKey),
+  );
 
   const uaKey = await crypto.subtle.importKey(
     "raw",
@@ -146,7 +223,11 @@ async function encryptPayload(sub: Subscription, plaintext: string): Promise<Byt
     [],
   );
   const shared = new Uint8Array(
-    await crypto.subtle.deriveBits({ name: "ECDH", public: uaKey }, eph.privateKey, 256),
+    await crypto.subtle.deriveBits(
+      { name: "ECDH", public: uaKey },
+      eph.privateKey,
+      256,
+    ),
   );
 
   // The auth secret is the salt here, and the two public keys are bound into
@@ -159,22 +240,36 @@ async function encryptPayload(sub: Subscription, plaintext: string): Promise<Byt
     32,
   );
 
-  const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16))) as Bytes;
+  const salt = crypto.getRandomValues(
+    new Uint8Array(new ArrayBuffer(16)),
+  ) as Bytes;
   const cek = await hkdf(salt, prk, bytes("Content-Encoding: aes128gcm\0"), 16);
   const nonce = await hkdf(salt, prk, bytes("Content-Encoding: nonce\0"), 12);
 
-  const key = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
+  const key = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, [
+    "encrypt",
+  ]);
   // 0x02 is the delimiter marking this as the final record. Without it the
   // browser waits for a continuation that never comes and drops the message.
   const padded = concat(bytes(plaintext), new Uint8Array([2]) as Bytes);
   const sealed = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, tagLength: 128 }, key, padded),
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: nonce, tagLength: 128 },
+      key,
+      padded,
+    ),
   );
 
   // Header: salt(16) | record size(4, big-endian) | key id length(1) | key(65)
   const rs = new Uint8Array(new ArrayBuffer(4)) as Bytes;
   new DataView(rs.buffer).setUint32(0, 4096, false);
-  return concat(salt, rs, new Uint8Array([asPublic.length]) as Bytes, asPublic, sealed);
+  return concat(
+    salt,
+    rs,
+    new Uint8Array([asPublic.length]) as Bytes,
+    asPublic,
+    sealed,
+  );
 }
 
 // ---- sending ----
@@ -191,12 +286,20 @@ export async function sendPush(
   sub: Subscription,
   payload: unknown,
   subject: string,
+  timeoutMs = 8_000,
+  cancellation?: AbortSignal,
 ): Promise<PushResult> {
-  const audience = new URL(sub.endpoint).origin;
+  if (!validateSubscription(sub)) throw new Error("invalid push subscription");
+  const endpoint = new URL(sub.endpoint);
+  const audience = endpoint.origin;
   const jwt = await signJwt(v, audience, subject);
   const body = await encryptPayload(sub, JSON.stringify(payload));
 
-  const res = await fetch(sub.endpoint, {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = cancellation
+    ? AbortSignal.any([cancellation, timeout])
+    : timeout;
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "authorization": `vapid t=${jwt}, k=${v.publicKey}`,
@@ -206,8 +309,14 @@ export async function sendPush(
       "urgency": "normal",
     },
     body,
+    signal,
   });
-  // The body is drained even when ignored, or Deno keeps the connection open.
-  await res.text().catch(() => "");
-  return { ok: res.ok, status: res.status, gone: res.status === 404 || res.status === 410 };
+  // Push services have no useful response body. Cancelling it prevents a
+  // hostile or broken endpoint from streaming an unbounded response.
+  await res.body?.cancel().catch(() => {});
+  return {
+    ok: res.ok,
+    status: res.status,
+    gone: res.status === 404 || res.status === 410,
+  };
 }

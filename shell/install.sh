@@ -98,13 +98,16 @@ say "verifying"
 if command -v sha256sum >/dev/null; then
   WANT=$(awk '{print $1}' sums | head -1)
   GOT=$(sha256sum "$TARBALL" | awk '{print $1}')
-  [ "$WANT" = "$GOT" ] || die "checksum mismatch — refusing to install
-     expected $WANT
-     got      $GOT"
-  say "sha256 ok"
+elif command -v openssl >/dev/null; then
+  WANT=$(awk '{print $1}' sums | head -1)
+  GOT=$(openssl dgst -sha256 "$TARBALL" | awk '{print $NF}')
 else
-  say "sha256sum not available — SKIPPING verification (install it and re-run to check)"
+  die "cannot verify the archive: install sha256sum or openssl, then run this installer again"
 fi
+[ "$WANT" = "$GOT" ] || die "checksum mismatch — refusing to install
+   expected $WANT
+   got      $GOT"
+say "sha256 ok"
 
 tar xzf "$TARBALL"
 [ -f deskpilot ] || die "the archive did not contain a binary"
