@@ -850,6 +850,13 @@ async function handle(req: Request): Promise<Response> {
     // sessions. Verified byte-identical to the shell version against live
     // sessions before it was swapped in.
     const list = await listSessions();
+    // The notification watcher also prunes this state when it is active. Keep
+    // the session listing authoritative when there are no push subscribers and
+    // therefore no reason to run that background watcher at all.
+    agentStates.prune([
+      ...list.map((x) => String(x.session)),
+      ...unmanagedAgents.keys(),
+    ]);
     const merged = list.map((x) => {
       const w = watched.get(String(x.session));
       const activity = !w?.seenMovement
@@ -1849,6 +1856,7 @@ for (const sig of ["SIGTERM", "SIGINT"] as const) {
 const STATE_DIR = `${Deno.env.get("HOME")}/.local/state/deskpilot`;
 const VAPID_FILE = `${STATE_DIR}/vapid.json`;
 const SUBS_FILE = `${STATE_DIR}/subscriptions.json`;
+let subscriptionCount: number | undefined;
 type OwnedSubscription = Subscription & {
   deviceId: string | null;
   machine?: string;
@@ -1868,12 +1876,17 @@ async function loadSubs(): Promise<OwnedSubscription[]> {
   try {
     const raw = JSON.parse(await Deno.readTextFile(SUBS_FILE));
     if (!Array.isArray(raw)) throw new Error("root value is not an array");
-    return raw.map((s) => ({
+    const subscriptions = raw.map((s) => ({
       ...s,
       deviceId: typeof s.deviceId === "string" ? s.deviceId : null,
     }));
+    subscriptionCount = subscriptions.length;
+    return subscriptions;
   } catch (e) {
-    if (e instanceof Deno.errors.NotFound) return [];
+    if (e instanceof Deno.errors.NotFound) {
+      subscriptionCount = 0;
+      return [];
+    }
     throw new Error(
       `push: cannot load existing subscriptions: ${
         e instanceof Error ? e.message : e
@@ -1916,6 +1929,8 @@ async function saveSubs(list: OwnedSubscription[]) {
     } finally {
       dir.close();
     }
+    subscriptionCount = list.length;
+    syncWatcher();
   } catch (e) {
     await Deno.remove(temp).catch(() => {});
     throw e;
@@ -2007,7 +2022,14 @@ async function notify(
   }
 }
 
-const POLL_MS = Number(Deno.env.get("DESKPILOT_POLL_MS") ?? "3000");
+// Ten seconds is quick relative to the one-minute settling period, while
+// avoiding twenty process-spawning wakeups per minute on an idle laptop.
+const configuredPollMs = Number(
+  Deno.env.get("DESKPILOT_POLL_MS") ?? "10000",
+);
+const POLL_MS = Number.isFinite(configuredPollMs) && configuredPollMs >= 1000
+  ? configuredPollMs
+  : 10_000;
 
 type Watched = {
   prev: string[]; // the previous capture, to diff the next one against
@@ -2063,6 +2085,13 @@ async function tick() {
     // push tells you nothing you cannot already see. This is what stopped the
     // desk-side sessions from announcing themselves all evening.
     const attached = Number(attachedCount) > 0;
+    // Work visible on the desktop must not produce a phone notification. Do
+    // not even capture it: when the last client detaches, the next pass takes a
+    // fresh baseline and only subsequent movement can arm a notification.
+    if (attached) {
+      watched.delete(s);
+      continue;
+    }
     // The VISIBLE pane only — deliberately no -S. On the alternate screen tmux
     // records nothing above the screen, so a scrollback request also returns
     // whatever sat in the normal buffer before the TUI started: a block of
@@ -2125,14 +2154,40 @@ async function tick() {
   for (const k of [...watched.keys()]) if (!live.includes(k)) watched.delete(k);
 }
 
-let tickRunning = false;
-setInterval(() => {
-  if (tickRunning) return;
-  tickRunning = true;
-  tick()
-    .catch((e) => console.error("recorder:", e?.message ?? e))
-    .finally(() => tickRunning = false);
-}, POLL_MS);
+let watcherTimer: ReturnType<typeof setTimeout> | undefined;
+let watcherRunning = false;
+
+function syncWatcher() {
+  if (!subscriptionCount) {
+    if (watcherTimer !== undefined) clearTimeout(watcherTimer);
+    watcherTimer = undefined;
+    watched.clear();
+    return;
+  }
+  if (!watcherRunning && watcherTimer === undefined) {
+    watcherTimer = setTimeout(runWatcher, POLL_MS);
+  }
+}
+
+async function runWatcher() {
+  watcherTimer = undefined;
+  if (!subscriptionCount || watcherRunning) return;
+  watcherRunning = true;
+  try {
+    await tick();
+  } catch (e) {
+    console.error("recorder:", e instanceof Error ? e.message : e);
+  } finally {
+    watcherRunning = false;
+    syncWatcher();
+  }
+}
+
+// Reading once at startup makes the timer demand-driven thereafter: all
+// subscription changes pass through saveSubs(), which starts or stops it.
+loadSubs().then(syncWatcher).catch((e) =>
+  console.error("push:", e?.message ?? e)
+);
 
 // An error nobody can read is not an error, it is "Failed to fetch".
 //

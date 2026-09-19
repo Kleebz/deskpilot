@@ -30,6 +30,12 @@ DESKPILOT_LOCK_PROCESS=hyprlock
 DESKPILOT_HOST=127.0.0.1
 DESKPILOT_PORT=8790
 
+# How often detached tmux sessions are checked for notification-worthy output.
+# The watcher stays completely off until at least one phone has notifications
+# enabled. Ten seconds is responsive beside the one-minute idle threshold while
+# keeping background wakeups modest on laptops. Minimum: 1000ms.
+#DESKPILOT_POLL_MS=10000
+
 # Screenshot tuning. Content drives JPEG size far more than dimensions do, so
 # these are a floor on legibility rather than a bandwidth target.
 DESKPILOT_MAX_WIDTH=1200
