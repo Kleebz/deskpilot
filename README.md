@@ -165,9 +165,9 @@ systemctl --user daemon-reload
 systemctl --user enable --now deskpilot
 ```
 
-`setup` makes a token, writes the user service, and prints those two commands. It runs
-`systemctl` for you nowhere — that would mean adding it to the server's subprocess
-allowlist, which is not a trade worth making to save you a paste.
+`setup` makes a token, writes the user service, and prints those two commands. It does not
+start a new persistent service implicitly; service state changes happen only through the
+explicit `pause`, `resume`, `disable`, and `enable` commands described below.
 
 Every release includes a generated `PKGBUILD` for Arch:
 
@@ -330,6 +330,12 @@ or tap the session name to jump directly. **Screens** provides workspace and win
 controls where supported. **Manage** contains devices, credentials, notifications, and
 machine labels. Drafts and the current view are restored after backgrounding without
 submitting or repeating an action.
+
+To stop all Deskpilot background work temporarily, use `deskpilot pause`; `deskpilot
+resume` starts it again. A paused service remains enabled and starts normally at the next
+login or reboot. For a persistent choice, `deskpilot disable` stops it and disables
+automatic startup, while `deskpilot enable` reverses both. `deskpilot status` reports the
+current running and automatic-startup states. None of these commands stop tmux sessions.
 
 More operational detail and troubleshooting live in [docs/setup.md](docs/setup.md). The
 transport and trust decisions are recorded in [docs/decisions.md](docs/decisions.md).

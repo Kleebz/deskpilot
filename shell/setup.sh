@@ -175,6 +175,9 @@ case "\$cmd" in
   rotate) exec "\$REPO/shell/rotate.sh" "\$@" ;;
   update) exec "\$REPO/shell/update.sh" "\$@" ;;
   check)  exec "\$REPO/shell/check.sh" "\$@" ;;
+  pause|resume|disable|enable|status)
+    exec deno run --allow-run=systemctl "\$REPO/server/service-control.ts" "\$cmd" "\$@"
+    ;;
   version|--version|-v)
     v=\$(sed -n 's/.*VERSION = "\([^"]*\)".*/\1/p' "\$REPO/server/version.ts")
     sha=\$(git -C "\$REPO" rev-parse --short HEAD 2>/dev/null || true)
@@ -188,6 +191,11 @@ deskpilot — a phone-facing remote for the machine you left running
   deskpilot setup      re-run the installer; every step is idempotent
   deskpilot session [NAME]  open a new desktop shell available on mobile
   deskpilot run CMD    start a phone-controllable command in this terminal
+  deskpilot pause      stop until the next login or reboot
+  deskpilot resume     start now without changing automatic startup
+  deskpilot disable    stop and disable automatic startup
+  deskpilot enable     start and enable automatic startup
+  deskpilot status     show running and automatic-startup state
   deskpilot rotate     replace this machine's shared token
   deskpilot update     pull, rebuild and restart this checkout
   deskpilot check      verify every environment assumption

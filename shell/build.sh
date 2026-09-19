@@ -54,7 +54,7 @@ deno compile \
   --allow-read \
   --allow-env \
   --allow-write \
-  --allow-run=tmux,ps,hyprctl,"$SCRIPTS_TARGET/desk.sh","$SCRIPTS_TARGET/session.sh" \
+  --allow-run=tmux,ps,hyprctl,systemctl,"$SCRIPTS_TARGET/desk.sh","$SCRIPTS_TARGET/session.sh" \
   server/server.ts
 rc=$?
 mv "$INFO.orig" "$INFO"

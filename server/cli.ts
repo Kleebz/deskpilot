@@ -5,23 +5,24 @@
 // knew how to serve left its user with no way to make a token, install a
 // service, or pair a phone. This is that path.
 //
-// What it deliberately does not do is run systemctl. Adding it to the
-// subprocess allowlist would widen it for the *server* too — an endpoint whose
-// whole job is executing things — to save the operator one copy and paste. So
-// setup writes the unit and prints the two commands.
+// Service control is deliberately limited to five fixed operations. The
+// packaged binary shares its subprocess allowlist with the server, so no API
+// route accepts or constructs a systemctl argument. setup and update still
+// print their follow-up commands instead of changing service state implicitly.
 
 // The one external dependency in the whole project, and it earns its place.
 //
 // `update` has to unpack a .tar.gz, and the alternative is putting `tar` in the
 // binary's --allow-run allowlist — a list that is shared with the *server*, an
 // endpoint whose entire job is executing things. Widening it to save a
-// dependency is the wrong way round, and it is the same objection that keeps
-// systemctl out of `setup`. DecompressionStream is built in; only the tar half
-// needs anything. Pinned, because an unpinned range makes a build unrepeatable.
+// dependency is the wrong way round. DecompressionStream is built in; only the
+// tar half needs anything. Pinned, because an unpinned range makes a build
+// unrepeatable.
 import { UntarStream } from "jsr:@std/tar@^0.1.10/untar-stream";
 import { qrTerminal } from "./qr.ts";
 import { scriptsDir } from "./scripts.ts";
 import { runManaged } from "./run.ts";
+import { type ServiceAction, serviceControl } from "./service-control.ts";
 
 const REPO = "Kleebz/deskpilot";
 const HOME = Deno.env.get("HOME") ?? "";
@@ -232,6 +233,11 @@ function help() {
   deskpilot run CMD    start a phone-controllable command in this terminal
   deskpilot pair       print a QR and complete link that pair another device
   deskpilot pair --link  print only the complete link (for agents and scripts)
+  deskpilot pause      stop until the next login or reboot
+  deskpilot resume     start now without changing automatic startup
+  deskpilot disable    stop and disable automatic startup
+  deskpilot enable     start and enable automatic startup
+  deskpilot status     show running and automatic-startup state
   deskpilot rotate     replace this machine's shared token
   deskpilot update     replace this binary with the latest release
   deskpilot version    print the version
@@ -313,6 +319,17 @@ export async function runCommand(
       help();
       return 0;
 
+    case "pause":
+    case "resume":
+    case "disable":
+    case "enable":
+    case "status":
+      if (args.length !== 1) {
+        console.error(`usage: deskpilot ${cmd}`);
+        return 2;
+      }
+      return await serviceControl(cmd as ServiceAction);
+
     case "setup": {
       // Running from a checkout, Deno.execPath() is deno itself, and a unit
       // pointing at it would start the runtime with no script. shell/setup.sh
@@ -357,8 +374,8 @@ ${dim("says so rather than printing one that does not answer.")}
 
 ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=1.")}
 `);
-      // Deliberately not run here: systemctl would have to join the subprocess
-      // allowlist, and that list is shared with the server.
+      // Deliberately not run here: setup prepares the unit and leaves starting
+      // a new persistent service as an explicit operator choice.
       return 0;
     }
 
@@ -700,7 +717,8 @@ ${dim("a fresh code from  deskpilot pair.")}
         "scripts/desk.sh": `${SCRIPTS_DIR}/desk.sh`,
         "scripts/sessions.sh": `${SCRIPTS_DIR}/sessions.sh`,
         "scripts/session.sh": `${SCRIPTS_DIR}/session.sh`,
-        "deskpilot-terminal.desktop": "/usr/share/applications/deskpilot-terminal.desktop",
+        "deskpilot-terminal.desktop":
+          "/usr/share/applications/deskpilot-terminal.desktop",
       };
       const staged: [string, string][] = [];
       try {
@@ -758,8 +776,8 @@ ${bold("Restart it to actually run the new one:")}
 ${dim("Your tmux sessions survive that — tmux is a child of the unit and")}
 ${dim("KillMode=process leaves it alone. Nothing else needs doing.")}
 `);
-      // Deliberately not run here, for the same reason setup does not: systemctl
-      // would have to join an allowlist the server shares.
+      // Deliberately not run here: replacing an executable and activating it
+      // are separate recovery boundaries, and the message makes that explicit.
       return 0;
     }
 
