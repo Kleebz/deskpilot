@@ -91,6 +91,10 @@ Deskpilot service restarts.
 
 **tmux.** That is the whole hard requirement.
 
+tmux 3.7 or newer also exposes bracketed-paste state for terminal reconnection.
+With older versions, the mobile terminal restores that mode as off; sending
+composed text still uses tmux's paste handling for the original program.
+
 Everything desktop-shaped is optional and negotiated: the server reports what it can do
 and the app hides the rest. A headless box serves sessions and terminals and honestly says
 it has no windows — that path is tested on every commit, not assumed.
