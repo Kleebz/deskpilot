@@ -10,11 +10,13 @@
 // changes sw.js whenever any built asset changes, which makes the browser
 // install the new worker and lets activation discard the old shell atomically.
 const SHELL = "deskpilot-shell-__DESKPILOT_SHELL_VERSION__";
+const UI_BUILD = "__DESKPILOT_UI_BUILD__";
 const SHELL_PREFIX = "deskpilot-shell-";
 const APP = "/__deskpilot_app_shell__";
 const OFFLINE = "/offline.html";
 const MANIFEST = "/.vite/manifest.json";
 const STATIC = [
+  "/ui-build.json",
   OFFLINE,
   "/manifest.webmanifest",
   "/icon.svg",
@@ -61,10 +63,14 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", event => {
+  if(event.data?.type === "DESKPILOT_BUILD") event.ports[0]?.postMessage({build:UI_BUILD});
+});
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  if (url.origin !== self.location.origin || (url.pathname.startsWith("/api/") || url.pathname === "/ui-build.json")) return;
 
   if (event.request.mode === "navigate") {
     event.respondWith(fetch(event.request).catch(async () =>

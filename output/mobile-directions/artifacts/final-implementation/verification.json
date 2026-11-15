@@ -1,0 +1,240 @@
+{
+  "checks": 52,
+  "layouts": [
+    {
+      "label": "Spaces 320",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Spaces 360",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Spaces 390",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Spaces 430",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Available conversations 320",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Available conversations 360",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Available conversations 390",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Available conversations 430",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Hide review with conflict",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Responsive terminal 959",
+      "width": 959,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 841
+    },
+    {
+      "label": "Responsive terminal 960",
+      "width": 960,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 672,
+      "composer": 554
+    },
+    {
+      "label": "Responsive terminal 1024",
+      "width": 1024,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 672,
+      "composer": 618
+    },
+    {
+      "label": "Responsive terminal 1280",
+      "width": 1280,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 672,
+      "composer": 874
+    },
+    {
+      "label": "Responsive terminal 1440",
+      "width": 1440,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 672,
+      "composer": 1034
+    },
+    {
+      "label": "Real terminal 320x844",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 202
+    },
+    {
+      "label": "Real terminal 360x844",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 242
+    },
+    {
+      "label": "Real terminal 390x844",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 272
+    },
+    {
+      "label": "Real terminal 430x844",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 312
+    },
+    {
+      "label": "Real terminal 932x430",
+      "width": 932,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 814
+    },
+    {
+      "label": "Real terminal 320x430",
+      "width": 320,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 202
+    },
+    {
+      "label": "Real terminal 390x430",
+      "width": 390,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 272
+    },
+    {
+      "label": "Readable terminal font",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 640,
+      "composer": 272
+    },
+    {
+      "label": "Empty task",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 272
+    },
+    {
+      "label": "Native close review",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 272
+    },
+    {
+      "label": "Desktop",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    }
+  ],
+  "serviceWorkerUpgradeChecks": 8,
+  "unitTests": 133,
+  "androidCheck": "pending user result",
+  "activation": "not yet performed; live UI unchanged",
+  "uiBuild": "eb3009662b00"
+}

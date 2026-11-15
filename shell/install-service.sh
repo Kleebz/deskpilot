@@ -23,18 +23,10 @@ set -euo pipefail
 REPO="$(dirname "$(readlink -f "$0")")/.."
 REPO="$(cd "$REPO" && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
-TOKEN="$HOME/.config/deskpilot/token"
 CONF="$HOME/.config/deskpilot/config"
 [ -f "$CONF" ] && . "$CONF"
 
 command -v deno >/dev/null || { echo "deno is required"; exit 1; }
-
-if [ ! -f "$TOKEN" ]; then
-  mkdir -p "$(dirname "$TOKEN")"
-  openssl rand -hex 32 > "$TOKEN"
-  chmod 600 "$TOKEN"
-  echo "generated $TOKEN"
-fi
 
 mkdir -p "$UNIT_DIR"
 
@@ -70,7 +62,8 @@ Environment=DESKPILOT_PORT=${DESKPILOT_PORT:-8790}
 # claude-tmux.sh sources it too. Plain KEY=VALUE with optional quotes is both.
 EnvironmentFile=-$CONF
 
-# --allow-run is scoped to one script and three binaries. sessions.sh moved
+# Codex and herdr-core are optional adapters for existing local runtimes.
+# The remaining --allow-run entries stay scoped. sessions.sh moved
 # in-process, which removed jq; ps(1) replaced reading /proc, because Deno 2.9
 # gates /proc behind --allow-all and taking that would defeat the point of
 # scoping anything. script(1) went when control mode removed the need for a pty.
@@ -78,15 +71,15 @@ EnvironmentFile=-$CONF
 # deliberate act, and an injection bug still cannot reach rm, ssh or curl.
 #
 # --allow-write is scoped to one directory, and that directory holds nothing
-# but recorded transcripts. The server had no write permission at all before
+# but application state and its registered desktop-helper credential. The server had no write permission at all before
 # the recorder existed; keeping the grant this narrow means it still cannot
-# touch the repo, the token, or anything else in \$HOME.
+# touch the repo or anything else in \$HOME.
 ExecStart=$(command -v deno) run \\
   --allow-net \\
   --allow-read \\
   --allow-env \\
   --allow-write=$HOME/.local/state/deskpilot \\
-  --allow-run=$REPO/scripts/desk.sh,tmux,ps,hyprctl \\
+  --allow-run=$REPO/scripts/desk.sh,tmux,ps,hyprctl,codex,herdr-core,herdr-app \\
   $REPO/server/server.ts
 
 # CRITICAL: tmux new-session starts the tmux *server* as a child of this
@@ -138,7 +131,7 @@ if [ "${1:-}" = "--lan" ]; then
 else
   echo "  open here:  http://localhost:8790"
 fi
-echo "  token:      $(cat "$TOKEN")"
+echo "  pair phone: deskpilot pair"
 echo
 echo "Stop with:  systemctl --user stop deskpilot"
 echo "Remove:     systemctl --user disable --now deskpilot"

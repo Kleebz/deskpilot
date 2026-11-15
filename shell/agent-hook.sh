@@ -39,7 +39,7 @@ set -uo pipefail
 
 KIND=${1:-event}
 PORT=${DESKPILOT_PORT:-8790}
-TOKEN_FILE=${DESKPILOT_TOKEN_FILE:-$HOME/.config/deskpilot/token}
+TOKEN_FILE=${DESKPILOT_TOKEN_FILE:-$HOME/.local/state/deskpilot/local-token}
 
 observed_at=$(date +%s%3N 2>/dev/null || true)
 # A hook must never be why an agent stalls. Every failure below exits 0 and

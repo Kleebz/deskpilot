@@ -1372,3 +1372,509 @@ session. Installation does not edit shell profiles, replace the login shell, or
 intercept the ordinary terminal shortcut. The lifecycle difference is visible
 and chosen: closing this window detaches the session so mobile can continue it;
 exiting its shell ends the session.
+
+## Preferred terminals and shared-process windows
+
+`scripts/terminal.sh` now selects and constructs the terminal argv for both
+`session.sh` and `desk.sh place-session`. An explicit environment override wins
+over the configuration file. Without one, `auto` uses `xdg-terminal-exec`, then
+`$TERMINAL`, then an installed emulator. A missing explicit choice is an error,
+not permission to open a different emulator. The desktop launcher reads the same
+configuration as the service instead of requiring an exported shell variable.
+
+The XDG launcher receives a distinct application ID per launch. Ghostty uses that
+ID as its D-Bus instance identity, which prevents single-instance activation from
+merging Deskpilot windows into an existing process. Direct Ghostty launches also
+disable single-instance mode. The terminal still reads the user's own settings.
+Identities use random UUIDs and are recorded in the session's tmux user options.
+This also identifies a hidden Ghostty window before its terminal client starts:
+Ghostty can defer starting the child until the window is rendered. Each session
+retains at most 32 launch identities; closed-window entries have no effect.
+
+Process ancestry alone cannot identify one of several compositor windows owned
+by the same PID. Both session-listing implementations now stop at that ambiguity
+instead of selecting the first window. Terminal access through tmux remains
+available; only the unknown desktop association is omitted. Native tabs and
+splits are not distinguishable through the existing compositor interface.
+
+Compositor placement quotes each argv word before encoding the shell command as
+a Lua string. Spaces, quotes and newlines must survive both parsing boundaries.
+New-session requests report a placement warning while preserving the created
+session, so an unavailable emulator does not appear to lose work or invite a
+duplicate creation. A subsequent attach can retry placement.
+
+Users can opt future terminal shells into tmux by configuring their emulator to
+run `deskpilot run /path/to/shell -l`. Deskpilot leaves existing desktop shortcuts,
+shell profiles and emulator configuration untouched. It does not try to reparent
+already running shells or reconstruct their scrollback.
+
+## Task image previews are independent of terminal sharing
+
+Ghostty's image renderer and tmux's session transport have different jobs. Codex CLI
+pets are unavailable inside tmux, so ordinary terminal startup remains a useful choice.
+Visual check-ins do not require replacing that transport: `deskpilot preview` publishes
+an explicit PNG/JPEG file with a task label, caption and timestamp. Inside tmux the label
+defaults to the session name; outside it defaults to the project directory. Neither
+publishing nor viewing requires a live terminal session or a compositor.
+
+The Previews view shows the selected image and a bounded recent history. It loads image
+bytes through the existing authenticated API client, including cross-machine bearer
+authentication, rather than putting credentials in image URLs. A published image stays
+available after reconnecting or restarting the service. The stored files use random IDs,
+and image metadata is committed after its binary file so readers cannot observe a
+partially written upload. Only the last 20 images are retained. Each upload is bounded
+to 8 MiB and 32 megapixels, checked as PNG/JPEG, and rechecks device authorization before
+committing. Publishing an image never accepts a server-side project path.
+
+The existing desktop capture lock guard is unchanged. A project render or headless
+browser screenshot is an explicitly published artifact, not a remote capture of the
+locked desktop. Native terminal graphics and remote control of ordinary Ghostty shells
+remain separate potential extensions.
+
+## Connect a running Codex conversation without changing its desktop terminal
+
+The requested opt-in transfer exposed a better boundary in current Codex: its terminal
+can attach to an existing shared app-server. Creating a tmux view of that same backend
+does not require replacing Ghostty, closing its window, restarting the agent or losing
+its desktop pet. This is an optional agent adapter in `server/conversations.ts`; ordinary
+session discovery, input and terminal transport remain tmux-based and agent-agnostic.
+
+Discovery checks `codex app-server daemon version` and proxies its existing local socket.
+It uses only `thread/loaded/list` and metadata-only `thread/read`; it neither starts a
+daemon nor resumes a conversation during polling. A bounded WebSocket connection over
+`codex app-server proxy` avoids direct filesystem/socket grants. The subprocess allowlist
+adds only `codex`. Missing, incompatible or slow Codex never delays ordinary session
+loading. The adapter excludes subagents, non-addressable threads and inactive stores.
+
+The explicit connect action rechecks the exact conversation UUID, then launches
+`codex --remote unix://SOCKET resume UUID --cd CWD --no-alt-screen` inside tmux. Pinning
+the existing socket prevents an attach failure from silently starting an independent
+agent backend. No new prompt, approval override, trust bypass, desktop input, process
+signal, startup configuration or window closure is involved. Per-session metadata links
+the UUID and backend; serialized requests reuse an existing live mirror. A name collision
+or closed conversation fails without replacing anything. Failed TUIs retain their output
+for diagnosis. A connecting request rechecks device authorization before tmux mutation.
+
+The phone identifies conversations by title, directory and short UUID rather than
+claiming to map a shared Ghostty PID to one native window. A machine switch ignores late
+responses. Discovery is optional and runs separately from ordinary session refresh.
+Previews remain explicitly requested artifacts; connection never captures a screenshot.
+
+`tests/codex-shared.ts --running` verifies two TUIs on the installed daemon with one
+disposable conversation, no model request and unchanged approval/sandbox settings.
+`--exercise` adds a real shell sleep and reply, then closes the mobile terminal while
+the tool runs to check that desktop work completes. Tests use an isolated tmux socket
+and delete only their own conversation; the default also isolates the app-server.
+Unit tests cover exact identity, concurrent reuse, stale threads, name collisions,
+revocation, failed creation and optional discovery. Phone tests measure 320/360/390/430px,
+explicit activation, error recovery, reuse and late results across machine switches.
+
+## Find conversations from the screen where their terminal was left
+
+Screens now offers conversation control alongside each supported terminal window.
+Codex's native title includes its conversation name and project directory. A unique
+exact match of both provides a visible candidate; a leading Braille activity spinner
+is ignored. Duplicate conversation titles, duplicate window titles, project-only names,
+partial matches and browser windows do not establish a location. Shared terminal PIDs
+are never used to resolve ambiguity. Matching runs on current window metadata, so moving
+or renaming a window does not leave a saved association pointing elsewhere.
+
+This is a discovery hint labeled as a window-title match, not an authoritative window
+binding. The displayed conversation still requires an explicit connect/open action by
+UUID. An unmatched terminal has a chooser with full conversation names, project paths
+and short IDs; it does not silently select the first candidate. Sessions also links to
+the matching screen. Screenshot capture remains an explicit `look` action with the
+existing lock guard, never a side effect of discovery or connection.
+
+Screens-originated terminal navigation returns to the selected screen. The modal chooser
+shows connection failures inline and can be canceled while a request is pending; a late
+response cannot navigate after cancellation, a route change or a machine switch. Cancel
+does not undo an already authorized terminal creation; any resulting mobile view remains
+available through ordinary session discovery without interrupting the desktop agent.
+
+
+## Connect the new Herdr desktop runtime through an attach client
+
+Herdr App and the original Herdr TUI use different runtimes. This adapter targets
+herdr-core used by the desktop app, rather than the older pane/workspace API.
+Discovery checks the already-running local core, then reads `hello` and
+`terminal.list` through `herdr-core connect`. No remote machines are connected,
+no programs are started during polling, and a missing optional executable leaves
+ordinary tmux discovery independent.
+
+A terminal identity includes the permanent core ID, terminal address, and creation
+time. An explicit connection validates that identity again and creates only a tmux
+view running `herdr-core attach --history 1000`. The terminal's original shell and
+agent remain owned by Herdr. The original process survives closing the phone page,
+closing its mobile tmux session, and restarting Deskpilot. Metadata links that view
+to its exact source; concurrent requests reuse it and unrelated name collisions fail.
+Terminal dimensions are shared with Herdr, so this does not promise independent
+phone and desktop sizes.
+
+The adapter adds only `herdr-core` to the subprocess allowlist. It uses the default
+local core session and cannot select a machine or executable from an HTTP request.
+Authorization is checked again before creating the tmux view. Reported native
+states feed existing enabled-session status and push notifications; no approval
+capability is inferred from a blocked state. Generic terminal input remains how the
+person answers a Herdr approval. Idle shells never become busy based on screen text.
+
+`tests/herdr-shared.ts` runs its own named core and tmux server, sends input through
+the mobile view and checks the original process ID survives closing it. Unit tests
+cover exact identity, stale/replaced sources, concurrent reuse, unavailable runtimes,
+revocation and command boundaries. `tests/herdr-mobile.ts` measures the real browser
+in 320/360/390/430px iframes and checks discovery, error/retry, reuse and host switching.
+
+## Preserve Herdr's spaces and tabs in the phone session view
+
+A flat terminal list loses the context already established on the desktop.
+Discovery now also reads the core's `herdr-app` document with `doc.get`. Its space
+and tab IDs define groups, its order defines presentation, and split terminals
+remain together under their tab. Names and folders are display metadata, never
+identity: separate spaces can share both. Missing or incompatible layout metadata
+does not prevent discovery; unattached terminals appear under Other terminals.
+The adapter never writes Herdr's layout. Traversal of split trees is bounded.
+
+Space groups collapse with preferences stored per Deskpilot host. Search and a
+Needs you filter expand matching groups temporarily without overwriting those
+preferences. A terminal row opens the existing exact-ID attach flow. Enabled
+Herdr bridges are omitted from the ordinary tmux list while their native source
+is listed; the terminal pager uses the source's readable title and space/tab
+context without changing session identity, navigation, or input routing.
+
+Unit tests cover split membership, order, same-named spaces, malformed layout,
+search, attention filtering and fallback groups. Phone browser tests measure
+320/360/390/430px and exercise collapse persistence, filtering, error/retry,
+exact-source attachment, readable terminal navigation, duplicate suppression,
+and preferences across host switches. The native attach lifecycle test and
+existing Codex conversation phone checks continue to pass.
+
+## Keep Deskpilot sessions recognizable while integrating native Herdr management
+
+Prototype review established a concrete boundary: ordinary sessions remain
+individual Deskpilot cards, before a distinct Herdr panel. Only native Herdr
+objects acquire space headers, selectable tabs and numbered terminal panes.
+The home route remains `sessions` for saved links/history but is labeled Work;
+Screens becomes Desktop and Management becomes Settings. Desktop, previews,
+pairing and session input remain independent of Herdr. Settings separates its
+existing controls into named pages and labels computer versus browser scope.
+
+`server/herdr-management.ts` reads the core document and verifies the running
+app sees the same local space/tab identities. It restricts structural mutations
+to explicit native `herdr-app do` commands with IDs revalidated immediately before
+execution and device authorization rechecked at subprocess launch. No application
+document is rewritten. Management is unavailable with a closed/missing app while
+core terminal access keeps working. Mutations serialize per server. A tab/space
+close includes the reviewed subtree and terminal generations' digest; stale
+reviews fail rather than silently closing a changed target. Stopping one terminal
+resolves its exact generation and native pane, then uses `pane.close`.
+
+The installed app exposes tab reordering, not transfer across spaces. The UI says
+so instead of emulating transfer by recreating terminals or editing app state.
+Creating a space/tab or split accepts an explicit folder and command; JSON argv
+preserves literal names and paths. The service allowlist adds only `herdr-app`.
+
+Herdr expansion/tab preferences are per host, with the active desktop space as
+the initial expanded default. Polling preserves explicit choices. Native terminal
+navigation freezes source identity order within its tab, attaches unconnected
+siblings on demand and retains the composer/drafts and original return route.
+Ordinary sessions use their existing sequence. Tagged native bridges are never
+presented as ordinary sessions, even during a discovery interruption. A native
+view disconnect is labeled separately from stopping Herdr's original program.
+Herdr desktop navigation refers only to a uniquely identified app window; its
+internal terminals are not individually assigned desktop windows.
+
+Unit tests exercise command boundaries, unavailable management, exact identity,
+stale-close refusal, revocation and queue release. `herdr-management-live.ts
+--running` uses disposable native shells to verify create, rename, split, reorder,
+stop and close, restores app selection and verifies original terminal PIDs remain.
+Browser checks cover both source types at 320/360/390/430px, native tab selection,
+same-tab attachment/navigation, management forms, scoped confirmations and error
+recovery. Existing desktop, pairing, drafts, clipboard, history, preview and Codex
+conversation tests remain the preservation checks.
+
+The first implementation retained the old top navigation and machine header,
+which did not match the reviewed prototype. The app shell now places the main
+Work/Desktop/Previews/Settings navigation below the scrolling content, includes
+the Deskpilot brand and connection state in the header, and keeps pairing as a
+compact accessible plus button. The Herdr panel follows ordinary session cards;
+additional agent discovery remains available below the panel.
+Browser checks assert this order and the bottom navigation's position so behavior
+tests alone cannot mask another visual divergence.
+
+
+## Follow-up usability review: one Work inventory, contextual Desktop controls
+
+Ordinary tmux sessions and Codex conversations share Sessions. Exact session or
+adapter UUID metadata deduplicates mobile views; title and folder never establish
+attachment ownership. Codex view metadata includes its thread ID and an encoded
+human title so an unavailable discovery endpoint retains its source identity and
+safe disconnect wording. Lost status is explicitly unknown. Codex busy/idle status
+does not indicate input requests, so Needs you describes that coverage limit and
+includes every source that actually reports attention. The selected machine badge
+uses this same deduplicated set; other machine badges explicitly describe session
+alerts because their background polling covers sessions. Filtered source sections
+with no results disappear and counts describe matching work. Work section shortcuts
+keep both Sessions and native Herdr discoverable on machines with many sessions.
+
+Desktop retains window placement, capture, lock/unlock and contextual creation,
+with compact terminal links instead of repeated task cards. Shared Codex views use
+Disconnect view and explain that original work continues. Herdr management menus
+show their space/tab target and offer Back through their context; destructive
+review still freezes exact identities and revisions. Usage shows a loading, empty
+or unavailable state instead of a blank page.
+
+
+## Remove shared-token connection compatibility
+
+New pairing is code-only. Shared machine-token authentication, token-bearing pairing
+links, the Legacy pairing option, shared-key upgrade controls, shared subscription
+ownership, and the rotate command are removed deliberately. Existing registered phone
+credentials keep working; devices holding an old shared token must pair again. No live
+credentials or service state are migrated by this source change.
+
+Local commands still need an identity to request a pairing code, publish an image,
+report agent state, and check service health. The server registers Desktop helpers
+as an ordinary device and writes its credential to the mode-0600 file
+`~/.local/state/deskpilot/local-token`. Only its hash enters `devices.json`. The old
+config token file is never an authentication authority. A configured local credential
+file that does not match a registered device is replaced with a fresh registered
+credential; the unregistered value is never accepted. Startup reuses a valid identity
+and fails closed on unreadable/corrupt credential state. The existing state-directory
+write permission is sufficient; source service permissions are not broadened.
+
+Pairing requires a running server and emits only a single-use, expiring code. If the
+request fails, neither the source helper nor the packaged CLI prints a token fallback.
+Browser API and WebSocket requests authenticate only as registered devices. Unowned
+push subscriptions are ignored, and status lookups are scoped to the requesting device.
+The local helper device can be revoked normally; a later desktop-owned server startup
+may enroll a new helper identity, while its revoked credential remains invalid.
+
+Regression coverage rejects shared-token headers, query parameters, cookies and pairing
+links; checks helper registration/persistence and code-only pairing failures; and retains
+the existing enrollment, revocation, WebSocket, mobile layout and preview-publishing
+checks against disposable servers and profiles. The three mobile direction prototypes
+use the same code-only connection choices. No deployment or live service restart is
+part of this change.
+
+
+## One focus workflow with an explicit cross-computer Attention review
+
+The three navigation studies were alternatives rather than product sections. Computer
+explorer was set aside. The selected direction combines Focus deck's return-to-terminal
+flow with Attention inbox as a separate destination. The app now exposes Sessions,
+Attention, and Computer. Desktop, Previews, pairing and settings remain available inside
+Computer; they share the existing backend operations and capability negotiation.
+
+Sessions searches the selected computer's ordinary sessions, supported conversations,
+and native Herdr context. Recent work is scoped to computer and source identity. Native
+spaces, tabs and pane management remain in their existing browser. Main navigation uses
+system sans-serif; terminal content remains monospace with its animated activity outline.
+The terminal has a compact title/source/computer context, previous/next controls and
+searchable title picker. Input tools groups keys, paste-without-Enter, selectable copy,
+and text size. Destructive and placement actions live in the contextual menu.
+
+Attention inventories paired computers through existing read-only discovery endpoints.
+It separates computer health, reported requests and unsupported/unknown coverage. Ordinary
+swipes remain local to one computer or one Herdr tab. Only Review across computers freezes
+an attention sequence that may cross computers. Each transition validates the exact
+session or adapter source against its original computer; failure preserves the current
+view/draft. Late attachment results cannot navigate after cancellation. Swipes replace
+one terminal history entry so Back returns directly to the invoking inbox or list.
+
+Resume state now retains search/filter, computer visits, recent source IDs, settings
+subsection and a reviewed sequence alongside the existing drafts and screen state. It
+continues to exclude credentials, pairing codes, output and in-flight actions. History
+entries use plain snapshots so restoring a visit cannot attempt to clone reactive proxies.
+Browser checks use isolated HTTP/WebSocket fixtures; no deployment, installed-service
+restart, live session mutation, or real desktop management is included. The selected sample
+preview at /combined mirrors the chosen navigation while A/B/C stay as comparison history.
+
+
+## Trial: one Spaces/task model regardless of Herdr installation — 2026-11-09
+
+After using Herdr on the desktop, the user requested a trial of its organizational model across Deskpilot, including computers without Herdr. The isolated `/spaces` route under `output/mobile-directions/` now tries a terminal-first interface with a work drawer, named space/task tabs, individually readable terminal panes and attention filtering in that same drawer. This supersedes the earlier prototype-only rule that ordinary terminals must never acquire grouping; it does not change native source ownership.
+
+Native space/tab membership follows the existing exact Herdr IDs. Ordinary terminals and supported conversations begin Unassigned; explicit local membership uses computer/source/ID/generation, never folder or title matching. Local grouping can mix ordinary sources without making Herdr a dependency. Creating/removing local organization does not start/stop programs. Native management remains separate in operation and reuses the existing reviewed-close behavior. The prototype preserves shared input tools, Desktop, Previews, pairing, computer switching, recovery and settings destinations.
+
+The real `web/` navigation remains the previous A+B implementation pending review of this trial. No backend changes, live desktop mutations, service restart or deployment occurred. Sample fixtures and storage are isolated. Browser/model checks, viewport metrics and device limitations are recorded in `output/mobile-directions/VALIDATION.md`.
+
+
+## Clean up Spaces before migrating live navigation — 2026-11-09
+
+The user approved finishing task creation, fixing failed selection and scoped attention counts, adding durable organization, and extracting reusable navigation. The sample now gives empty tasks Start terminal/Add existing work, makes tab-bar + create a task, and binds recovered/late results to their original computer without changing the current terminal on failure. Attention badges follow selected/all-computer scope.
+
+`web/src/lib/spaces/` contains the transport-free workbench, drawer, toolbar, model and injected organization client. Comparison routing and terminal simulation remain in `output/mobile-directions/`. The workbench permits a real terminal slot; its sample output is explicit. These components do not import credentials or comparison directions.
+
+Organization belongs to one computer rather than a browser. Registered devices GET/POST `/api/organization`, persisted in mode-0600 `~/.local/state/deskpilot/organization.json`. Versioned spaces/tasks and source-kind/ID/generation assignments are the only allowed fields; no drafts, credentials, output or native Herdr ownership is stored. Request bodies and record counts are bounded. Source generations never inherit membership based on names/folders. Discovery gaps retain original assignments. Native organization continues through Herdr’s native commands.
+
+A save must present the current revision. A synchronous atomic write/rename and directory sync acknowledge each revision; stale callers receive 409 and refresh explicitly. Corrupt stores return unavailable and are not overwritten as an empty document. Device authorization is rechecked after body reads under the existing security lock. Metadata updates never execute programs. The authenticated client captures its host before awaiting transport; it does not retry failed writes automatically.
+
+The preview uses a separate same-origin `/__prototype/organization/{fixture-computer}` middleware and ignored sample files, never real Deskpilot state. It shares the schema validator but has no production API/keyring connection. Existing browser-only sample organization migrates into an empty sample-server document with a browser backup; tests use isolated namespaces. Actual source discovery and terminal execution in the preview remain simulated.
+
+Validation covers 127 unit tests, a disposable two-device organization API/restart test, 38 Spaces browser checks with 15 measured layouts, the earlier 185-check/70-layout comparison suite, and the real combined app’s 22-check/13-layout fixture suite. `shell/check.sh` passes in an isolated environment. The live Spaces navigation migration, actual runtime identity projection and physical Android keyboard testing remain separate follow-up; the installed service and real navigation have not been restarted or deployed.
+
+
+## Implement Spaces over real source identity — 2026-11-09
+
+Following approval of the cleaned-up trial, Spaces/task navigation replaces the real
+app's separate Sessions/Attention/native-source lists. Search, attention scope and local
+organization share one drawer. Task tabs expose one terminal pane at a time. Computer
+retains desktop, previews, pairing and settings; normal terminal Back returns to the
+actual origin after swipes. Keyboard/input tools and nested sheets dismiss first.
+
+The real app retains its authenticated API, original xterm/composer, capability checks,
+and native Herdr reviewed management. Native space/tab/pane ownership stays native.
+Ordinary terminals and conversations begin Unassigned and may be explicitly grouped
+into computer-owned tasks. Empty tasks offer Start terminal/Add existing work. No
+folder/title matching assigns ownership, and removing organization leaves work running.
+
+Ordinary sources use tmux session ID plus server PID/start/session creation generation.
+Rename and Deskpilot restart retain identity; replacement cannot inherit membership,
+resume or drafts. Validated terminal operations target the stable tmux ID, with an exact
+identity probe before input/destruction/attachment. WebSocket startup revalidates before
+priming and discards input before ready. Destroyed-source clients detach instead of
+switching to another session. Conversations use logical thread IDs; Herdr IDs retain
+native generation. Actual bridge metadata resolves attachments during provider-list lag,
+so switching panes does not unmount the composer or lose its focus.
+
+Resume retains the existing storage namespace. New drafts are keyed by host/source/ID/
+generation; earlier name-only saved views require confirmation and their retained drafts
+can only be added to current work by explicit review. Failed sends preserve original text
+and newer typing. Late attachment/organization replies remain bound to their original
+host and cannot navigate canceled forms. Revision conflicts preserve edits and require
+an explicit refresh, without automatic write retries.
+
+Validation passes 131 unit tests, 29 real-app fixture workflows/15 measured layouts,
+private tmux HTTP/WebSocket identity/restart/replacement tests, two-device organization
+API checks, and preserved desktop chooser, preview, scanner and terminal recovery suites.
+At 390 × 430 the actual xterm grid is 272px tall. Historical navigation assertions are
+retained in output/mobile-directions/historical-tests; prior entry points delegate to
+current checks. The standalone sample remains isolated and passes its own Spaces suite.
+
+The source service was activated with KillMode=process. All eight discovered native
+Herdr sources survived, organization capabilities are live, and the actual health check
+passes. No live terminal input or native management action was used to validate activation.
+Physical Android keyboard retention/OS Back remain device validation, not browser-proven.
+
+
+## Keep available conversations discoverable without filling Spaces — 2026-11-09
+
+Codex can keep conversations loaded after their desktop windows close. These are live
+addressable sources, not retained tmux attachments or evidence that a visible desktop
+window exists. Show unorganized Codex sources in a collapsed Available conversations
+section, separately from ordinary Unassigned terminals and native Herdr spaces. Explicitly
+organized conversations remain in their tasks. Available conversations remain searchable.
+Do not infer equivalence with native panes from matching titles/folders, and do not expire
+or hide idle conversations automatically.
+
+Hide from Deskpilot is a reversible metadata choice. Normal lists and searches exclude
+hidden conversations; Show hidden exposes Restore, while an already open terminal and
+its drafts remain available. The review names the conversation and computer and states
+that original work, mobile views and drafts stay intact. Assigning work to a task restores
+its visibility. Native Herdr sources cannot be hidden through this metadata path.
+
+The optional organization.hidden field contains only bounded, unique conversation source
+IDs/generations, preserving version-1 documents that predate this choice. Existing atomic
+writes, revision conflict checks and registered-device authentication apply. Hidden choices
+are computer-owned and survive absent discovery and another browser; Show hidden and
+expansion remain browser preferences. Saves capture the source computer even in an
+across-computer search. No terminal, adapter or Codex management command is issued by Hide.
+
+Validation: 133 unit tests (7 steps), two-client organization HTTP persistence/restart
+checks, 35 real-app browser workflows across 20 layouts, and the isolated sample's
+38 checks/15 layouts pass. Browser checks cover collapsed availability, Hide conflicts,
+reload/search exclusion, Restore and preserving an active conversation draft. The live
+source service was updated with KillMode=process and all 8 discovered native sources
+survived. The phone HTTPS origin serves the matching UI and update manifest.
+
+
+## Restore touch history in full-screen terminals — 2026-11-09
+
+A native Herdr mobile attachment uses an alternate terminal screen with zero local
+scrollback and requests all-motion SGR mouse reporting. Term's vertical drag handler
+only moved xterm's local buffer, so chat history never moved. Terminal snapshots also
+reset mouse tracking/encoding without restoring them; reconnecting therefore disabled
+application scrolling even on desktop. These are terminal-layer defects, independent
+of Spaces organization and hidden conversations.
+
+Capture tmux's mouse standard/button/any/UTF-8/SGR flags alongside cursor and screen
+state and reconstruct their escape sequences after reset. Vertical touch uses xterm's
+public wheel handling when the application requests mouse reporting, preserving its
+encoding. IME stdin is enabled only for the synchronous synthetic wheel event, then
+restored; composer focus never moves. Forward xterm's binary mouse reports through the
+existing exact-session WebSocket input path as well as its ordinary data events.
+Without mouse reporting, alternate-screen drags use PageUp/PageDown; ordinary scrollback
+stays local and sends no input. Stop remote momentum on release, cancel gestures on
+reconnect, and ignore input until the current snapshot has been parsed. Horizontal
+session swipes remain separate and generate no scroll/key reports.
+
+Validation: the real private-tmux recovery suite verifies tracking and SGR restoration,
+disabled modes after reconnect, cursor/wrap/alternate-screen behavior, and 200 streamed
+records exactly once. The app fixture suite now passes 42 workflows/20 phone layouts,
+including real touch movement changing ordinary visible history, application wheel-up/
+down responses, page-key fallback, composer/draft preservation and horizontal isolation.
+All 133 unit tests and the production build pass. Physical phone verification remains
+useful; the browser checks exercise touch events and protocol responses, not an Android IME.
+
+
+## Finalize one responsive work hierarchy — 2026-11-10
+
+The user approved the consolidated final-interface package and asked for one complete
+implementation and activation. The real-app candidate uses computer → spaces → tabs →
+terminals. A persistent 280px sidebar appears from 960px; smaller viewports use the same
+navigator in a top-opened drawer. Task IDs/schema stay valid while visible labels use
+“tab.” Space and tab rows expand; terminal leaves explicitly open work. Unassigned
+ordinary terminals and available/hidden conversations have no artificial tab layer.
+The bottom dock and horizontal tab/pane strips are removed. Only one terminal connects.
+
+The compact header retains computer, source, activity, previous/next and contextual
+actions. Existing folder/desktop location and lifecycle controls live in those actions.
+Computer is an overlay, preserving the mounted terminal, WebSocket and composer. Native
+ownership, management capability checks and stale destructive-review guards remain.
+Local tab rename/reorder/removal use revision-checked metadata; removing organization
+preserves the running terminal, connection and drafts. Empty tabs explicitly start/add work.
+
+A source-derived frontend build identity is separate from backend version. Installed
+workers report their build by MessageChannel. A successful replacement offers one
+explicit Reload notice and never reloads automatically while composing. Reload saves
+UI/drafts first. Launch/foreground/online checks update the worker; app-source status is
+independent from the selected computer. The build probe is network-only, so a cached
+build document cannot disguise an unreachable app source. Partial installation keeps
+the previous usable shell. Settings shows UI/backend identity and Check for updates.
+
+Candidate builds go outside live web/dist, and the previous UI/source is backed up.
+The approved release plan requires the physical Android check before activation. An
+isolated fixture on tailnet HTTPS port 8443 is available for that check, with no real
+terminal/management transport. The production UI remains unchanged until that result.
+The one rollout uses an atomic directory exchange, retains previous hashed assets for
+already-open clients, preserves the backend process, and verifies credentials and exact
+live source identities. The previous directory remains available for rollback.
+
+Validation passes 52 real-app workflows/25 layouts, eight real service-worker upgrade
+checks, 133 unit tests, typechecks and the production candidate build. The actual xterm
+grid is 272px at 390 × 430. Desktop conversation selection, previews, simulated camera,
+computer-owned organization API, private-tmux identity/replacement and terminal recovery
+checks pass. Browser checks verify identical terminal/composer nodes and no new socket
+through 959/960/1024/1280/1440px transitions and Computer overlay. Layout will be frozen
+after the release gates, with subsequent changes limited to demonstrated bugs or missing
+preserved capabilities unless the user requests another design change.
+
+
+## Reconcile upstream service controls and watcher — 2026-11-14
+
+Integrate the pending mobile, native-source, organization, preview and registered-device
+work on top of upstream's service controls and demand-driven notification watcher.
+Keep pause/resume/disable/enable/status in both CLI variants and the compiled subprocess
+allowlist; shared-token authentication and rotate remain removed. Only subscriptions
+owned by currently registered devices count toward starting the watcher. Unsubscribe
+and revocation stop polling when the last subscription disappears. Explicit session
+listing still prunes obsolete lifecycle reports when the background watcher is idle.
+
+Validation: 138 unit tests, server/CLI typechecks, shell syntax, compiled build,
+52 phone workflows/25 layouts, eight service-worker upgrade checks, conversation and
+preview browser checks, camera fixture, organization persistence, private-tmux source
+identity and terminal recovery, compiled preview/revocation checks, headless sandbox,
+and shell/check.sh pass. A disposable-server regression covers unowned subscriptions,
+polling activation, skipping desktop-visible captures, unsubscribe and revocation;
+CI and release checks now run it. Reconciliation does not activate the staged UI or
+restart the installed service; the physical Android rollout gate remains pending.

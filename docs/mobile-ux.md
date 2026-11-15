@@ -1,5 +1,73 @@
 # Mobile UX verification
 
+The accepted interface uses one computer → space → tab → terminal hierarchy.
+The real app renders it in a persistent sidebar from 960px, or a top-opened Spaces
+drawer below that width. The bottom dock and separate task/pane strips are removed.
+Native Herdr membership remains native. Local tabs, Unassigned ordinary terminals,
+Available conversations and reversible Hide/Restore share the same navigator.
+Computer is an overlay that preserves the active terminal and composer.
+
+The candidate is built outside the live directory. Activation remains gated on the
+physical Android result requested for the isolated sample on HTTPS port 8443.
+Browser touch/focus and reduced-viewport results do not replace that device check.
+The separate output/mobile-directions/final-review remains an isolated design sample.
+
+Current checks run from this checkout:
+
+```sh
+npm --prefix web run build
+deno check server/server.ts
+deno test --allow-read --allow-write --allow-env --allow-run=sh tests/
+deno run -A tests/organization-api.ts
+deno run -A tests/spaces-runtime.ts
+deno run -A tests/terminal-recovery.ts
+deno run -A tests/spaces-mobile.ts
+deno run -A tests/conversations-mobile.ts
+deno run -A tests/previews-mobile.ts
+deno run -A tests/ui-updates.ts
+deno run -A tests/scanner.ts
+bash shell/check.sh
+```
+
+Run browser scripts sequentially because their disposable fixtures share ports.
+`spaces-mobile.ts` passes 52 workflow checks and 25 measured layouts: true same-origin
+iframe widths 320/360/390/430, landscape, and reduced viewports. Actual `.xterm-screen`
+height is 272px (63%) at 390 × 430 with tools closed. No measured overflow or targets
+below 44px occur. Artifacts are under `/tmp/deskpilot-spaces-live` and copied to
+`output/mobile-directions/artifacts/live-spaces/`.
+
+Checks cover vertical touch movement through ordinary scrollback and application-owned
+history (wheel reporting and page-key fallback), horizontal gesture isolation,
+exact-source connection/cancellation, native touch swipes retaining composer
+focus, original Back destination, failed sends with newer typing, copy dismissal,
+creation into a task, collapsed available conversations, Hide/Restore and reload,
+hiding active work without losing its draft, stale native-close review, two-client organization conflicts,
+per-computer restoration, and same-name replacements. Older name-only saved work asks
+for confirmation; earlier drafts require explicit review. `spaces-runtime.ts` verifies
+actual HTTP/WebSocket input, rename, server restart and replacement rejection against
+private tmux state. The organization API test uses disposable registered devices.
+Desktop conversation selection, previews, camera simulation and terminal recovery also pass.
+`ui-updates.ts` passes eight actual service-worker checks: previous-build upgrade,
+pairing/organization/draft retention, an installed-update notice, explicit safe reload,
+failed partial installation, and a cached offline launch with computer recovery.
+The former layout/combined/Herdr entry points delegate to the current suite; historical
+navigation assertions remain under `output/mobile-directions/historical-tests/`.
+
+On 2026-11-09 the source service was restarted with `KillMode=process`; all eight native
+Herdr sources remained available and live capabilities exposed organization version 1.
+The actual installed service health check passed. No live terminal input or native
+management operation was used for this activation check.
+
+Physical Android IME retention and system Back with the real keyboard are the final
+on-device release check. Chromium touch/focus and reduced-view tests do not prove those behaviors.
+Vite still reports its existing large xterm bundle advisory.
+
+## Historical mobile verification
+
+The notes below record the earlier mobile verification work and continuing preservation
+checks. Physical Android IME retention and system Back still require on-device testing.
+
+
 Implementation lives on `ui/mobile-ux`, rebased onto `main` at `1f552bb`, in
 `/tmp/deskpilot-mobile-ux`. No merge or deployment is part of this change.
 `Term.svelte` matches the composer fix on `main`. The mobile suite also checks that
@@ -21,7 +89,7 @@ Run from the isolated worktree:
 
 ```sh
 npm --prefix web run build
-deno test --allow-read --allow-write --allow-env tests/
+deno test --allow-read --allow-write --allow-env --allow-run=sh tests/
 deno run -A tests/layout.ts
 deno run -A tests/scanner.ts
 ```

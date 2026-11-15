@@ -3,79 +3,27 @@
   import {
     hosts, currentHost as viewHost, displayName, setHostAlias, removeHost,
   } from "./hosts.svelte.js";
-  import { api as requestApi, post as requestPost, enroll as requestEnroll, setToken } from './api.js';
+  import { api as requestApi, post as requestPost } from './api.js';
   import Usage from './Usage.svelte';
   import Notify from './Notify.svelte';
   import Install from './Install.svelte';
-  let { onstatus: reportStatus, connected = true } = $props();
+  let { onstatus: reportStatus, connected = true, onpair, onwork, herdr = null, page = $bindable('home') } = $props();
+  const pages = [['machines','Computers & pairing','Labels, pairing and saved machines'],['devices','Authorized devices','Rename, revoke and re-pair devices'],['notifications','Notifications','Enable, test and repair delivery'],['usage','Agent usage','Remaining allowances and resets'],['connections','Connections','Herdr, desktop and terminal availability'],['app','App & installation','This browser and build version']];
   const actionHost = viewHost();
   let mounted = true;
   onDestroy(() => mounted = false);
   const onstatus = (...args) => { if (mounted && viewHost().origin === actionHost.origin) reportStatus?.(...args); };
   const api = (path, opts = {}) => requestApi(path, { ...opts, host: actionHost });
   const post = (path, body, opts = {}) => requestPost(path, body, { ...opts, host: actionHost });
-  const enroll = async code => {
-    const result = await requestEnroll(code, actionHost, { activate: false });
-    if (mounted && viewHost().origin === actionHost.origin) setToken(result.token);
-    return result;
-  };
   const ago = t => t ? new Date(t).toLocaleString() : 'never';
   // Paired devices. This is the half that makes a lost phone survivable: a
   // credential you can take away on its own, and a list honest enough to tell
   // you which one you are holding.
   let devices = $state([]);
-  let legacy = $state(false);
   let renamingMachine = $state(false);
   let machineNameInput = $state("");
   let renamingDevice = $state("");
   let deviceNameInput = $state("");
-  // Entering a code on a device that is already in. The gate in App.svelte only
-  // renders when you are *not* authenticated, so a phone already paired had
-  // nowhere to type one — while the notice above it said "pair it again below"
-  // to trade the shared token for its own. It was telling you to do something
-  // the app gave you no way to do.
-  let ownCode = $state("");
-  let claiming = $state(false);
-
-  // A device on the shared credential already holds full access to this
-  // machine, so minting a code and spending it on itself grants nothing it
-  // could not already do — it only trades a credential that cannot be taken
-  // away for one that can. Both calls are already available to it: /devices/code
-  // is authenticated and this device is authenticated. So there is no reason to
-  // make someone carry a code from one half of a screen to the other.
-  let upgrading = $state(false);
-  async function claimOwnCredential() {
-    if (upgrading) return;
-    upgrading = true;
-    try {
-      const { code } = await post("/devices/code", {});
-      await enroll(code, viewHost());
-      onstatus("this device now has its own credential");
-      loadDevices(hosts.current);
-    } catch (e) {
-      onstatus(e.message, true);
-    } finally {
-      upgrading = false;
-    }
-  }
-
-  async function claimOwn(ev) {
-    ev.preventDefault();
-    const code = ownCode.trim();
-    if (!code || claiming) return;
-    claiming = true;
-    try {
-      await enroll(code, viewHost());
-      ownCode = "";
-      onstatus("this device now has its own credential");
-      loadDevices(hosts.current);
-    } catch (e) {
-      onstatus(e.message, true);
-    } finally {
-      claiming = false;
-    }
-  }
-
   async function loadDevices(here) {
     try {
       const d = await api("/devices");
@@ -83,7 +31,6 @@
       // to the wrong one.
       if (!mounted || hosts.current !== here) return;
       devices = d.devices;
-      legacy = d.legacy;
     } catch (e) { onstatus(`Could not load authorized devices: ${e.message}`, true); }
   }
 
@@ -97,7 +44,6 @@
   $effect(() => {
     const here = hosts.current;
     devices = [];
-    legacy = false;
     // Rename forms belong to the machine this component mounted for. Closing
     // them on a switch prevents a stale form acting on the next machine.
     renamingMachine = false;
@@ -151,7 +97,12 @@
   }
 
 </script>
-<h1 tabindex="-1">Management</h1>
+<div class="settings-heading"><h1 tabindex="-1">Settings</h1>{#if page!=='home'}<button onclick={() => page='home'}>Back to settings</button>{/if}</div>
+{#if page==='home'}
+  <p class="dim">Selected computer: {displayName(viewHost())}</p>
+  <div class="settings-pages">{#each pages as [id,title,detail]}<button aria-label={title} onclick={() => page=id}><strong>{title}</strong><span class="dim">{detail}</span></button>{/each}</div>
+{:else if page!=='app'}<p class="dim">For {displayName(viewHost())}</p>{:else}<p class="dim">This browser</p>{/if}
+{#if page==='machines'}
 <h2>Selected remote machine</h2>
 <div class="machine-summary">
   <p><strong>{displayName(viewHost())}</strong><br />
@@ -171,18 +122,11 @@
 {/if}
 <p class="dim">Version {hosts.caps[hosts.current]?.version ?? 'unknown'}</p>
 {#if hosts.list.length > 1}<button class="danger" onclick={() => removeHost(hosts.current)}>Forget this machine</button>{/if}
+<button id="settings-pair" class="primary" onclick={onpair}>Pair computer</button>
+{/if}
 {#if connected}
-  {#if legacy}
-    <div class="legacybar">
-      <span>
-        This device shares the machine's key, so it cannot be revoked on its own.
-        Losing the phone would mean re-pairing everything else.
-      </span>
-      <button class="sm" onclick={claimOwnCredential} disabled={upgrading}>
-        {upgrading ? "…" : "give it its own"}
-      </button>
-    </div>
-  {/if}
+  {#if page==='devices'}
+
 
   <div class="mblock">
   <h2>Authorized devices · {devices.length}</h2>
@@ -212,27 +156,18 @@
     device's credential away and leaves the rest paired.
   </div>
 
-  {#if legacy}
-    <!-- Somewhere to type a code on a device that is already in: the gate that
-         accepts one renders only while you are *not* authenticated, so a paired
-         phone had nowhere at all. Beside the one-tap button above, for a code
-         carried from `deskpilot pair` on the machine itself. -->
-    <form class="unlock claim" onsubmit={claimOwn}>
-      <input
-        bind:value={ownCode} aria-label="Pairing code" placeholder="code, to re-pair this device"
-        autocapitalize="characters" autocorrect="off" spellcheck="false" />
-      <button disabled={!ownCode.trim() || claiming}>{claiming ? "…" : "use"}</button>
-    </form>
-  {/if}
-  </div>
 
-  <div class="foot"></div>
-  <Usage {onstatus} />
-  <Notify {onstatus} />
-{:else}<p class="dim">Connect to this machine to manage its authorized devices, credentials, usage and notifications.</p>{/if}
-  <Install />
+  </div>
+  {/if}
+  {#if page==='usage'}<h2>Agent usage</h2><Usage {onstatus} />{/if}
+  {#if page==='notifications'}<h2>Notifications</h2><Notify {onstatus} />{/if}
+{:else if ['devices','usage','notifications'].includes(page)}<p class="dim">Connect to this machine to manage its authorized devices, credentials, usage and notifications.</p>{/if}
+{#if page==='app'}<h2>App & installation</h2><p class="dim">UI build {uiBuild}<br/>Backend {hosts.caps[hosts.current]?.version ?? 'unknown'}</p><button disabled={updates.checking} onclick={()=>checkUpdates()}>{updates.checking?'Checking…':'Check for updates'}</button>{#if updates.available}<p role="status">A new UI is ready. Use Reload above to save drafts and update.</p>{:else if updates.error}<p role="status">{updates.error}</p>{:else if updates.checkedAt}<p role="status">Current UI is up to date.</p>{/if}<Install /><p class="dim">If already installed, open Deskpilot from your home screen. Terminal text size is available in each terminal.</p>{/if}
+{#if page==='connections'}<h2>Connections</h2><p>Deskpilot · {connected?'Connected':'Unavailable'}</p><p>Herdr · {herdr?.available?'Running':'Unavailable'}</p>{#if herdr?.reason}<p class="dim">{herdr.reason}</p>{/if}<p>Desktop · {hosts.caps[hosts.current]?.windows?'Available':'Headless or unsupported'}</p><button onclick={onwork}>Open Work</button><p class="dim">Version {hosts.caps[hosts.current]?.version ?? 'unknown'}</p>{/if}
 
 <style>
+.settings-heading {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;}
+.settings-pages {display:flex;flex-direction:column;gap:8px;}.settings-pages button {display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:5px;padding:14px;}.settings-pages span {font-size:12px;}
 .machine-summary { display:flex; align-items:center; gap:.5rem; min-width:0; }
 .machine-summary p { flex:1; min-width:0; overflow-wrap:anywhere; }
 .machine-hint { font-size:12px; }
@@ -241,6 +176,6 @@
 .path { width:100%; overflow-wrap:anywhere; }
 .unlock { display:flex; flex-wrap:wrap; gap:.5rem; }
 input { min-width:0; flex:1; }
-.legacybar,.mblock { padding:.8rem; border:1px solid var(--line); border-radius:10px; }
+.mblock { padding:.8rem; border:1px solid var(--line); border-radius:10px; }
 .hint { color:var(--dim); margin:.6rem 0; }
 </style>

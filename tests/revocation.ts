@@ -3,11 +3,12 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 
 const arg = (name: string) => Deno.args[Deno.args.indexOf(name) + 1];
 const base = arg("--url");
-const master = arg("--token");
+const localToken = arg("--token");
 const session = arg("--session");
 const evidence = arg("--evidence");
+const subscriptions = Deno.args.includes("--subscriptions") ? arg("--subscriptions") : "";
 assert(
-  base && master && session,
+  base && localToken && session,
   "usage: revocation.ts --url URL --token TOKEN --session NAME",
 );
 
@@ -23,7 +24,7 @@ async function call(path: string, token: string, body?: unknown) {
 }
 
 async function enroll(name: string) {
-  const code = await (await call("/devices/code", master, {})).json();
+  const code = await (await call("/devices/code", localToken, {})).json();
   const res = await call("/devices/enroll", "", { code: code.code, name });
   assertEquals(res.status, 200);
   return await res.json();
@@ -75,36 +76,8 @@ for (const [device, endpoint] of [[lost, lostEndpoint], [kept, keptEndpoint]]) {
   });
   assertEquals(subscribed.status, 200);
 }
-const legacyEndpoint = `http://127.0.0.1:${pushServer.addr.port}/legacy-root`;
-assertEquals(
-  (await call("/push/subscribe", master, {
-    endpoint: legacyEndpoint,
-    keys: { p256dh: b64url(fakePublic), auth: b64url(authSecret) },
-    machine: base,
-  })).status,
-  200,
-);
-assertEquals(
-  (await call("/push/subscribe", kept.token, {
-    endpoint: keptEndpoint,
-    keys: { p256dh: b64url(fakePublic), auth: b64url(authSecret) },
-    machine: base,
-    replaceEndpoint: legacyEndpoint,
-  })).status,
-  200,
-);
-assertEquals(
-  (await (await call(
-    `/push/status?endpoint=${encodeURIComponent(legacyEndpoint)}`,
-    master,
-  )).json())
-    .registered,
-  false,
-  "legacy root subscription was not retired during migration",
-);
-
 const pushStarted = performance.now();
-assertEquals((await call("/push/test", master, {})).status, 200);
+assertEquals((await call("/push/test", localToken, {})).status, 200);
 assert(
   performance.now() - pushStarted < 1_500,
   "stalled push held the event endpoint too long",
@@ -168,7 +141,7 @@ assertEquals((await call("/sessions", kept.token)).status, 200);
 assertEquals(
   (await (await call(
     `/push/status?endpoint=${encodeURIComponent(lostEndpoint)}`,
-    master,
+    localToken,
   )).json()).registered,
   false,
   "revoked device subscription remained registered",
@@ -176,12 +149,16 @@ assertEquals(
 assertEquals(
   (await (await call(
     `/push/status?endpoint=${encodeURIComponent(keptEndpoint)}`,
-    master,
+    kept.token,
   )).json()).registered,
   true,
   "another device subscription was removed",
 );
-const sessions = await (await call("/sessions", master)).json();
+if (subscriptions) {
+  const stored = JSON.parse(await Deno.readTextFile(subscriptions));
+  assert(!stored.some((s: {deviceId: string}) => s.deviceId === lost.id), "revoked subscription remains on disk");
+}
+const sessions = await (await call("/sessions", localToken)).json();
 assert(
   sessions.some((item: { session: string }) => item.session === session),
   "tmux session died",
@@ -224,13 +201,17 @@ await Promise.all([
 assertEquals(
   (await (await call(
     `/push/status?endpoint=${encodeURIComponent(raceEndpoint)}`,
-    master,
+    localToken,
   )).json())
     .registered,
   false,
   "a concurrent subscription save resurrected revoked notification access",
 );
 
+if (subscriptions) {
+  const stored = JSON.parse(await Deno.readTextFile(subscriptions));
+  assert(!stored.some((s: {deviceId: string}) => s.deviceId === racing.id), "concurrent registration resurrected revoked ownership");
+}
 // Registration itself races revocation here. Any socket that wins the first
 // authentication check must still be found and closed by revocation; one that
 // reaches the security gate afterward must never become live.
@@ -291,7 +272,7 @@ await delivery;
 assertEquals(
   (await (await call(
     `/push/status?endpoint=${encodeURIComponent(cancelEndpoint)}`,
-    master,
+    localToken,
   )).json()).registered,
   false,
   "revocation left an in-flight recipient registered",
@@ -329,7 +310,7 @@ keptSocket.close();
 if (evidence) {
   await Deno.writeTextFile(
     evidence,
-    JSON.stringify({ lostEndpoint, keptEndpoint }),
+    JSON.stringify({ lostEndpoint, keptEndpoint, keptToken: kept.token, lostId: lost.id }),
   );
 }
 

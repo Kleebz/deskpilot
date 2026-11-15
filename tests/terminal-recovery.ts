@@ -207,7 +207,9 @@ try {
   assertEquals(term.modes.applicationCursorKeysMode, true);
   assertEquals(term.modes.insertMode, true);
 
-  await write("\x1b[4l\x1b[r\x1b[?1049h\x1b[2J\x1b[HALTERNATE\x1b[8;11H");
+  await write(
+    "\x1b[4l\x1b[r\x1b[?1049h\x1b[?1003h\x1b[?1006h\x1b[2J\x1b[HALTERNATE\x1b[8;11H",
+  );
   await until(async () =>
     (await tmux(
       "display",
@@ -220,6 +222,20 @@ try {
   await snapshot();
   await compare("alternate screen restored");
   assertEquals(term.buffer.active.type, "alternate");
+  assertEquals(
+    term.modes.mouseTrackingMode,
+    "any",
+    "application mouse tracking survives a snapshot",
+  );
+  let encodedSnapshot = "";
+  await captureTerminal(ctl!, pane, (m) => encodedSnapshot = m.d);
+  assert(
+    encodedSnapshot.includes("\x1b[?1006h"),
+    "SGR mouse encoding survives a snapshot",
+  );
+  console.log(
+    "PASS application mouse tracking and SGR wheel encoding restored",
+  );
   await write("after-alt-snapshot");
   await until(async () =>
     (await tmux("capture-pane", "-p", "-t", "fixture")).includes(
@@ -228,7 +244,9 @@ try {
   );
   await compare("alternate-screen live output");
 
-  await write("\x1b[?1049l\x1b[r\x1b[2J\x1b[HSTREAM_START\r\n");
+  await write(
+    "\x1b[?1003l\x1b[?1006l\x1b[?1049l\x1b[r\x1b[2J\x1b[HSTREAM_START\r\n",
+  );
   await until(async () =>
     (await tmux("capture-pane", "-p", "-t", "fixture")).includes("STREAM_START")
   );
@@ -239,6 +257,12 @@ try {
   }
   await ctl!.close();
   await attach();
+  await flush();
+  assertEquals(
+    term.modes.mouseTrackingMode,
+    "none",
+    "disabled mouse reporting stays disabled after reconnect",
+  );
   for (let i = 0; i < 12; i++) {
     await snapshot();
     await sleep(15);

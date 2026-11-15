@@ -32,7 +32,10 @@ workspace_for_pid() {
   for _ in 1 2 3 4 5 6; do
     if [ -z "$p" ] || [ "$p" = "1" ] || [ "$p" = "0" ]; then return 1; fi
     hit=$(printf '%s' "$CLIENTS" | jq -r --argjson p "$p" \
-      'first(.[] | select(.pid == $p) | "\(.workspace.id) \(.address)") // empty' 2>/dev/null)
+      '[.[] | select(.pid == $p)] |
+       if length == 1 then .[0] | "\(.workspace.id) \(.address)"
+       elif length > 1 then "ambiguous" else empty end' 2>/dev/null)
+    [ "$hit" = ambiguous ] && return 1
     if [ -n "$hit" ]; then printf '%s' "$hit"; return 0; fi
     p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
   done
@@ -48,9 +51,17 @@ while read -r name pid; do
 done < <(tmux list-clients -F '#{session_name} #{client_pid}' 2>/dev/null)
 
 rows=()
-while IFS=$'\t' read -r name created activity path command; do
+while IFS=$'\t' read -r name created activity path command identities; do
   [ -z "${name:-}" ] && continue
   all=""; addrs=""
+  while read -r space addr; do
+    [ -n "$space" ] || continue
+    all="$all $space"; addrs="$addrs $addr"
+  done < <(printf '%s' "$CLIENTS" | jq -r --arg ids "${identities:-}" '
+    . as $clients | ($ids | split(" ")[]) as $id |
+    select($id | test("^com\\.deskpilot\\.Terminal\\.[A-Za-z0-9_-]+$")) |
+    [$clients[] | select(.class == $id or .initialClass == $id)] |
+    select(length == 1) | .[0] | "\(.workspace.id) \(.address)"')
   for cp in ${CLIENT_PIDS[$name]:-}; do
     if got=$(workspace_for_pid "$cp"); then
       all="$all ${got%% *}"
@@ -72,7 +83,7 @@ while IFS=$'\t' read -r name created activity path command; do
       workspace:($w|if . == "" then null else tonumber end),
       workspaces:$l, windows:$a,
       attached:($w != "")}')")
-done < <(tmux list-sessions -F '#{session_name}	#{session_created}	#{session_activity}	#{session_path}	#{pane_current_command}' 2>/dev/null)
+done < <(tmux list-sessions -F '#{session_name}	#{session_created}	#{session_activity}	#{session_path}	#{pane_current_command}	#{@deskpilot-window-classes}' 2>/dev/null)
 
 if [ "${1:-}" = "--plain" ]; then
   if [ ${#rows[@]} -eq 0 ]; then echo "(no tmux sessions)"; exit 0; fi

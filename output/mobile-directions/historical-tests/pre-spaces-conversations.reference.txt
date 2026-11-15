@@ -1,0 +1,417 @@
+// Real phone-sized same-origin iframe; measurements precede screenshots.
+// deno run -A tests/conversations-mobile.ts
+import { assert } from "jsr:@std/assert@1";
+import { connect } from "./browser.ts";
+import { fixture } from "./mobile_fixture.ts";
+
+const fx = await fixture();
+fx.state.conversationsOnly = true;
+fx.state.conversations = [{
+  id: "01a17c34-6e86-7d21-9b81-915de263226a",
+  title: "LongConversation".repeat(10),
+  path: "/home/test/" + "long-project-path/".repeat(6),
+  state: "working",
+  session: null,
+}, {
+  id: "01a17c34-6e86-7d21-9b81-915de263226b",
+  title: "Other conversation",
+  path: "/home/test/other",
+  state: "ready",
+  session: null,
+}];
+const profile = await Deno.makeTempDir({
+  prefix: "deskpilot-conversation-browser-",
+});
+const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+const port = (listener.addr as Deno.NetAddr).port;
+listener.close();
+const chrome = new Deno.Command("chromium", {
+  args: [
+    "--headless=new",
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "about:blank",
+  ],
+  stdout: "null",
+  stderr: "null",
+}).spawn();
+const sleep = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
+let cdp: Awaited<ReturnType<typeof connect>> | undefined;
+try {
+  let endpoint = "";
+  for (let i = 0; i < 100; i++) {
+    try {
+      endpoint =
+        (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json())
+          .webSocketDebuggerUrl;
+      break;
+    } catch {
+      await sleep();
+    }
+  }
+  assert(endpoint, "Chromium did not start");
+  cdp = await connect(endpoint);
+  const { targetId } = await cdp.send("Target.createTarget", {
+    url: "about:blank",
+  });
+  const { sessionId } = await cdp.send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  const send = (method: string, params = {}) =>
+    cdp!.send(method, params, sessionId);
+  const evaluate = async (expression: string) => {
+    const r = await send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails));
+    return r.result?.value;
+  };
+  const run = (code: string) =>
+    evaluate(
+      `(async()=>{const f=document.querySelector('iframe'),d=f.contentDocument,w=f.contentWindow;${code}})()`,
+    );
+  const read = (expression: string) => run(`return (${expression});`);
+  const until = async (expression: string) => {
+    for (let i = 0; i < 100; i++) {
+      if (await read(expression)) return;
+      await sleep();
+    }
+    throw Error(`Timed out: ${expression}\n${await read("d.body.innerText")}`);
+  };
+  const check = async (expression: string, label: string) => {
+    assert(await read(expression), label);
+    console.log(`PASS ${label}`);
+  };
+  const click = async (text: string) => {
+    if(text==='Disconnect view')text='Disconnect mobile view';
+    const exists = async (label:string) => read(`[...d.querySelectorAll('button')].some(b=>b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)})`);
+    if(['Desktop','Previews','Settings','Add machine'].includes(text)&&!await exists(text)) await click('Computer');
+    if(['paste','copy','keys','normal','large'].includes(text)&&!await exists(text)) await click('Input tools');
+    if(['End session','Disconnect mobile view'].includes(text)&&!await exists(text)) {
+      await click(await exists('Session actions')?'Session actions':'Herdr actions');
+    }
+    if(text.startsWith('Back to ')&&await exists('Close panel')) await click('Close panel');
+    if(text==='Back to sessions'&&!await exists(text)&&await exists('Back to Attention')) text='Back to Attention';
+    await run(`[...d.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})?.click()`);
+    await sleep();
+  };
+  const choose = async (machine: number) => {
+    if(!await read(`!!d.querySelector('select[aria-label="Machine"]')`)) await click('Computer');
+    await run(`{const e=d.querySelector('select[aria-label="Machine"]');if(e){e.value='http://127.0.0.1:${machine}';e.dispatchEvent(new w.Event('change',{bubbles:true}));}else d.querySelector('[data-host="http://127.0.0.1:${machine}"]').click();}`);
+    await sleep();
+    await click('Sessions');
+  };
+  await send("Page.enable");
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1000,
+    height: 1000,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source:
+      `if(location.origin==='http://127.0.0.1:8892'&&!localStorage.getItem('dp_hosts')){localStorage.setItem('dp_hosts',JSON.stringify([{origin:location.origin,token:'fixture',name:'Desktop'},{origin:'http://127.0.0.1:8893',token:'fixture',name:'Headless'}]));localStorage.setItem('dp_host',location.origin);localStorage.setItem('dp_resume_v1',JSON.stringify({version:1,route:{host:location.origin,view:'sessions'}}));}window.__errors=[];window.addEventListener('error',e=>__errors.push(e.message));`,
+  });
+  await send("Page.navigate", {
+    url: "http://127.0.0.1:8892/__preview_harness",
+  });
+  await sleep(150);
+  await evaluate(
+    `{const f=document.createElement('iframe');f.src='/';f.style='display:block;border:0;width:390px;height:844px';document.body.append(f);}`,
+  );
+  await until(`d.querySelectorAll('.conversation-card').length===2`);
+  assert(
+    fx.state.requests.filter((r) => r.path === "/api/conversations/connect")
+      .length === 0,
+    "discovery never enables control",
+  );
+  await Deno.mkdir("/tmp/deskpilot-conversation-review", { recursive: true });
+  for (const width of [320, 360, 390, 430]) {
+    await evaluate(`document.querySelector('iframe').style.width='${width}px'`);
+    await sleep();
+    await check(
+      `w.innerWidth===${width}&&d.documentElement.scrollWidth<=${width}&&d.querySelector('header').scrollWidth<=d.querySelector('header').clientWidth&&[...d.querySelectorAll('header,nav,main,.conversation-card,main button')].every(el=>{const r=el.getBoundingClientRect();return r.width===0||(r.left>=-1&&r.right<=${width}+1);})`,
+      `${width}px conversation cards fit their measured viewport`,
+    );
+    await check(
+      `[...d.querySelectorAll('button,input,select')].every(el=>{const r=el.getBoundingClientRect();return r.width===0||r.height>=44;})`,
+      `${width}px controls meet touch target sizes`,
+    );
+    const shot = await send("Page.captureScreenshot", {
+      format: "png",
+      clip: { x: 0, y: 0, width, height: 844, scale: 1 },
+    });
+    await Deno.writeFile(
+      `/tmp/deskpilot-conversation-review/conversations-${width}.png`,
+      Uint8Array.from(atob(shot.data), (c) => c.charCodeAt(0)),
+    );
+  }
+  await check(`!!d.querySelector('.sessions .conversation-card')&&!d.body.innerText.includes('No ordinary sessions')&&!d.body.innerText.includes('Desktop conversations')`, 'Codex work is part of Sessions without an empty ordinary section');
+  await click('Needs you');
+  await check(`!d.querySelector('.sessions')&&!d.querySelector('.herdr-terminals')&&d.querySelector('.filter-coverage').textContent.includes('Codex reports working or idle only')`, 'Attention filter hides empty sources and explains Codex coverage');
+  await click('All');
+  fx.state.connectFailure = true;
+  await click("Enable mobile control");
+  await until(
+    `d.querySelector('[role="alert"]')?.textContent.includes('unchanged')`,
+  );
+  await check(
+    `d.querySelector('h1').textContent==='Sessions'&&[...d.querySelectorAll('.conversation-card button')].every(b=>!b.disabled)`,
+    "failed connection preserves navigation and allows retry",
+  );
+  assert(fx.state.created.length === 0);
+  fx.state.connectFailure = false;
+  await click("Enable mobile control");
+  await until(`d.body.innerText.includes('Fixture terminal: mobile-e263226a')`);
+  assert(
+    fx.state.requests.at(-1)?.body.id === fx.state.conversations[0].id,
+    "connect uses exact selected conversation id",
+  );
+  await click("Back to sessions");
+  await until(
+    `d.querySelector('.conversation-card button')?.getAttribute('aria-label')==='Open mobile terminal'`,
+  );
+  const before = fx.state.requests.filter((r) =>
+    r.path === "/api/conversations/connect"
+  ).length;
+  await click("Open mobile terminal");
+  await until(`d.body.innerText.includes('Fixture terminal: mobile-e263226a')`);
+  assert(
+    fx.state.requests.filter((r) => r.path === "/api/conversations/connect")
+      .length === before,
+    "existing mobile terminal is reused",
+  );
+  await run(`w.confirm=message=>{w.__disconnectMessage=message;return false;}`);
+  await click('Disconnect view');
+  await check(`w.__disconnectMessage.includes('original work keeps running')&&!w.__disconnectMessage.includes('will stop')`, 'Codex disconnect confirmation describes shared work accurately');
+  const savedConversations=fx.state.conversations;
+  fx.state.conversations=[];
+  await click('Back to sessions');
+  await click('Refresh');
+  await until(`d.querySelectorAll('.conversation-card').length===1`);
+  await check(`d.querySelector('.conversation-card strong').textContent===${JSON.stringify('LongConversation'.repeat(10))}&&d.querySelector('.conversation-card').textContent.includes('Status unknown')&&!d.querySelector('.session-row')`, 'Stored Codex identity survives unavailable discovery without a duplicate raw session');
+  await click('Open mobile terminal');
+  await click('Session actions');
+  await until(`d.querySelector('dialog').textContent.includes('Disconnect mobile view')`);
+  await click('Close panel');
+  fx.state.conversations=savedConversations;
+  console.log("PASS explicit connection, exact identity, error recovery and reuse");
+  await click("Back to sessions");
+  await click("Refresh");
+  await until(`d.querySelectorAll('.conversation-card').length===2`);
+  fx.state.connectDelay = 900;
+  await run(`d.querySelectorAll('.conversation-card button')[1].click();`);
+  await until(
+    `[...d.querySelectorAll('.conversation-card button')].every(b=>b.disabled)`,
+  );
+  await choose(8893);
+  await sleep(1100);
+  await check(
+    `d.querySelector('h1')?.textContent==='Sessions'&&!d.querySelector('.terminal-container')&&!d.body.innerText.includes('Other conversation')`,
+    "late connection cannot navigate or show conversations on another machine",
+  );
+  await choose(8892);
+  await until(`d.querySelectorAll('.conversation-card').length===2`);
+  await check(
+    `[...d.querySelectorAll('.conversation-card button')].every(b=>!b.disabled)`,
+    "machine switching clears connection busy state",
+  );
+
+  // Native windows share a Ghostty PID. A unique exact title/project offers a
+  // candidate under its real screen; unknown windows require explicit choice.
+  fx.state.connectDelay = 0;
+  fx.state.created = [];
+  fx.state.conversations[0] = {
+    ...fx.state.conversations[0],
+    title: "Restore mobile Deskpilot access",
+    path: "/home/test/deskpilot",
+    session: null,
+  };
+  fx.state.conversations[1].session = null;
+  fx.state.windows = [
+    {
+      address: "0x10",
+      workspace: 8,
+      pid: 42,
+      class: "com.mitchellh.ghostty",
+      title: "⠴ Restore mobile Deskpilot access | deskpilot",
+      fullscreen: 0,
+      floating: false,
+    },
+    {
+      address: "0x11",
+      workspace: 6,
+      pid: 42,
+      class: "com.mitchellh.ghostty",
+      title: "bash",
+      fullscreen: 0,
+      floating: false,
+    },
+    {
+      address: "0x12",
+      workspace: 8,
+      pid: 80,
+      class: "firefox",
+      title: "Restore mobile Deskpilot access | deskpilot",
+      fullscreen: 0,
+      floating: false,
+    },
+  ];
+  await click("Refresh");
+  await until(`!!d.querySelector('.show-screen')`);
+  await click("Show on Screen 8");
+  await until(
+    `d.querySelector('select[aria-label="Desktop workspace"]')?.value==='8'&&!!d.querySelector('.screen-page[aria-hidden="false"] .window-terminal[data-conversation]')`,
+  );
+  await check(
+    `d.querySelector('.screen-page[aria-hidden="false"] .window-terminal[data-conversation]').dataset.conversation==='${
+      fx.state.conversations[0].id
+    }'`,
+    "Desktop offers a compact conversation link under its matching terminal window",
+  );
+  await check(
+    `d.querySelectorAll('.screen-page[aria-hidden="false"] .window-terminal[data-conversation]').length===1`,
+    "browser windows with the same title do not get terminal controls",
+  );
+  assert(
+    !fx.state.calls.some((c) => c.endsWith(":GET:/api/desk/shot")),
+    "Screens does not take screenshots automatically",
+  );
+  await Deno.mkdir("/tmp/deskpilot-conversation-review", { recursive: true });
+  for (const width of [320, 360, 390, 430]) {
+    await evaluate(`document.querySelector('iframe').style.width='${width}px'`);
+    await sleep(250);
+    await check(
+      `(()=>{const rail=d.querySelector('.screen-rail'),page=d.querySelector('.screen-page[aria-hidden="false"]');return w.innerWidth===${width}&&d.querySelector('select[aria-label="Desktop workspace"]').value==='8'&&d.documentElement.scrollWidth<=${width}&&d.querySelector('header').scrollWidth<=d.querySelector('header').clientWidth&&[...rail.children].every(p=>Math.abs(p.getBoundingClientRect().width-rail.clientWidth)<1)&&[...page.querySelectorAll('.win,.conversation-card,button,select')].every(el=>{const r=el.getBoundingClientRect(),p=page.getBoundingClientRect();return r.left>=p.left-1&&r.right<=p.right+1&&(!el.matches('button,select')||r.height>=44);});})()`,
+      `${width}px Screens conversation controls stay within one measured screen`,
+    );
+    const shot = await send("Page.captureScreenshot", {
+      format: "png",
+      clip: { x: 0, y: 0, width, height: 844, scale: 1 },
+    });
+    await Deno.writeFile(
+      `/tmp/deskpilot-conversation-review/screens-${width}.png`,
+      Uint8Array.from(atob(shot.data), (c) => c.charCodeAt(0)),
+    );
+  }
+  await run(
+    `[...d.querySelectorAll('.screen-page[aria-hidden="false"] .acts button')].find(b=>b.textContent==='look').click();`,
+  );
+  await until(
+    `d.querySelector('.screen-page[aria-hidden="false"] img.thumb')?.naturalWidth===192`,
+  );
+  assert(
+    fx.state.calls.filter((c) => c.endsWith(":GET:/api/desk/shot")).length ===
+      1,
+    "window screenshot is captured only on explicit look",
+  );
+  await run(
+    `d.querySelector('.screen-page[aria-hidden="false"] .window-terminal[data-conversation]').click();`,
+  );
+  await until(`d.body.innerText.includes('Fixture terminal: mobile-e263226a')`);
+  await check(`d.querySelector('.session-title .name').textContent==='Restore mobile Deskpilot access'&&d.querySelector('.terminal-context').textContent.includes('Screen 8')&&d.querySelector('.terminal-context').textContent.includes('~/deskpilot')&&!!d.querySelector('[aria-label="Session actions"]')`, 'Connected Codex view retains title, folder, desktop location and disconnect wording');
+  await check(`!d.querySelector('.terminal-heading').textContent.includes('End session')`, 'Shared Codex view never offers destructive session wording');
+  await click("Back to desktop");
+  await until(
+    `d.querySelector('select[aria-label="Desktop workspace"]')?.value==='8'`,
+  );
+  await check(
+    `!!d.querySelector('.screen-page[aria-hidden="false"] .window-terminal[data-conversation]')`,
+    "Back restores the originating screen after connecting",
+  );
+  await run(
+    `const select=d.querySelector('select[aria-label="Desktop workspace"]');select.value='6';select.dispatchEvent(new w.Event('change',{bubbles:true}));`,
+  );
+  await until(
+    `d.querySelector('.screen-page[aria-hidden="false"] .window-connect')?.textContent==='Connect conversation…'`,
+  );
+  await check(
+    `!d.querySelector('.screen-page[aria-hidden="false"] .window-terminal[data-conversation]')`,
+    "unknown terminal identity does not pick a conversation from its shared PID",
+  );
+  await click("Connect conversation…");
+  await until(`d.querySelector('dialog')?.open`);
+  await check(
+    `d.querySelector('dialog').textContent.includes('Screen 6')&&d.querySelectorAll('dialog .conversation-card').length===2`,
+    "chooser retains the screen and shows explicit conversation identities",
+  );
+  for (const width of [320, 360, 390, 430]) {
+    await evaluate(`document.querySelector('iframe').style.width='${width}px'`);
+    await sleep();
+    await check(
+      `(()=>{const r=d.querySelector('dialog').getBoundingClientRect();return r.left>=0&&r.right<=${width}&&r.top>=0&&r.bottom<=w.innerHeight&&[...d.querySelectorAll('dialog button')].every(b=>b.getBoundingClientRect().height>=44);})()`,
+      `${width}px conversation chooser fits the phone viewport`,
+    );
+  }
+  fx.state.connectFailure = true;
+  await run(
+    `d.querySelectorAll('dialog .conversation-card button')[1].click();`,
+  );
+  await until(
+    `d.querySelector('dialog [role="alert"]')?.textContent.includes('unchanged')`,
+  );
+  await check(
+    `d.querySelector('dialog').open`,
+    "connection errors stay visible in the chooser for retry",
+  );
+  fx.state.connectFailure = false;
+  fx.state.connectDelay = 900;
+  await run(
+    `d.querySelectorAll('dialog .conversation-card button')[1].click();`,
+  );
+  await until(`d.querySelector('dialog .conversation-card button')?.disabled`);
+  await click("Cancel");
+  await until(`!d.querySelector('dialog')`);
+  await sleep(1100);
+  await check(
+    `d.querySelector('h1')?.textContent==='Desktop'&&d.querySelector('select[aria-label="Desktop workspace"]').value==='6'`,
+    "canceling a pending connection prevents late terminal navigation",
+  );
+  fx.state.connectDelay = 0;
+  await click("Connect conversation…");
+  await until(`d.querySelector('dialog')?.open`);
+  await run(
+    `d.querySelectorAll('dialog .conversation-card button')[1].click();`,
+  );
+  await until(`d.body.innerText.includes('Fixture terminal: mobile-e263226b')`);
+  await click("Back to desktop");
+  await until(
+    `d.querySelector('select[aria-label="Desktop workspace"]')?.value==='6'`,
+  );
+  await click("Connect conversation…");
+  await until(`d.querySelector('dialog')?.open`);
+  await choose(8893);
+  await until(
+    `d.querySelector('h1')?.textContent==='Sessions'&&!d.querySelector('dialog')`,
+  );
+  await check(
+    `!d.querySelector('.conversation-card')`,
+    "machine switching removes the screen chooser and its identities",
+  );
+  await check(
+    `w.__errors.length===0`,
+    "no conversation browser runtime errors",
+  );
+} finally {
+  cdp?.close();
+  try {
+    chrome.kill();
+  } catch { /*already stopped*/ }
+  await chrome.status;
+  await fx.close();
+  for (let i = 0; i < 10; i++) {
+    try {
+      await Deno.remove(profile, { recursive: true });
+      break;
+    } catch (e) {
+      if (e instanceof Deno.errors.NotFound) break;
+      if (i === 9) console.error(`Could not remove browser profile: ${e}`);
+      else await sleep(100);
+    }
+  }
+}

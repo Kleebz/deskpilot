@@ -38,7 +38,7 @@
   }
 </script>
 <form onsubmit={create}>
-  <label>Session name<input bind:value={draft.name} autocomplete="off" autocapitalize="off" placeholder="e.g. api-review" /></label>
+  <label>Terminal name<input bind:value={draft.name} autocomplete="off" autocapitalize="off" placeholder="e.g. api-review" /></label>
   {#if draft.name && problem}<span class="err">{problem}</span>{/if}
   <label>Directory<select bind:value={draft.dir}>{#each dirs as d}<option value={d}>{tilde(d)}</option>{/each}</select></label>
   <label>Command preset<select aria-label="Command preset" value={preset} onchange={choosePreset}>{#each COMMAND_PRESETS as item}<option value={item.command}>{item.label}</option>{/each}<option value="custom">Custom command</option></select></label>
@@ -46,7 +46,7 @@
   {#if yolo}<p class="command-warning" role="status">Yolo mode disables Codex approval prompts and sandboxing. Use it only in a trusted, isolated environment.</p>{/if}
   {#if capsFor(host.origin).windows}<label>Desktop placement<select aria-label="Desktop placement" bind:value={draft.workspace}><option value={null}>No desktop window</option>{#each [1,2,3,4,5,6,7,8,9,10] as n}<option value={n}>Screen {n}</option>{/each}</select></label>{/if}
   {#if error}<p role="alert" class="err">{error}</p>{/if}
-  <div class="form-actions"><button type="button" onclick={oncancel}>Cancel</button><button class="primary" disabled={busy || !!problem || !draft.command.trim()}>{busy ? 'Starting…' : 'Create session'}</button></div>
+  <div class="form-actions"><button type="button" onclick={oncancel}>Cancel</button><button class="primary" disabled={busy || !!problem || !draft.command.trim()}>{busy ? 'Starting…' : 'Create terminal'}</button></div>
 </form>
 
 <style>

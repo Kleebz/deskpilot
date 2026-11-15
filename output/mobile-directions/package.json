@@ -1,0 +1,18 @@
+{
+  "name": "deskpilot-mobile-directions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5178 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5178 --strictPort",
+    "test:final-review": "deno run --allow-net=127.0.0.1 --allow-run=chromium --allow-read --allow-write --allow-env tests/final-review.ts",
+    "test:spaces": "deno test tests/spaces_model_test.ts && deno run --allow-net=127.0.0.1 --allow-run=chromium --allow-read --allow-write --allow-env tests/spaces.ts",
+    "test": "deno run --allow-net=127.0.0.1 --allow-run=chromium --allow-read --allow-write --allow-env tests/browser.ts"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "5.1.1",
+    "svelte": "5.56.8",
+    "vite": "6.4.3"
+  }
+}

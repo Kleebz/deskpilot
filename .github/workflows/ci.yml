@@ -1,8 +1,7 @@
 # Every check that can run without a desktop.
 #
-# The layout and headless suites both need a running server, and both get one
-# from the compiled binary rather than a source checkout — which means CI also
-# exercises the artifact people actually install, not just the code.
+# Phone checks use disposable HTTP/WebSocket fixtures. Headless and preview API
+# checks also exercise the compiled artifact people actually install.
 name: ci
 
 on:
@@ -23,7 +22,7 @@ jobs:
         run: deno check server/server.ts
 
       - name: Unit tests
-        run: deno test --allow-read --allow-write --allow-env tests/
+        run: deno test --allow-read --allow-write --allow-env --allow-run=sh tests/
 
       - name: Shell syntax
         run: for f in shell/*.sh scripts/*.sh tests/*.sh; do bash -n "$f" || exit 1; done
@@ -53,20 +52,33 @@ jobs:
       - name: Real tmux terminal recovery
         run: deno run -A tests/terminal-recovery.ts
 
+      - name: Task image publishing without a desktop
+        run: deno run -A tests/previews.ts dist/deskpilot
+
+      - name: Phone image previews
+        run: deno run -A tests/previews-mobile.ts
+
+      - name: Desktop conversation chooser
+        run: deno run -A tests/conversations-mobile.ts
+
+      - name: Stable source identity and shared organization
+        run: |
+          deno run -A tests/organization-api.ts
+          deno run -A tests/spaces-runtime.ts
+
+      - name: Notification watcher lifecycle
+        run: deno run -A tests/watcher.ts
+
       - name: A host with no desktop
         # The ubuntu runner has no compositor at all, so this is the real case
         # rather than a simulation of it.
         run: tests/headless.sh dist/deskpilot
 
-      - name: Phone layout
+      - name: Phone Spaces workflows and layout
         run: |
-          mkdir -p ~/.config/deskpilot ~/.local/state/deskpilot
-          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > ~/.config/deskpilot/token
-          DESKPILOT_PORT=8790 ./dist/deskpilot &
-          for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null http://127.0.0.1:8790/ && break; done
-          deno run -A tests/layout.ts --url http://127.0.0.1:8790
-          deno run -A tests/scanner.ts --url http://127.0.0.1:8790
-          deno run -A tests/recovery.ts --url http://127.0.0.1:8790 --dist web/dist
+          deno run -A tests/spaces-mobile.ts
+          deno run -A tests/ui-updates.ts
+          deno run -A tests/scanner.ts
 
       - uses: actions/upload-artifact@v7
         with:

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deskpilot final layout review</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0d110d;color:#e8eddf}
+*{box-sizing:border-box}body{margin:0;padding:28px}h1{font-size:28px;letter-spacing:-.8px;margin:8px 0 12px}p{color:#a8b49f;font-size:14px;line-height:1.65;max-width:760px}small{color:#b7da96;font-size:11px;letter-spacing:1.4px}button,select{font:inherit;color:inherit;background:#192117;border:1px solid #35442b;border-radius:9px;min-height:44px;padding:8px 13px}button{cursor:pointer}button[aria-pressed=true]{color:#c6ed9e;background:#2b3b20}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.stage{overflow:auto;background:#080b08;border:1px solid #263022;padding:20px;border-radius:16px}iframe{display:block;width:390px;height:844px;border:0;box-shadow:0 0 0 1px #405036;border-radius:12px;background:#11170f;margin:auto}.caption{font-size:12px;color:#84947b;margin:12px 0}.decisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:24px;max-width:1200px}.decisions>div{padding:16px;border-top:1px solid #35442b}.decisions h2{font-size:15px;margin:0 0 8px}.decisions p{font-size:13px;margin:0}.bounds{font-size:13px;padding:16px;border:1px solid #38482b;border-radius:12px;max-width:1160px;margin-top:20px}a{color:#c6ed9e}@media(max-width:600px){body{padding:14px}.stage{padding:8px}h1{font-size:23px}}
+</style>
+<small>ONE PROPOSAL · DESIGN REVIEW · SAMPLE DATA</small>
+<h1>One hierarchy. More room for work.</h1>
+<p>Spaces → tabs → terminals. The same navigator stays on the side of a wide screen and opens from the top of a phone. This is the proposed final layout, with its key states together for review.</p>
+<div class="controls" aria-label="Review viewport">
+  <button data-size="390,844" aria-pressed="true">Phone</button>
+  <button data-size="390,430" aria-pressed="false">Keyboard viewport</button>
+  <button data-size="932,430" aria-pressed="false">Landscape</button>
+  <button data-size="1280,840" aria-pressed="false">Desktop</button>
+  <select id="scenario" aria-label="Review scenario">
+    <option value="native">Herdr installed</option><option value="ordinary">No Herdr</option>
+    <option value="offline">Cannot reach computer</option><option value="auth">Pairing required</option>
+    <option value="update">UI update available</option>
+  </select>
+  <button id="reset">Reset sample</button>
+</div>
+<div class="stage"><iframe title="Proposed Deskpilot layout" src="./app.html"></iframe></div>
+<p class="caption">Try Spaces, search, tab expansion, terminal switching, Hide / Restore, Computer, and pairing cancellation. Terminal output, input, management, pairing and updates are simulated. This review never connects to your computers.</p>
+<div class="decisions">
+  <div><h2>One navigator</h2><p>A persistent desktop sidebar becomes a top-opened mobile drawer. Remove the duplicate bottom dock and horizontal tab/pane strips.</p></div>
+  <div><h2>Keep the terminal in place</h2><p>Opening navigation or changing screen width keeps the terminal and composer mounted. Previous/next and horizontal swiping stay within the current tab.</p></div>
+  <div><h2>A quieter backlog</h2><p>Available conversations starts collapsed. Search includes available work; hidden work has an explicit Show hidden / Restore path. No age-based removal.</p></div>
+  <div><h2>Clear computer context</h2><p>Computer, source and connection stay visible. Computer contains switching, Desktop, Previews, pairing and settings.</p></div>
+  <div><h2>Reliable gestures and drafts</h2><p>Vertical movement scrolls history. Horizontal movement switches sibling terminals. Drafts stay with their exact source. Back dismisses the keyboard and overlays first.</p></div>
+  <div><h2>A visible update path</h2><p>Show when a new UI is ready and offer a deliberate reload. Keep UI and backend versions distinct in settings; keep saved pairings and drafts.</p></div>
+</div>
+<div class="bounds"><strong>Release boundary:</strong> one visible terminal on every screen size; native Herdr ownership stays native; existing terminal transport and desktop tools are preserved. A simultaneous multi-terminal grid is outside this change. The full scope and release checks are in <a href="./FINAL-SPEC.md">the final specification</a>.</div>
+<script>
+const frame=document.querySelector('iframe');
+document.querySelectorAll('[data-size]').forEach(button=>button.onclick=()=>{
+  const [w,h]=button.dataset.size.split(',');
+  frame.style.width=w+'px';frame.style.height=h+'px';
+  document.querySelectorAll('[data-size]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+});
+document.querySelector('#scenario').onchange=e=>frame.contentWindow.postMessage({scenario:e.target.value},location.origin);
+document.querySelector('#reset').onclick=()=>{document.querySelector('#scenario').value='native';frame.src='./app.html?reset='+Date.now();};
+</script>
+</html>

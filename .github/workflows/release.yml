@@ -57,7 +57,7 @@ jobs:
         run: deno check server/server.ts
 
       - name: Unit tests
-        run: deno test --allow-read --allow-write --allow-env tests/
+        run: deno test --allow-read --allow-write --allow-env --allow-run=sh tests/
 
       - name: Shell syntax
         run: for f in shell/*.sh scripts/*.sh tests/*.sh; do bash -n "$f" || exit 1; done
@@ -70,13 +70,24 @@ jobs:
       - name: Real tmux terminal recovery
         run: deno run -A tests/terminal-recovery.ts
 
+      - name: Task image publishing without a desktop
+        run: deno run -A tests/previews.ts dist/deskpilot
+
+      - name: Phone image previews
+        run: deno run -A tests/previews-mobile.ts
+
+      - name: Phone conversation connection
+        run: deno run -A tests/conversations-mobile.ts
+
+      - name: Notification watcher lifecycle
+        run: deno run -A tests/watcher.ts
+
       - name: Refuse to ship a binary that fails the headless case
         run: tests/headless.sh dist/deskpilot
 
       - name: Browser validation against the release binary
         run: |
           mkdir -p ~/.config/deskpilot ~/.local/state/deskpilot
-          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > ~/.config/deskpilot/token
           DESKPILOT_PORT=8790 ./dist/deskpilot &
           for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null http://127.0.0.1:8790/ && break; done
           deno run -A tests/layout.ts --url http://127.0.0.1:8790
@@ -90,7 +101,7 @@ jobs:
           STAGE=$(mktemp -d)
           cp dist/deskpilot "$STAGE/"
           mkdir -p "$STAGE/scripts" "$STAGE/docs"
-          cp scripts/desk.sh scripts/sessions.sh scripts/session.sh "$STAGE/scripts/"
+          cp scripts/desk.sh scripts/sessions.sh scripts/session.sh scripts/terminal.sh "$STAGE/scripts/"
           cp README.md LICENSE deskpilot.conf.example deskpilot-terminal.desktop "$STAGE/"
           cp docs/decisions.md docs/agent-install.md "$STAGE/docs/"
           TAR="deskpilot-$VER-x86_64.tar.gz"

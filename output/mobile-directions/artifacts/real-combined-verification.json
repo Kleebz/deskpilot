@@ -1,0 +1,123 @@
+{
+  "checks": 22,
+  "layouts": [
+    {
+      "label": "Sessions 320",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Sessions 360",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Sessions 390",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Sessions 430",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Terminal 320x844",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 202
+    },
+    {
+      "label": "Terminal 360x844",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 242
+    },
+    {
+      "label": "Terminal 390x844",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 272
+    },
+    {
+      "label": "Terminal 430x844",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 688,
+      "composer": 312
+    },
+    {
+      "label": "Terminal 932x430",
+      "width": 932,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 816
+    },
+    {
+      "label": "Terminal 320x430",
+      "width": 320,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 204
+    },
+    {
+      "label": "Terminal 390x430",
+      "width": 390,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 274
+    },
+    {
+      "label": "Computer",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Desktop",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    }
+  ]
+}

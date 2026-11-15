@@ -18,7 +18,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-TOKEN_FILE="$HOME/.config/deskpilot/token"
+TOKEN_FILE="${DESKPILOT_TOKEN_FILE:-$HOME/.local/state/deskpilot/local-token}"
 PORT="${DESKPILOT_PORT:-8790}"
 LINK_ONLY=0
 HOST=""
@@ -34,7 +34,7 @@ for arg in "$@"; do
   esac
 done
 
-[ -f "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — run install-service.sh first" >&2; exit 1; }
+[ -f "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — start the deskpilot service first" >&2; exit 1; }
 TOKEN=$(tr -d '\n' < "$TOKEN_FILE")
 
 # The address comes from desk.sh, which is also what the packaged binary's
@@ -60,24 +60,17 @@ if [ -z "${BASE:-}" ]; then
   exit 1
 fi
 
-# Ask the server for a one-time enrolment code rather than handing over the
-# machine's own token. The token cannot be revoked without re-pairing every
-# device; a code mints a credential belonging to this device alone, so losing a
-# phone costs you that phone.
-#
-# Falls back to the token if the server is not answering — pairing a machine
-# whose service is down is a worse failure than pairing it the old way, and the
-# old way is exactly what every already-paired device is using.
-# Ask the port we are actually pairing against rather than checking the service
-# unit: they are the same thing in normal use and not when PORT is overridden.
-CODE=$(curl -s -m 5 -X POST "http://127.0.0.1:${PORT}/api/devices/code" \
+# The local helper authenticates as its own registered device. Only a fresh
+# single-use enrollment code is ever handed to the phone.
+CODE=$(curl -fsS -m 5 -X POST "http://127.0.0.1:${PORT}/api/devices/code" \
   -H "authorization: Bearer ${TOKEN}" 2>/dev/null \
-  | sed -n 's/.*"code":"\([^"]*\)".*/\1/p')
+  | sed -n 's/.*"code":"\([^"]*\)".*/\1/p') || CODE=""
 
 if [ -n "$CODE" ]; then
   URL="${BASE}/?code=${CODE}"
 else
-  URL="${BASE}/?token=${TOKEN}"
+  echo "Could not obtain a pairing code. Start the service and retry deskpilot pair." >&2
+  exit 1
 fi
 
 if ! systemctl --user is-active --quiet deskpilot; then
@@ -137,7 +130,6 @@ else
   echo
 fi
 
-if [ -n "$CODE" ]; then
   echo "Scan the QR or open the complete link above. It already contains the code;"
   echo "do not enter anything separately. Good for 10 minutes, one device."
   echo
@@ -150,10 +142,3 @@ if [ -n "$CODE" ]; then
   echo
   echo "This device gets its own credential — revoke it from the app without"
   echo "disturbing anything else."
-else
-  echo "Scan it, then add the page to your home screen."
-  echo
-  echo "NOTE: handing over the shared token, because the service did not answer."
-  echo "That credential cannot be revoked on its own. Start the service and"
-  echo "re-run this to pair properly."
-fi

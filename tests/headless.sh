@@ -80,7 +80,7 @@ for t in tmux ps sh bash env cat mkdir id chmod; do
   ln -sf "$src" "$BOX/bin/$t"
 done
 head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$BOX/home/.config/deskpilot/token"
-TOKEN=$(cat "$BOX/home/.config/deskpilot/token")
+OLD_SHARED_TOKEN=$(cat "$BOX/home/.config/deskpilot/token")
 cp "$BIN" "$BOX/deskpilot"
 
 # The sandbox sees /box; running directly, the same files are where they are.
@@ -139,6 +139,9 @@ if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/"; then
   exit 1
 fi
 
+TOKEN=$(tr -d '\n' < "$BOX/home/.local/state/deskpilot/local-token")
+OLD_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OLD_SHARED_TOKEN" "http://127.0.0.1:$PORT/api/capabilities")
+[ "$OLD_STATUS" = 401 ] && pass "old shared machine token is rejected" || fail "shared token must not authorize access" "$OLD_STATUS"
 api() { curl -s -m 6 -H "authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/$1"; }
 post() {
   curl -s -m 6 -X POST -H "authorization: Bearer $TOKEN" \
@@ -213,7 +216,7 @@ echo
 echo "==> complete device revocation"
 if deno run -A "$REPO/tests/revocation.ts" \
   --url "http://127.0.0.1:$PORT" --token "$TOKEN" --session headless \
-  --evidence "$BOX/revocation-evidence.json"; then
+  --evidence "$BOX/revocation-evidence.json" --subscriptions "$BOX/home/.local/state/deskpilot/subscriptions.json"; then
   pass "revocation closes sockets while preserving the session and another device"
 else
   fail "complete revocation regression failed" "active terminal or peer isolation did not hold"
@@ -234,7 +237,8 @@ if [ -s "$BOX/revocation-evidence.json" ]; then
   KEPT_ENDPOINT=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["keptEndpoint"])' "$BOX/revocation-evidence.json")
   LOST_STATUS=$(curl -s -m 6 -G -H "authorization: Bearer $TOKEN" \
     --data-urlencode "endpoint=$LOST_ENDPOINT" "http://127.0.0.1:$PORT/api/push/status")
-  KEPT_STATUS=$(curl -s -m 6 -G -H "authorization: Bearer $TOKEN" \
+  KEPT_TOKEN=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["keptToken"])' "$BOX/revocation-evidence.json")
+  KEPT_STATUS=$(curl -s -m 6 -G -H "authorization: Bearer $KEPT_TOKEN" \
     --data-urlencode "endpoint=$KEPT_ENDPOINT" "http://127.0.0.1:$PORT/api/push/status")
   case "$LOST_STATUS:$KEPT_STATUS" in
     *'"registered":false'*:*'"registered":true'*)

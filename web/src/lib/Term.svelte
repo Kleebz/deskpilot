@@ -3,15 +3,15 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import "@xterm/xterm/css/xterm.css";
-  import { token } from "./api.js";
   import { currentHost } from "./hosts.svelte.js";
   import { vis } from "./visible.svelte.js";
   import { terminalText } from "./terminal-text.js";
 
-  let { session, fontPx = 10, alive = false, busy = false, onactivity, onstep } = $props();
+  let { session, terminalId, generation, fontPx = 10, alive = false, busy = false, onactivity, onstep } = $props();
 
   let host = $state(null);
   let term, fit, ws;
+  let primed = false;
   let state = $state("connecting");
 
   // Phone keyboards do not speak in terminal keystrokes. They edit a text
@@ -49,7 +49,7 @@
   // The palette the rest of the app uses, so a terminal does not arrive looking
   // like a different program. Values are the desktop's Cyberpunk Cyan theme.
   const theme = {
-    background: "#12141e", foreground: "#e0f7ff",
+    background: "#151b12", foreground: "#e7eadd",
     cursor: "#00ffff", cursorAccent: "#0a0a0f", selectionBackground: "#00ffff44",
     black: "#1a1a24", red: "#ff2a6d", green: "#39ff14", yellow: "#ffd700",
     blue: "#00ffff", magenta: "#ff00ff", cyan: "#00cccc", white: "#c0c5ce",
@@ -115,6 +115,8 @@
   // has onclose attached lands in dropped() and schedules a reconnect against
   // the very socket being replaced.
   function dropSocket() {
+    primed = false;
+    touchCancel();
     clearTimeout(retryTimer);
     if (!ws) return;
     ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
@@ -152,7 +154,8 @@
     const q = new URLSearchParams({
       session, cols: String(term.cols), rows: String(term.rows),
     });
-    const tok = h.token || token;
+    if(terminalId){q.set("terminalId",terminalId);q.set("generation",generation);}
+    const tok = h.token;
     if (tok) q.set("token", tok);
     ws = new WebSocket(`${proto}://${base.host}/api/term?${q}`);
 
@@ -165,8 +168,13 @@
         // work is rather than blank until something new is printed.
         if (m.cols && m.rows) term.resize(m.cols, m.rows);
         term.reset();
-        term.write(m.d);
-        term.scrollToBottom();
+        const target = term, channel = ws;
+        primed = false;
+        term.write(m.d, () => {
+          if (term !== target || ws !== channel) return;
+          primed = true;
+          term.scrollToBottom();
+        });
       } else if (m.t === "o") {
         term.write(m.d);
         activity();
@@ -221,10 +229,9 @@
     // tap from taking focus away from a half-written composer prompt.
     if (displayOnly && term.textarea) term.textarea.tabIndex = -1;
     refit();
-    term.onData((d) => {
-      if (ws?.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ t: "i", d }));
-    });
+    term.onData(sendInput);
+    // Legacy mouse protocols use byte strings; send-keys -H preserves them.
+    term.onBinary(sendInput);
     connect();
   }
 
@@ -236,9 +243,9 @@
   // selection only. Native scrolling therefore does not happen by itself, and
   // this has to move the buffer directly.
   //
-  // It is still far simpler than what it replaces: the scrollback is xterm's
-  // own now, so a drag is a local call rather than keys sent to tmux and a
-  // round trip. Nothing is sent to the far end at all.
+  // Ordinary output scrolls locally. Full-screen applications own their
+  // history: send their requested mouse wheel, or PageUp/Down without mouse
+  // support. Never send arrow keys, which can edit a prompt instead.
   const SLOP = 12;          // px before a touch counts as a drag, so taps focus
   const FRICTION = 0.92;    // per-frame decay of a throw
   const THROW = 11;         // px of coast per px/ms of release speed
@@ -246,6 +253,51 @@
   let dragAt = 0, dragAcc = 0, dragging = false;
   let startX = 0, startY = 0, swipeX = 0, axis = '';
   let vel = 0, glide = 0, lastMoveAt = 0, raf = 0, lastFrame = 0;
+  let pageAcc = 0, dragTerm, dragSocket;
+
+  function sendInput(d) {
+    if (!primed || ws?.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ t: "i", d }));
+  }
+
+  function applicationMouse() {
+    return ['vt200', 'drag', 'any'].includes(term?.modes.mouseTrackingMode);
+  }
+
+  function scrollLines(lines) {
+    if (!term || term !== dragTerm || ws !== dragSocket) return;
+    if (!applicationMouse() && term.buffer.active.type !== 'alternate') {
+      term.scrollLines(lines);
+      return;
+    }
+    if (!primed || ws?.readyState !== WebSocket.OPEN) return;
+    if (applicationMouse()) {
+      const screen = host.querySelector('.xterm-screen');
+      const box = screen.getBoundingClientRect();
+      // Use xterm's own protocol encoder, including legacy mouse modes. IME
+      // input stays disabled except during this synchronous wheel dispatch;
+      // no focus change or keyboard event is involved.
+      const disabled = term.options.disableStdin;
+      term.options.disableStdin = false;
+      try {
+        for (let n = 0; n < Math.min(Math.abs(lines), 20); n++) {
+          screen.dispatchEvent(new WheelEvent('wheel', {
+            bubbles: true, cancelable: true, deltaMode: 1, deltaY: Math.sign(lines),
+            clientX: Math.max(box.left + 1, Math.min(box.right - 1, startX)),
+            clientY: Math.max(box.top + 1, Math.min(box.bottom - 1, startY)),
+          }));
+        }
+      } finally { term.options.disableStdin = disabled; }
+    } else {
+      pageAcc += lines;
+      const page = Math.max(3, Math.floor(term.rows / 3));
+      while (Math.abs(pageAcc) >= page) {
+        const direction = Math.sign(pageAcc);
+        sendInput(direction < 0 ? '\x1b[5~' : '\x1b[6~');
+        pageAcc -= direction * page;
+      }
+    }
+  }
 
   // Row height off the rendered grid, for the same reason refit() measures the
   // cell width there: it is the only honest source.
@@ -261,7 +313,7 @@
     let lines = 0;
     while (dragAcc >= px) { lines--; dragAcc -= px; }   // drag down -> earlier
     while (dragAcc <= -px) { lines++; dragAcc += px; }
-    if (lines) term?.scrollLines(lines);
+    if (lines) scrollLines(lines);
   }
 
   function pump(ts) {
@@ -290,6 +342,7 @@
     dragAt = e.touches[0].clientY;
     lastMoveAt = e.timeStamp;
     dragAcc = 0; vel = 0; glide = 0; dragging = false;
+    pageAcc = 0; dragTerm = term; dragSocket = ws;
   }
 
   function touchMove(e) {
@@ -332,12 +385,17 @@
     }
     if (!dragging) return;
     dragging = false;
+    // Application scroll must stop at release. A delayed throw must not send
+    // keys to a later prompt or a reconnecting terminal.
+    if (applicationMouse() || term?.buffer.active.type === 'alternate') {
+      glide = 0; dragAcc = 0; return;
+    }
     // A lift after a pause is a stop, not a throw.
     if (e.timeStamp - lastMoveAt < 100) glide = vel * THROW;
     startPump();
   }
 
-  function touchCancel() { axis = 'cancelled'; swipeX = 0; dragging = false; glide = 0; dragAcc = 0; }
+  function touchCancel() { axis = 'cancelled'; swipeX = 0; dragging = false; glide = 0; dragAcc = 0; pageAcc = 0; dragTerm = null; dragSocket = null; }
 
   function blockTerminalFocus(e) {
     if (!displayOnly) return;

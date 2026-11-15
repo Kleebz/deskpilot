@@ -18,15 +18,16 @@
   const POLL_MS = 5 * 60 * 1000;
   const STALE_MS = 30 * 60 * 1000;
 
-  let agents = $state([]);
+  let agents = $state([]), loading = $state(true), unavailable = $state(false);
   let now = $state(Date.now());
 
   async function load() {
     try {
-      agents = await api("/usage");
+      agents = await api("/usage"); unavailable=false;
     } catch (e) {
+      unavailable=true;
       onstatus?.(e.message, true);
-    }
+    } finally { loading=false; }
   }
 
   $effect(() => {
@@ -75,6 +76,7 @@
   const C = 2 * Math.PI * R;
 </script>
 
+{#if !shown.length}<p class="dim" role="status">{loading?'Loading usage…':unavailable?'Usage is unavailable on this machine.':'No usage records are available on this machine yet.'}</p>{/if}
 {#each shown as a (a.id)}
   {@const hero = a.limits[0]}
   {@const rest = a.limits.slice(1)}

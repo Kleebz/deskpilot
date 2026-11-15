@@ -47,3 +47,20 @@ Deno.test("managed commands remain argv and configure clean session teardown", (
     ],
   );
 });
+
+Deno.test("a launched shell records only a valid window identity on its final session", () => {
+  const identity = "com.deskpilot.Terminal.n123";
+  const args = tmuxRunArgs("desk-2", "/tmp", ["bash", "-l"], identity);
+  const at = args.indexOf("@deskpilot-window-classes");
+  assertEquals(args.slice(at - 3, at + 2), [
+    "set-option",
+    "-t",
+    "desk-2",
+    "@deskpilot-window-classes",
+    identity,
+  ]);
+  assertEquals(
+    tmuxRunArgs("desk", "/tmp", ["bash"], "bad identity"),
+    tmuxRunArgs("desk", "/tmp", ["bash"]),
+  );
+});

@@ -1,33 +1,30 @@
 :root {
-  /* Cyberpunk Cyan, taken from the Omarchy theme this desktop runs, so the app
-     reads as part of the machine rather than a visitor. Roles are matched to
-     how the theme already uses them: cyan is what "active" looks like here
-     (window borders, the lock ring), #ff2a6d is what failure looks like. */
+  /* Navigation uses the selected mobile direction; terminal glyphs stay monospace. */
   color-scheme: dark;
 
-  --bg:      #0a0a0f;
-  --fg:      #e0f7ff;
-  --dim:     #7d8ba1;   /* muted, still 4.5:1 on the background */
-  --line:    #1e2230;
-  --ok:      #00ffff;   /* accent — matches col.active_border */
-  --err:     #ff2a6d;   /* matches hyprlock's fail_color */
-  --warn:    #ffd700;
+  --bg:      #131613;
+  --fg:      #e7eadd;
+  --dim:     #a1ad99;   /* muted, still 4.5:1 on the background */
+  --line:    #333b2e;
+  --ok:      #c7ef92;   /* accent — matches col.active_border */
+  --err:     #efac94;   /* matches hyprlock's fail_color */
+  --warn:    #efb38c;
 
-  --panel:     #11131c;
-  --card:      #12141e;
-  --card-line: #23283a;
+  --panel:     #1d241a;
+  --card:      #151b12;
+  --card-line: #3f4b35;
   --radius: 10px;
 
   /* Neon is a highlight, not a texture. Only the accent glows, and only where
      something is genuinely active. */
-  --magenta: #ff00ff;
+  --magenta: #bea9e1;
   --glow: 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
           0 0 12px -2px color-mix(in srgb, var(--ok) 45%, transparent);
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body {
   margin: 0; background: var(--bg); color: var(--fg); overscroll-behavior: none;
-  font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* An app shell, not a document: the page itself never scrolls, the panes do.
@@ -88,6 +85,9 @@ input:focus, select:focus {
 @keyframes sweep { to { --angle: 360deg; } }
 
 h1 { font-size:1.25rem; margin:0; }
+/* Route headings receive focus for screen-reader announcements. They are not
+   interactive controls; leave visible keyboard focus on the controls themselves. */
+h1[tabindex="-1"]:focus { outline:none; }
 h2 { font-size:1rem; }
 p { margin:.3rem 0; }
 label { display:flex; flex-direction:column; gap:.35rem; min-width:0; }
@@ -100,3 +100,10 @@ main { padding-bottom:calc(.7rem + env(safe-area-inset-bottom, 0px)); }
 @media(prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
 }
+
+* { min-width:0; }
+button { cursor:pointer; }
+button:disabled {cursor:default;}
+.eyebrow {font-size:10px;letter-spacing:1.4px;color:var(--dim);}
+@media(max-height:520px){#app:has(section.composing) > nav{display:none;}}
+#app:has(.composer input:focus) > nav{display:none;}

@@ -24,6 +24,11 @@ const FIELDS = [
   "bracket_paste_flag",
   "wrap_flag",
   "keypad_flag",
+  "mouse_standard_flag",
+  "mouse_button_flag",
+  "mouse_any_flag",
+  "mouse_utf8_flag",
+  "mouse_sgr_flag",
 ];
 
 export function terminalSnapshot(replies: string[][]): TerminalSnapshot {
@@ -47,6 +52,11 @@ export function terminalSnapshot(replies: string[][]): TerminalSnapshot {
     paste,
     wrap,
     keypad,
+    mouseStandard,
+    mouseButton,
+    mouseAny,
+    mouseUtf8,
+    mouseSgr,
   ] = values;
   if (cols < 1 || rows < 1 || x < 0 || x > cols || y < 0 || y >= rows) {
     throw new Error("invalid terminal geometry");
@@ -62,6 +72,19 @@ export function terminalSnapshot(replies: string[][]): TerminalSnapshot {
   d += `\x1b[?25${cursor ? "h" : "l"}\x1b[4${insert ? "h" : "l"}`;
   d += `\x1b[?1${keys ? "h" : "l"}\x1b[?2004${paste ? "h" : "l"}`;
   d += `\x1b[?7${wrap ? "h" : "l"}` + (keypad ? "\x1b=" : "\x1b>");
+  // Full-screen adapters (including Herdr) ask for mouse wheels instead of
+  // recording scrollback. The reset above clears these modes; restore both
+  // tracking and encoding so reconnecting does not disable application scroll.
+  const mouseMode = mouseAny
+    ? 1003
+    : mouseButton
+    ? 1002
+    : mouseStandard
+    ? 1000
+    : 0;
+  if (mouseMode) d += `\x1b[?${mouseMode}h`;
+  if (mouseUtf8) d += "\x1b[?1005h";
+  if (mouseSgr) d += "\x1b[?1006h";
   if (x === cols) {
     // CUP clamps at the last column and clears pending wrap. Repainting this
     // one unchanged row restores the right-edge state, including wide glyphs,

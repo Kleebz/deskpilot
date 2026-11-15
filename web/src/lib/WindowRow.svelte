@@ -3,7 +3,7 @@
   import { currentHost as viewHost } from "./hosts.svelte.js";
   import { api as requestApi, post as requestPost } from "./api.js";
 
-  let { win, workspaces, onstatus: reportStatus, onchanged, self = false } = $props();
+  let { win, workspaces, onstatus: reportStatus, onchanged, self = false, children } = $props();
   const actionHost = viewHost();
   let mounted = true;
   onDestroy(() => mounted = false);
@@ -74,6 +74,7 @@
     </select>
     <button class="sm" disabled={busy} onclick={look}>look</button>
   </div>
+  {@render children?.()}
 </div>
 
 {#if shot}

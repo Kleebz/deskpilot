@@ -1,0 +1,766 @@
+// Mobile navigation and layout, using disposable fixtures and a fresh browser profile.
+// deno run -A tests/layout.ts — screenshots go to /tmp/deskpilot-mobile-review.
+import { connect } from "./browser.ts";
+import { fixture } from "./mobile_fixture.ts";
+const fx = await fixture();
+const profile = await Deno.makeTempDir({ prefix: "dp-mobile-browser-" });
+const chrome = new Deno.Command("chromium", {
+  args: [
+    "--headless=new",
+    "--remote-debugging-port=9342",
+    `--user-data-dir=${profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "about:blank",
+  ],
+  stdout: "null",
+  stderr: "null",
+}).spawn();
+const pause = (ms = 100) => new Promise((r) => setTimeout(r, ms));
+let cdp;
+try {
+  let endpoint;
+  for (let i = 0; i < 50; i++) {
+    try {
+      endpoint =
+        (await (await fetch("http://127.0.0.1:9342/json/version")).json())
+          .webSocketDebuggerUrl;
+      break;
+    } catch {
+      await pause();
+    }
+  }
+  if (!endpoint) throw Error("Chromium did not start");
+  cdp = await connect(endpoint);
+  const { targetId } = await cdp.send("Target.createTarget", {
+    url: "about:blank",
+  });
+  const { sessionId } = await cdp.send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  const send = (method: string, params = {}) =>
+    cdp!.send(method, params, sessionId);
+  const run = async (expression: string) => {
+    const r = await send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails));
+    return r.result?.value;
+  };
+  const check = async (expression: string, label: string) => {
+    if (!await run(expression)) throw Error(label);
+    console.log(`✓ ${label}`);
+  };
+  const until = async (expression: string) => {
+    for (let i = 0; i < 100; i++) {
+      if (await run(expression)) return;
+      await pause();
+    }
+    throw Error(
+      `Timed out: ${expression}\n${await run("document.body.innerText")}`,
+    );
+  };
+  const click = async (text: string) => {
+    if(text==='Disconnect view')text='Disconnect mobile view';
+    const exists = async (label:string) => run(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)})`);
+    if(['Desktop','Previews','Settings','Add machine'].includes(text)&&!await exists(text)) await click('Computer');
+    if(['paste','copy','keys','normal','large'].includes(text)&&!await exists(text)) await click('Input tools');
+    if(['End session','Disconnect mobile view'].includes(text)&&!await exists(text)) {
+      await click(await exists('Session actions')?'Session actions':'Herdr actions');
+    }
+    if(text.startsWith('Back to ')&&await exists('Close panel')) await click('Close panel');
+    if(text==='Back to sessions'&&!await exists(text)&&await exists('Back to Attention')) text='Back to Attention';
+    await run(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})?.click()`);
+    await pause();
+  };
+  const reload = async (code = "location.reload()") => {
+    const previous = await run("performance.timeOrigin");
+    await run(code);
+    // The old page can still satisfy selectors until navigation commits.
+    // Wait for a new document before checking persisted state or scroll.
+    await until(`performance.timeOrigin!==${previous}&&document.readyState==='complete'`);
+  };
+  const input = async (selector: string, value: string) => {
+    await run(
+      `{const el=document.querySelector(${
+        JSON.stringify(selector)
+      }); el.value=${
+        JSON.stringify(value)
+      };el.dispatchEvent(new Event('input',{bubbles:true}));}`,
+    );
+    await pause();
+  };
+  const choose = async (port: number) => {
+    if(!await run(`!!document.querySelector('select[aria-label="Machine"]')`)) await click('Computer');
+    await run(`{const e=document.querySelector('select[aria-label="Machine"]');if(e){e.value='http://127.0.0.1:${port}';e.dispatchEvent(new Event('change',{bubbles:true}));}else document.querySelector('[data-host="http://127.0.0.1:${port}"]').click();}`);
+    await pause();
+    await click('Sessions');
+  };
+  const metrics = async (width: number, height: number) => {
+    await send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await pause();
+  };
+  const swipeLeft = async (selector: string, direction = 'left') => {
+    const box = await run(
+      `(() => { const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {left:r.left,top:r.top,width:r.width,height:r.height}; })()`,
+    );
+    const points = [.82, .65, .48, .31, .14].map(n => direction === 'vertical'
+      ? { x: box.left + box.width * .5 + (1 - n) * 15, y: box.top + box.height * n }
+      : { x: box.left + box.width * (direction === 'right' ? 1 - n : n), y: box.top + box.height * .55 + (1 - n) * 15 });
+    await send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [points[0]],
+    });
+    for (const point of points.slice(1)) {
+      await send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [point],
+      });
+      await pause(20);
+    }
+    await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await pause(500);
+  };
+  // A phone-sized viewport alone still exposes a mouse pointer in Chromium.
+  await send("Emulation.setTouchEmulationEnabled", {
+    enabled: true,
+    maxTouchPoints: 1,
+  });
+  await send("Page.enable");
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source:
+      `if(!localStorage.getItem('dp_hosts')){localStorage.setItem('dp_hosts',JSON.stringify([{origin:'http://127.0.0.1:8892',token:'fixture',name:'Omarchy',alias:'Desktop'},{origin:'http://127.0.0.1:8893',token:'fixture',name:'Omarchy',alias:'Headless'},{origin:'http://127.0.0.1:8895',token:'fixture',name:'Omarchy',alias:'Offline'}]));localStorage.setItem('dp_host','http://127.0.0.1:8892')}window.__errors=[];window.addEventListener('error', e=>window.__errors.push(e.message));`,
+  });
+  await metrics(390, 844);
+  await send("Page.navigate", { url: "http://127.0.0.1:8892" });
+  await until(`document.querySelectorAll('.session-row').length===27`);
+  await check(`[...document.querySelectorAll('nav[aria-label="Views"] button')].map(b=>b.getAttribute('aria-label')).join(',')==='Sessions,Attention,Computer'`, 'combined app shell has exactly Sessions, Attention and Computer');
+  await click('Attention');
+  await until(`!!document.querySelector('.attention-row')`);
+  await check(
+    `[...document.querySelectorAll('.attention-row')].some(e=>e.textContent.includes('headless-job')&&e.textContent.includes('Headless'))`,
+    "cross-machine attention names the machine and blocked session",
+  );
+  await run(`[...document.querySelectorAll('.attention-row')].find(e=>e.textContent.includes('headless-job')).click()`);
+  await until(`document.querySelector('.name')?.textContent==='headless-job'`);
+  await check(
+    `document.querySelector('.terminal-context').textContent.includes('Headless')`,
+    "cross-machine attention opens the correct machine and session",
+  );
+  await click("Back to sessions");
+  await choose(8892);
+  await until(`document.querySelectorAll('.session-row').length===27`);
+  await check(
+    `!!document.getElementById('session-detached') && document.querySelector('.session-row').textContent.includes('project-0')`,
+    "desktop ordering includes detached work without merging sessions",
+  );
+  await check(
+    `document.getElementById('session-project-0').textContent.includes('Ready') && document.getElementById('session-project-1').textContent.includes('Status unknown')`,
+    "done and unknown have distinct session labels",
+  );
+  await run(`document.querySelector('main').scrollTop=650`);
+  const scroll = await run(`document.querySelector('main').scrollTop`);
+  await run(`document.getElementById('session-detached').click()`);
+  await until(`!!document.querySelector('.composer input')`);
+  await input(".composer input", "draft for detached");
+  await click("Back to sessions");
+  await check(
+    `document.querySelector('main').scrollTop===${scroll}`,
+    "Back to sessions restores scroll",
+  );
+  await run(`document.getElementById('session-detached').click()`);
+  await pause();
+  await check(
+    `document.querySelector('.composer input').value==='draft for detached'`,
+    "terminal draft survives navigation",
+  );
+  await pause(5200);
+  await check(
+    `document.querySelector('.composer input').value==='draft for detached'`,
+    "polling preserves composer draft",
+  );
+  const sendsBefore = fx.state.requests.length;
+  await click("send");
+  await until(`document.querySelector('.composer input').value===''`);
+  for (let i = 0; i < 20 && fx.state.requests.length < sendsBefore + 1; i++) await pause();
+  if (
+    fx.state.requests.length !== sendsBefore + 1 ||
+    fx.state.requests.at(-1)?.path !== "/api/send" ||
+    fx.state.requests.at(-1)?.body?.text !== "draft for detached" ||
+    fx.state.requests.at(-1)?.body?.session !== "detached" ||
+    "enter" in (fx.state.requests.at(-1)?.body ?? {})
+  ) {
+    throw Error(`Send button did not issue one submitting request: ${JSON.stringify(fx.state.requests)}`);
+  }
+  console.log("✓ mobile Send submits once and clears its draft");
+  await input(".composer input", "submitted from keyboard");
+  await run(`document.querySelector('.composer input').focus()`);
+  await send("Input.dispatchKeyEvent", {
+    type: "rawKeyDown", key: "Enter", code: "Enter",
+    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "char", key: "Enter", code: "Enter", text: "\r", unmodifiedText: "\r",
+    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyUp", key: "Enter", code: "Enter",
+    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+  });
+  await until(`document.querySelector('.composer input').value===''`);
+  for (let i = 0; i < 20 && fx.state.requests.length < sendsBefore + 2; i++) await pause();
+  if (
+    fx.state.requests.length !== sendsBefore + 2 ||
+    fx.state.requests.at(-1)?.path !== "/api/send" ||
+    fx.state.requests.at(-1)?.body?.text !== "submitted from keyboard" ||
+    Array.isArray(fx.state.requests.at(-1)?.body?.keys)
+  ) {
+    throw Error(`Keyboard submit did not issue one composed request: ${JSON.stringify(fx.state.requests)}`);
+  }
+  console.log("✓ mobile keyboard submission submits once without toolbar Enter");
+  if (!fx.state.sockets.includes("8892:detached")) {
+    throw Error("Detached terminal identity not opened");
+  }
+  const pickSession = async (name: string) => {
+    await click('Choose session');
+    await input('[aria-label="Search sessions"]',name);
+    await run(`document.querySelector('.switch-results [data-session="${name}"]').click()`);
+    await until(`document.querySelector('.name')?.textContent===${JSON.stringify(name)}`);
+    await until(`!!document.querySelector('.xterm-screen') && !document.querySelector('.wrap .state')`);
+  };
+  await until(`JSON.parse(localStorage.getItem('dp_resume_v1')).order.length===27`);
+  await check(
+    `(() => {const options=JSON.parse(localStorage.getItem('dp_resume_v1')).order.map(value=>({value}));return options.length===27 && options.slice(0,3).map(o=>o.value).join(',')==='project-0,project-10,project-20' && options.at(-1).value==='detached' && document.querySelector('[aria-label="Next session"]').disabled;})()`,
+    "session navigation follows desktop order and includes detached sessions at the end",
+  );
+  await pickSession('same-screen-a');
+  await input('.composer input', 'draft A');
+  await run(`window.__composer=document.querySelector('.composer input');window.__composer.focus();window.__historyLength=history.length`);
+  await swipeLeft('.host');
+  await until(`document.querySelector('.name')?.textContent==='same-screen-b'`);
+  await check(
+    `document.activeElement===window.__composer && document.querySelector('.composer input')===window.__composer && window.__composer.value==='' && history.length===window.__historyLength`,
+    "horizontal terminal swipe changes sessions without replacing the focused composer or adding history",
+  );
+  await input('.composer input', 'draft B');
+  await until(`!!document.querySelector('.xterm-screen')`);
+  await swipeLeft('.host', 'vertical');
+  await check(`document.querySelector('.name').textContent==='same-screen-b'`, 'vertical terminal drag does not change sessions');
+  await swipeLeft('.host', 'right');
+  await until(`document.querySelector('.name')?.textContent==='same-screen-a'`);
+  await check(`window.__composer.value==='draft A' && document.activeElement===window.__composer`, 'reverse swipe restores the original session draft and focus');
+  await run(`window.__sessionOrder=JSON.parse(localStorage.getItem('dp_resume_v1')).order.join(',')`);
+  await click('paste');
+  await input('.paste textarea', 'paste draft A');
+  fx.state.sessionOverrides['same-screen-a'] = { workspace: 9, state: 'blocked' };
+  await pause(5200);
+  await check(
+    `document.querySelector('.terminal-context').textContent.includes('Screen 9') && JSON.parse(localStorage.getItem('dp_resume_v1')).order.join(',')===window.__sessionOrder`,
+    'polling updates placement and status without shuffling swipe destinations',
+  );
+  await check(`document.querySelector('.paste textarea')?.value==='paste draft A'`, 'polling preserves the open paste drawer');
+  fx.state.sendDelay = 700; fx.state.sendFailure = true;
+  await click('send');
+  await pickSession('same-screen-b');
+  await pause(800);
+  await check(`document.querySelector('.composer input').value==='draft B' && !document.querySelector('.feedback.err')`, 'late send failure cannot overwrite another session draft or feedback');
+  fx.state.sendDelay = 0; fx.state.sendFailure = false;
+  await pickSession('same-screen-a');
+  await check(`document.querySelector('.composer input').value==='draft A'`, 'failed send restores the originating session draft');
+  await click('paste');
+  await check(`document.querySelector('.paste textarea')?.value==='paste draft A'`, 'paste draft survives session switches');
+  await click('cancel');
+  await pickSession('same-screen-b');
+  const sessionSends = fx.state.requests.length;
+  await click('send');
+  await pause();
+  if (fx.state.requests.length !== sessionSends + 1 || fx.state.requests.at(-1)?.body.session !== 'same-screen-b' || fx.state.requests.at(-1)?.body.text !== 'draft B') throw Error('Swiped composer sent to the wrong session');
+  await run('history.back()');
+  await until(`document.querySelector('h1')?.textContent==='Sessions'`);
+  await check(`document.querySelector('main').scrollTop===${scroll}`, 'one browser Back after session switches restores the original list position');
+  fx.state.sessionOverrides = {};
+  await click('Refresh');
+  await run(`document.getElementById('session-detached').click()`);
+  await until(`document.querySelector('.name')?.textContent==='detached'`);
+  await click("Session actions");
+  await run(`{const el=document.querySelector('.session-menu select');el.value='4';el.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await click("Open on desktop…");
+  await until(`document.querySelector('.terminal-context')?.textContent.includes('Screen 4')`);
+  await click("Back to sessions");
+  await check(
+    `document.getElementById('session-detached').textContent.includes('Screen 4')`,
+    "successful session action updates the session list without a manual refresh",
+  );
+  for (const name of ["same-screen-a", "same-screen-b"]) {
+    await run(`document.getElementById('session-${name}').click()`);
+    await until(`document.querySelector('.name')?.textContent==='${name}'`);
+    await pause(700);
+    if (!fx.state.sockets.includes(`8892:${name}`)) {
+      throw Error(
+        `Wrong terminal for ${name}: ${
+          JSON.stringify(fx.state.sockets)
+        } errors=${await run("JSON.stringify(window.__errors)")}`,
+      );
+    }
+    await click("Back to sessions");
+  }
+  console.log("✓ exact terminals for two sessions on one workspace");
+  await choose(8893);
+  await until(`document.getElementById('session-headless-job')`);
+  await run(`document.getElementById('session-headless-job').click()`);
+  await until(`!!document.querySelector('.xterm-screen')`);
+  await swipeLeft('.host');
+  await check(`document.querySelector('.name').textContent==='headless-job' && document.querySelector('[aria-label="Previous session"]').disabled && document.querySelector('[aria-label="Next session"]').disabled && document.querySelectorAll('.xterm').length===1`, 'one-session machine stays on its terminal at the swipe boundary');
+  await click('Back to sessions');
+  await check(
+    `document.querySelector('main').scrollTop===0 && ![...document.querySelectorAll('nav button')].some(b=>b.textContent==='Desktop')`,
+    "machine switch starts at top and honors headless capability",
+  );
+  await choose(8893);
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').value.endsWith('8893')`,
+    "selecting current machine is a no-op",
+  );
+  await click("+ Session");
+  await check(
+    `!document.body.innerText.includes('Desktop placement')`,
+    "headless creation has no workspace selector",
+  );
+  await check(
+    `document.querySelector('select[aria-label="Command preset"]')?.value==='claude' && [...document.querySelectorAll('select[aria-label="Command preset"] option')].map(o=>o.textContent+':'+o.value).join('|')==='Terminal:bash|Claude:claude|Claude continue:claude --continue|Codex:codex --no-alt-screen|Codex continue:codex resume --last --no-alt-screen|Codex yolo:codex --yolo --no-alt-screen|Custom command:custom' && document.querySelector('input[placeholder="Type a command or edit the selected preset"]')?.value==='claude'`,
+    "creation shows every agent preset in a mobile-compatible selector and keeps the command editable",
+  );
+  await run(`{const el=document.querySelector('select[aria-label="Command preset"]');el.value='codex --yolo --no-alt-screen';el.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await check(
+    `document.querySelector('input[placeholder="Type a command or edit the selected preset"]')?.value==='codex --yolo --no-alt-screen'`,
+    "selecting a Codex preset updates the command",
+  );
+  await check(
+    `document.querySelector('.command-warning')?.textContent.includes('disables Codex approval prompts and sandboxing')`,
+    "yolo mode warns about disabled safety controls",
+  );
+  await input('input[placeholder="Type a command or edit the selected preset"]', "claude");
+  await check(
+    `!document.querySelector('.command-warning')`,
+    "yolo warning clears with a safer command",
+  );
+  await input('input[placeholder="e.g. api-review"]', "created-headless");
+  await pause(5100);
+  await check(
+    `document.querySelector('input[placeholder="e.g. api-review"]').value==='created-headless'`,
+    "polling preserves creation draft",
+  );
+  await click("Create session");
+  await until(
+    `document.querySelector('.name')?.textContent==='created-headless'`,
+  );
+  if (fx.state.created[0]?.workspace !== null) {
+    throw Error("Headless creation placed a window");
+  }
+  console.log("✓ creation opens returned session");
+  await click("Back to sessions");
+  await choose(8892);
+  await until(`document.getElementById('session-detached')`);
+  await click("Desktop");
+  await run(
+    `{const el=document.querySelector('select[aria-label="Desktop workspace"]');el.value='2';el.dispatchEvent(new Event('change',{bubbles:true}));}`,
+  );
+  await until(`Math.abs(document.querySelector('.screen-rail').scrollLeft-document.querySelector('.screen-rail').clientWidth)<2`);
+  await check(
+    `document.querySelector('[aria-label="Screen 2"] .window-terminal') && document.querySelector('[aria-label="Screen 2"] .win') && !document.querySelector('[aria-label="Screen 2"]').inert`,
+    "Desktop offers compact terminal links with window controls",
+  );
+  await check(
+    `document.querySelector('.screen-position').textContent.includes('Screen 2 of 10') && document.querySelectorAll('.screen-dots i.on').length===1 && [...document.querySelectorAll('.screen-dots i')].indexOf(document.querySelector('.screen-dots i.on'))===1`,
+    "screen pager shows the selected screen",
+  );
+  await run(`document.querySelector('[aria-label="Screen 2"] .window-terminal').click()`);
+  await until(`!!document.querySelector('.composer input')`);
+  await pickSession('detached');
+  await click('Back to desktop');
+  await until(`document.querySelector('h1')?.textContent==='Desktop'`);
+  await check(`document.querySelector('select[aria-label="Desktop workspace"]').value==='2'`, 'Back after browsing sessions returns to the originating desktop screen');
+  await run(`document.querySelector('[aria-label="Next screen"]').click()`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await run(`document.querySelector('[aria-label="Previous screen"]').click()`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='2'`);
+  await swipeLeft('.screen-rail');
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await check(
+    `document.querySelector('[aria-label="Screen 2"]').inert && !document.querySelector('[aria-label="Screen 3"]').inert`,
+    "Screens swipe updates the selector and active panel",
+  );
+  await run(`document.getElementById('new-session-3').click()`);
+  await check(
+    `document.querySelector('form select:last-of-type')!==null && document.body.innerText.includes('Desktop placement')`,
+    "desktop creation exposes optional placement",
+  );
+  await check(
+    `document.querySelector('select[aria-label="Desktop placement"]').value==='3'`,
+    "Screens creation defaults to the swiped workspace",
+  );
+  await click("Cancel");
+  await until(`document.querySelector('h1')?.textContent==='Desktop'`);
+  await check(
+    `document.activeElement.id==='new-session-3'`,
+    "Cancel restores invoking control focus",
+  );
+  await click("Sessions");
+  await click("+ Session");
+  await check(
+    `document.querySelector('select[aria-label="Desktop placement"]').selectedOptions[0].textContent==='Screen 3'`,
+    "creation draft is retained across cancellation",
+  );
+  await click("Cancel");
+  await click("Desktop");
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await run(`{const rail=document.querySelector('.screen-rail');rail.scrollTo({left:rail.scrollWidth,behavior:'auto'});rail.dispatchEvent(new Event('scroll'));}`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='10'`);
+  await run(`{const rail=document.querySelector('.screen-rail');rail.scrollTo({left:-rail.clientWidth,behavior:'auto'});rail.dispatchEvent(new Event('scroll'));}`);
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='1'`);
+  await run(`{const el=document.querySelector('select[aria-label="Desktop workspace"]');el.value='3';el.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await until(`Math.abs(document.querySelector('.screen-rail').scrollLeft-document.querySelector('.screen-rail').clientWidth*2)<2`);
+  await choose(8893);
+  await until(`document.getElementById('session-headless-job')`);
+  await choose(8892);
+  await until(`document.getElementById('session-detached')`);
+  await click("Desktop");
+  await until(`document.querySelector('select[aria-label="Desktop workspace"]').value==='3'`);
+  await check(
+    `Math.abs(document.querySelector('.screen-rail').scrollLeft-document.querySelector('.screen-rail').clientWidth*2)<2`,
+    "screen selection is bounded and restored per machine",
+  );
+  await click("Sessions");
+  await click("Add machine");
+  await input(".pair-form input", "http://127.0.0.1:8894");
+  await input(".code-in", "34679CDG");
+  await click("Pair machine");
+  await until(`document.querySelector('[role="alert"]')`);
+  await check(
+    `document.querySelector('.code-in').value==='34679CDG' && document.querySelector('[role="alert"]').textContent.includes('Invalid pairing code')`,
+    "pairing failure retains values beside form",
+  );
+  await click("Cancel");
+  await check(
+    `document.activeElement.id==='add-machine'`,
+    "pair cancellation restores focus",
+  );
+  await click("Add machine");
+  await input(".code-in", "34679CDF");
+  await click("Pair machine");
+  await until(
+    `document.querySelector('h1')?.textContent==='Sessions' && document.querySelector('select[aria-label="Machine"]').value.endsWith('8894')`,
+  );
+  await check(
+    `document.querySelector('main').scrollTop===0`,
+    "successful pairing opens machine sessions at top",
+  );
+  await click("Add machine");
+  await input(".pair-form input", "http://127.0.0.1:8892/?code=34679CDF");
+  await click("Pair machine");
+  await until(
+    `document.querySelector('h1')?.textContent==='Sessions' && document.querySelector('select[aria-label="Machine"]').value.endsWith('8892')`,
+  );
+  await check(
+    `document.querySelector('main').scrollTop===0 && JSON.parse(localStorage.getItem('dp_hosts')).find(h=>h.origin.endsWith('8892')).alias==='Desktop'`,
+    "already-paired success opens sessions at top without losing its label",
+  );
+  // Leaving an in-flight pairing must not select its machine when it finishes.
+  fx.state.repair = true;
+  fx.state.enrollDelay = 700;
+  await click("Add machine");
+  await input(".pair-form input", "http://127.0.0.1:8894/?code=34679CDF");
+  await click("Pair machine");
+  await click("Cancel");
+  await pause(900);
+  await check(
+    `!!document.querySelector('dialog.computer-sheet') && document.querySelector('select[aria-label="Machine"]').value.endsWith('8892')`,
+    "cancelled in-flight pairing cannot navigate",
+  );
+  fx.state.enrollDelay = 0;
+  fx.state.repair = false;
+  await click("Settings");
+  await click("Authorized devices");
+  await until(`document.body.innerText.includes('Test phone')`);
+  await check(
+    `document.body.innerText.includes('Test phone') && !document.querySelector('.session-row')`,
+    "management separates authorized devices from sessions",
+  );
+  await click("Back to settings");await click("Machines & pairing");
+  await click("rename label");
+  await input('input[aria-label="machine label"]', "Studio");
+  await click("save");
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Studio') && JSON.parse(localStorage.getItem('dp_hosts')).find(h=>h.origin.endsWith('8892')).alias==='Studio' && document.body.innerText.includes('Reported as Omarchy')`,
+    "local machine label is shown and persisted separately from hostname",
+  );
+  await click("Sessions");
+  await click("Refresh");
+  await until(`document.getElementById('session-detached')`);
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Studio')`,
+    "capability refresh preserves local machine label",
+  );
+  await reload("location.reload()");
+  await until(`document.getElementById('session-detached')`);
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Studio')`,
+    "machine label survives reload",
+  );
+  await click("Settings");
+  await click("Machines & pairing");
+  await click("rename label");
+  await click("use reported name");
+  await check(
+    `document.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.startsWith('Omarchy') && !('alias' in JSON.parse(localStorage.getItem('dp_hosts')).find(h=>h.origin.endsWith('8892')))`,
+    "machine label can be reset to the reported hostname",
+  );
+  await click("rename label");
+  await input('input[aria-label="machine label"]', "Desktop");
+  await click("save");
+  await click("Sessions");
+  await click("Add machine");
+  await input(
+    ".pair-form input",
+    "http://127.0.0.1:8894/?token=" + "a".repeat(64),
+  );
+  await click("Pair machine");
+  await check(
+    `document.querySelector('.err')?.textContent.includes('one-time code') && !JSON.parse(localStorage.getItem('dp_hosts')).some(h=>h.token==='${"a".repeat(64)}')`,
+    "shared-token pairing links are rejected instead of imported",
+  );
+  await click("Cancel");
+  await choose(8892);
+  await until(`document.getElementById('session-detached')`);
+  fx.state.createDelay = 700;
+  await click("+ Session");
+  await input('input[placeholder="e.g. api-review"]', "late-created");
+  await click("Create session");
+  await choose(8893);
+  await pause(900);
+  await check(
+    `document.querySelector('h1')?.textContent==='Sessions' && document.querySelector('select[aria-label="Machine"]').value.endsWith('8893')`,
+    "late creation cannot navigate another machine",
+  );
+  fx.state.createDelay = 0;
+  await choose(8892);
+  await until(`document.getElementById('session-detached')`);
+  fx.state.delay = 1400;
+  await click("Refresh");
+  await choose(8893);
+  await until(`document.getElementById('session-headless-job')`);
+  await pause(1600);
+  await check(
+    `!document.getElementById('session-detached')`,
+    "late response cannot replace another machine data",
+  );
+  await choose(8892);
+  await check(
+    `document.querySelector('h1')?.textContent==='Loading sessions…'`,
+    "loading is distinct from empty",
+  );
+  await until(`document.getElementById('session-detached')`);
+  fx.state.delay = 0;
+  fx.state.auth = true;
+  await click("Refresh");
+  await until(
+    `document.querySelector('h1')?.textContent==='Authentication required'`,
+  );
+  fx.state.auth = false;
+  await choose(8895);
+  await until(`document.querySelector('h1')?.textContent==='Machine offline'`);
+  await check(
+    `!!document.querySelector('select[aria-label="Machine"]') && !!document.getElementById('computer-nav')`,
+    "offline keeps machine picker and pairing available",
+  );
+  await choose(8892);
+  await until(`document.getElementById('session-detached')`);
+  fx.state.empty = true;
+  await click("Refresh");
+  await until(`document.body.innerText.includes('No sessions found')`);
+  fx.state.empty = false;
+  await click("Refresh");
+  await until(`document.getElementById('session-detached')`);
+  await click("Add machine");
+  await run("history.back()");
+  await until(`!!document.querySelector('dialog.computer-sheet')`);
+  await click("Close Computer");
+  await until(`document.querySelector('h1')?.textContent==='Sessions'`);
+  console.log("✓ browser Back navigation");
+  await Deno.mkdir("/tmp/deskpilot-mobile-review", { recursive: true });
+  const measure = async (label: string, width: number) => {
+    await check(
+      `innerWidth===${width} && document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll('main,header,nav,.composing')].every(el=>el.getBoundingClientRect().right<=innerWidth+1)`,
+      `${label}: no page overflow`,
+    );
+    await check(
+      `[...document.querySelectorAll('button,input,select')].filter(el=>{const r=el.getBoundingClientRect();return r.width && r.height && r.top>=0 && r.bottom<=innerHeight}).every(el=>el.getBoundingClientRect().height>=(innerHeight<=480?38:44))`,
+      `${label}: touch target heights`,
+    );
+    if (label.endsWith("terminal")) {
+      await check(
+        `document.querySelector('.composer input').getBoundingClientRect().width>=70 && document.querySelector('.composer').getBoundingClientRect().bottom<=innerHeight+1 && document.querySelector('.wrap').getBoundingClientRect().height>=80`,
+        `${label}: usable composer and terminal`,
+      );
+    }
+  };
+  for (
+    const [width, height] of [[320, 844], [360, 844], [390, 844], [430, 844], [
+      932,
+      430,
+    ]]
+  ) {
+    await metrics(width, height);
+    await measure(`${width}×${height} sessions`, width);
+    let shot = await send("Page.captureScreenshot", { format: "png" });
+    await Deno.writeFile(
+      `/tmp/deskpilot-mobile-review/sessions-${width}.png`,
+      Uint8Array.from(atob(shot.data), (c) => c.charCodeAt(0)),
+    );
+    await run(`document.getElementById('session-detached').click()`);
+    await until(`!!document.querySelector('.composer input')`);
+    await check(
+      `!!document.querySelector('[aria-label="Session actions"]') && !document.querySelector('.terminal-heading').textContent.includes('End session')`,
+      "terminal exposes a direct session-ending action",
+    );
+    await measure(`${width}×${height} terminal`, width);
+    await click("paste");
+    await measure(`${width}×${height} paste drawer`, width);
+    await click("cancel");
+    await until(
+      `!!document.querySelector(".xterm-screen") && !document.querySelector(".wrap .state")`,
+    );
+    await check(
+      `(() => {
+      const helper = document.querySelector('.xterm-helper-textarea');
+      const composer = document.querySelector('.composer input');
+      const screen = document.querySelector('.xterm-screen');
+      if (!matchMedia('(pointer: coarse)').matches || !helper || !composer || !screen) return false;
+      if (!helper.readOnly || helper.tabIndex !== -1) return false;
+      composer.focus();
+      screen.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      return document.activeElement === composer;
+    })()`,
+      `${width}×${height}: terminal tap preserves composer focus and blocks mobile IME input`,
+    );
+    shot = await send("Page.captureScreenshot", { format: "png" });
+    await Deno.writeFile(
+      `/tmp/deskpilot-mobile-review/terminal-${width}.png`,
+      Uint8Array.from(atob(shot.data), (c) => c.charCodeAt(0)),
+    );
+    await click("Back to sessions");
+    await click("Add machine");
+    await measure(`${width}×${height} pairing`, width);
+    await click("Cancel");
+    await click("Desktop");
+    await until(`document.querySelector('h1')?.textContent==='Desktop'`);
+    await measure(`${width}×${height} screens`, width);
+    await check(
+      `(() => { const rail=document.querySelector('.screen-rail'); const panel=rail.children[0].getBoundingClientRect().width; return [...rail.children].every(p=>Math.abs(p.getBoundingClientRect().width-rail.clientWidth)<1) && Math.abs(rail.scrollWidth-panel*10)<2; })()`,
+      `${width}×${height}: screen panels match the rail width`,
+    );
+    await click("Sessions");
+    await click("Settings");
+    await click("Machines & pairing");
+    await click("rename label");
+    await measure(`${width}×${height} machine rename`, width);
+    await click("cancel");
+    await click("Sessions");
+  }
+  await metrics(390, 420);
+  await click("+ Session");
+  await run(
+    `document.querySelector('form input').focus()`,
+  );
+  await pause();
+  await check(
+    `document.querySelector('.form-actions').getBoundingClientRect().bottom<=innerHeight`,
+    "form actions remain visible with reduced keyboard viewport",
+  );
+  await click("Cancel");
+  await run(`document.getElementById('session-detached').click()`);
+  await until(`!!document.querySelector('[aria-label="Session actions"]')`);
+  await input('.composer input', 'survives a phone reload');
+  await click('paste');
+  await input('.paste textarea', 'saved paste block');
+  const beforeResume = fx.state.requests.length;
+  await run(`Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))`);
+  await check(`JSON.parse(localStorage.getItem('dp_resume_v1')).drafts[JSON.stringify(['http://127.0.0.1:8892','detached'])].input==='survives a phone reload'`, 'backgrounding synchronously saves the latest draft');
+  await reload('location.reload()');
+  await until(`document.querySelector('.name')?.textContent==='detached' && !!document.querySelector('.xterm-screen')`);
+  await check(`document.querySelector('.composer input').value==='survives a phone reload'`, 'page reload restores the selected session and unsent prompt');
+  await click('paste');
+  await check(`document.querySelector('.paste textarea').value==='saved paste block'`, 'page reload restores the session paste draft');
+  if (fx.state.requests.length !== beforeResume) throw Error('Resume replayed an input request');
+  await click('cancel');
+  await pickSession('same-screen-a');
+  await input('.composer input', 'cold launch draft');
+  // A new PWA window need not inherit the old window's browser history.
+  await reload(`window.dispatchEvent(new Event('pagehide'));history.replaceState(null,'',location.href);location.reload()`);
+  await until(`document.querySelector('.name')?.textContent==='same-screen-a'`);
+  await check(`document.querySelector('.composer input').value==='cold launch draft'`, 'cold launch without browser history restores the last session');
+  await click('Back to sessions');
+  await until(`document.querySelector('h1')?.textContent==='Sessions'`);
+  await run(`document.querySelector('main').scrollTop=450`);
+  await reload(`window.dispatchEvent(new Event('pagehide'));location.reload()`);
+  await until(`document.getElementById('session-detached')`);
+  await check(`document.querySelector('main').scrollTop===450`, 'reload restores list scroll after the sessions load');
+  await click('Desktop');
+  await run(`{const el=document.querySelector('select[aria-label="Desktop workspace"]');el.value='7';el.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await until(`Math.abs(document.querySelector('.screen-rail').scrollLeft/document.querySelector('.screen-rail').clientWidth-6)<.01`);
+  await reload(`window.dispatchEvent(new Event('pagehide'));location.reload()`);
+  await until(`!!document.querySelector('.screen-rail')`);
+  await check(`document.querySelector('select[aria-label="Desktop workspace"]').value==='7' && Math.abs(document.querySelector('.screen-rail').scrollLeft/document.querySelector('.screen-rail').clientWidth-6)<.01`, 'reload restores the selected desktop screen');
+  await run(`document.getElementById('new-session-7').click()`);
+  await input('input[placeholder="e.g. api-review"]', 'unfinished-creation');
+  await reload(`window.dispatchEvent(new Event('pagehide'));location.reload()`);
+  await until(`document.querySelector('h1')?.textContent==='New session'`);
+  await check(`document.querySelector('input[placeholder="e.g. api-review"]').value==='unfinished-creation'`, 'reload restores an unfinished creation form without submitting it');
+  await click('Cancel');
+  await until(`document.querySelector('h1')?.textContent==='Desktop'`);
+  await choose(8893);
+  await until(`document.getElementById('session-headless-job')`);
+  await run(`document.getElementById('session-headless-job').click()`);
+  await input('.composer input', 'other machine draft');
+  await reload(`window.dispatchEvent(new Event('pagehide'));location.reload()`);
+  await until(`document.querySelector('.name')?.textContent==='headless-job'`);
+  await check(`document.querySelector('.terminal-context').textContent.includes('Headless') && document.querySelector('.composer input').value==='other machine draft'`, 'resume restores the matching machine and session');
+  await choose(8892);
+  await until(`document.getElementById('session-detached')`);
+  await run(`document.getElementById('session-detached').click()`);
+  await input('.composer input', 'closed session draft');
+  fx.state.empty = true;
+  await reload(`window.dispatchEvent(new Event('pagehide'));location.reload()`);
+  await until(`document.querySelector('h1')?.textContent==='Session closed'`);
+  await check(`!document.querySelector('.composer')`, 'a session that closed while away does not silently open a different terminal');
+  fx.state.empty = false;
+  await click('Back to sessions');
+  await until(`document.getElementById('session-detached')`);
+  await run(`document.getElementById('session-detached').click()`);
+  await until(`!!document.querySelector('[aria-label="Session actions"]')`);
+  const killsBefore = fx.state.calls.filter((call) => call === "8892:POST:/api/sessions/kill").length;
+  await run(`window.confirm=()=>true`);
+  await click("End session");
+  await until(`document.querySelector('h1')?.textContent==='Sessions'`);
+  if (fx.state.calls.filter((call) => call === "8892:POST:/api/sessions/kill").length !== killsBefore + 1) {
+    throw Error("End session did not issue a kill request");
+  }
+  console.log("✓ contextual End session action is wired to session termination");
+  await check(`window.__errors.length===0`, `no browser runtime errors`);
+  console.log("Screenshots: /tmp/deskpilot-mobile-review");
+} finally {
+  cdp?.close();
+  try {
+    chrome.kill();
+  } catch { /* exited */ }
+  await fx.close();
+  await Deno.remove(profile, { recursive: true }).catch(() => {});
+}

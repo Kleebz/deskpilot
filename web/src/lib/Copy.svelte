@@ -4,6 +4,7 @@
 
   let { session, text, onclose } = $props();
 
+  let dialog;
   let pre = $state(null);
   let scroller = $state(null);
   let note = $state("drag to select part of it, or copy the lot");
@@ -23,17 +24,19 @@
   }
 
   onMount(() => {
+    dialog.showModal();
     // Opens where you were looking. The interesting text is nearly always the
     // last thing printed, and a sheet that starts a thousand lines above it
     // reads as having loaded the wrong session.
     scroller?.scrollTo(0, scroller.scrollHeight);
+    return ()=>dialog?.close();
   });
 </script>
 
 <!-- Full screen, like the window lightbox: this is text you are going to read
      and drag a selection across, and a modal that leaves the app visible behind
      it is a modal you keep dismissing by accident. -->
-<div class="sheet">
+<dialog bind:this={dialog} class="sheet" aria-label="Copy terminal output" oncancel={e=>{e.preventDefault();onclose();}}>
   <div class="bar">
     <span class="name">{session}</span>
     <span class="count">{lines} lines</span>
@@ -50,10 +53,11 @@
   </div>
 
   <div class="note">{note}</div>
-</div>
+</dialog>
 
 <style>
   .sheet {
+    max-width:none;max-height:none;width:100%;height:100%;margin:0;padding:0;border:0;
     position: fixed; inset: 0; z-index: 60; background: var(--bg);
     display: flex; flex-direction: column;
   }

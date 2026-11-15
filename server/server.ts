@@ -17,9 +17,15 @@ import {
   type Subscription,
   validateSubscription,
 } from "./push.ts";
+import { terminalTarget,terminalIdentity,TERMINAL_IDENTITY_FORMAT } from "./terminal-identity.ts";
 import { ControlClient, keysCommand } from "./control.ts";
+import { ConversationError, Conversations } from "./conversations.ts";
+import { Herdr, HerdrError } from "./herdr.ts";
+import { HerdrManagement } from "./herdr-management.ts";
+import { Organizations, OrganizationError, ORGANIZATION_MAX_BYTES } from "./organization.ts";
 import { captureTerminal } from "./terminal.ts";
 import { type Device, Devices, DeviceStoreError } from "./devices.ts";
+import { ensureLocalDevice } from "./local-device.ts";
 import { describe } from "./version.ts";
 import { runCommand } from "./cli.ts";
 import {
@@ -34,7 +40,19 @@ import {
   type LifecycleReport,
 } from "./agent-state.ts";
 import { inputBufferName, pasteInputArgs } from "./tmux-input.ts";
-import { BodyReadTimeout, BodyTooLarge, boundedJson } from "./request.ts";
+import {
+  BodyReadTimeout,
+  BodyTooLarge,
+  boundedBytes,
+  boundedJson,
+} from "./request.ts";
+import {
+  PREVIEW_MAX_BYTES,
+  PreviewInputError,
+  previewLabels,
+  Previews,
+  PreviewStoreError,
+} from "./previews.ts";
 
 const WEB = `${ROOT}/web`;
 
@@ -90,39 +108,12 @@ const NAME = Deno.env.get("DESKPILOT_NAME") ?? (() => {
 // question from what this machine is called. Deliberately NOT defaulted to
 // NAME: see serveManifest.
 const APP_NAME = Deno.env.get("DESKPILOT_APP_NAME") ?? "deskpilot";
-const TOKEN = (await readToken()).trim();
 const COMMAND_TIMEOUT_MS = Number(
   Deno.env.get("DESKPILOT_COMMAND_TIMEOUT_MS") ?? "15000",
 );
 const PUSH_TIMEOUT_MS = Number(
   Deno.env.get("DESKPILOT_PUSH_TIMEOUT_MS") ?? "8000",
 );
-
-async function readToken(): Promise<string> {
-  const path = Deno.env.get("DESKPILOT_TOKEN_FILE") ??
-    `${Deno.env.get("HOME")}/.config/deskpilot/token`;
-  try {
-    return await Deno.readTextFile(path);
-  } catch {
-    console.error(`no token at ${path} — create one with:`);
-    console.error(
-      `  mkdir -p ~/.config/deskpilot && openssl rand -hex 32 > ~/.config/deskpilot/token`,
-    );
-    Deno.exit(1);
-  }
-}
-
-// Length-independent comparison so the token is not guessable by timing.
-function tokenOk(given: string | null): boolean {
-  if (!given) return false;
-  const a = new TextEncoder().encode(given);
-  const b = new TextEncoder().encode(TOKEN);
-  let diff = a.length ^ b.length;
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  }
-  return diff === 0;
-}
 
 // A command that cannot be spawned at all is a normal state here, not an
 // exception. A headless host has no desk.sh — that is the entire premise of
@@ -315,8 +306,8 @@ const ALLOWED_KEYS = new Set([
 // overwrite one another.
 const PASTE_MAX = 100_000;
 // Enough for a 100k-character Unicode clipboard paste plus its JSON envelope.
-// Every route shares this byte ceiling, including chunked requests with no
-// Content-Length header.
+// JSON routes share this byte ceiling, including chunked requests with no
+// Content-Length header. Image publishing has its own bounded byte ceiling.
 const HTTP_BODY_MAX = 512 * 1024;
 const WS_MESSAGE_MAX = 256 * 1024;
 const WS_BUFFER_MAX = 1024 * 1024;
@@ -352,9 +343,20 @@ const APPROVE_TTL_MS = 120_000;
 const AGENT_FILE = `${
   Deno.env.get("HOME")
 }/.local/state/deskpilot/agent-state.json`;
+const STATE_DIR = `${Deno.env.get("HOME")}/.local/state/deskpilot`;
+await Deno.mkdir(STATE_DIR, { recursive: true, mode: 0o700 });
 const devices = new Devices(
   `${Deno.env.get("HOME")}/.local/state/deskpilot/devices.json`,
 );
+await ensureLocalDevice(devices, Deno.env.get("DESKPILOT_TOKEN_FILE") ?? `${STATE_DIR}/local-token`);
+const previews = new Previews(
+  `${Deno.env.get("HOME")}/.local/state/deskpilot/previews`,
+);
+const organization = new Organizations(`${STATE_DIR}/organization.json`);
+let previewUploads = 0;
+const conversations = new Conversations(run, Deno.env.get("SHELL") || "/bin/bash");
+const herdr = new Herdr(run, Deno.env.get("SHELL") || "/bin/bash");
+const herdrManagement = new HerdrManagement(run, undefined, Deno.env.get("SHELL") || "/bin/bash");
 
 // Serializes identity-sensitive transitions. Authentication happens before a
 // route is selected, so a subscribe or terminal upgrade that was waiting while
@@ -373,24 +375,24 @@ async function withSecurityLock<T>(fn: () => Promise<T> | T): Promise<T> {
 }
 
 async function withAuthorizedOperation<T>(
-  device: Device | null,
+  device: Device,
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const controller = await withSecurityLock(() => {
-    if (device && !devices.has(device.id)) throw new RevokedDuringRequest();
+    if (!devices.has(device.id)) throw new RevokedDuringRequest();
     const next = new AbortController();
-    trackDeviceWork(device?.id, next);
+    trackDeviceWork(device.id, next);
     return next;
   });
   try {
     return await operation(controller.signal);
   } finally {
-    await withSecurityLock(() => untrackDeviceWork(device?.id, controller));
+    await withSecurityLock(() => untrackDeviceWork(device.id, controller));
   }
 }
 
 async function runAuthorized(
-  device: Device | null,
+  device: Device,
   cmd: string,
   args: string[],
 ) {
@@ -398,6 +400,34 @@ async function runAuthorized(
     device,
     (signal) => run(cmd, args, signal),
   );
+}
+
+// Each placement updates the session's launch identities. Serialize that
+// read/modify/write per session without holding the global security lock while
+// the compositor runs. A queued request rechecks authorization on admission.
+const placements = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof runAuthorized>>>
+>();
+async function placeSession(
+  device: Device,
+  session: string,
+  workspace: string,
+) {
+  const previous = placements.get(session) ?? Promise.resolve();
+  const work = previous.catch(() => {}).then(() =>
+    runAuthorized(
+      device,
+      `${scriptsDir()}/desk.sh`,
+      ["place-session", workspace, session],
+    )
+  );
+  placements.set(session, work);
+  try {
+    return await work;
+  } finally {
+    if (placements.get(session) === work) placements.delete(session);
+  }
 }
 
 type LiveConnection = { shutdown: (code?: number, reason?: string) => void };
@@ -649,17 +679,10 @@ async function handle(req: Request): Promise<Response> {
   const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
     url.searchParams.get("token") ?? cookie ?? null;
 
-  // Two credential kinds during the changeover. The shared token still works —
-  // it is what every already-paired device holds, and breaking those to improve
-  // credentials would be a strange way round. New pairings mint a device token,
-  // which is the one that can be revoked on its own.
-  let device: Device | null = null;
-  if (!tokenOk(given)) {
-    device = given ? await devices.match(given) : null;
-    if (!device) return fail("unauthorized", 401);
-    devices.touch(device);
-  }
-  const credentialRevoked = () => device !== null && !devices.has(device.id);
+  const device = given ? await devices.match(given) : null;
+  if (!device) return fail("unauthorized", 401);
+  devices.touch(device);
+  const credentialRevoked = () => !devices.has(device.id);
 
   // Refreshed on every authenticated request, not just when it is missing.
   //
@@ -745,6 +768,8 @@ async function handle(req: Request): Promise<Response> {
       name: NAME,
       terminal: true, // the one thing every host has
       sessions: true,
+      previews: true,
+      organization: true,
       shellHook: shellHookInstalled(),
       version: BUILD,
       // `input` says ydotool works; `unlock` says it is allowed to be used.
@@ -752,6 +777,59 @@ async function handle(req: Request): Promise<Response> {
       repo: ROOT,
       ...caps,
     }));
+  }
+
+  // Published task images work even without a tmux session or a desktop.
+  if (req.method === "GET" && path === "/api/previews") {
+    return withCookie(json(previews.list()));
+  }
+  if (req.method === "GET" && path.startsWith("/api/previews/")) {
+    const found = previews.read(path.slice("/api/previews/".length));
+    if (!found) return fail("no such preview", 404);
+    return withCookie(
+      new Response(found.data, {
+        headers: {
+          "content-type": found.preview.mime,
+          "x-content-type-options": "nosniff",
+          ...NO_STORE,
+        },
+      }),
+    );
+  }
+  if (req.method === "POST" && path === "/api/previews") {
+    const { task, caption } = previewLabels(
+      url.searchParams.get("task"),
+      url.searchParams.get("caption") ?? "",
+    );
+    if (
+      !["image/png", "image/jpeg"].includes(
+        req.headers.get("content-type")?.split(";")[0] || "",
+      )
+    ) {
+      return fail("publish a PNG or JPEG image", 415);
+    }
+    if (previewUploads >= 2) {
+      return fail("preview uploads busy; try again", 503);
+    }
+    previewUploads++;
+    try {
+      const bytes = await boundedBytes(req, PREVIEW_MAX_BYTES);
+      return await withSecurityLock(() => {
+        if (credentialRevoked()) throw new RevokedDuringRequest();
+        return withCookie(json(previews.add(bytes, task, caption)));
+      });
+    } finally {
+      previewUploads--;
+    }
+  }
+  if (req.method === "POST" && path === "/api/previews/remove") {
+    const body = await boundedJson(req, HTTP_BODY_MAX);
+    return await withSecurityLock(() => {
+      if (credentialRevoked()) throw new RevokedDuringRequest();
+      return previews.remove(String(body?.id ?? ""))
+        ? withCookie(json({ ok: true }))
+        : fail("no such preview", 404);
+    });
   }
 
   // ---- devices ----
@@ -764,11 +842,8 @@ async function handle(req: Request): Promise<Response> {
         name,
         created,
         lastSeen,
-        current: device?.id === id,
+        current: device.id === id,
       })),
-      // An already-paired device on the old shared token has nothing to revoke,
-      // and the UI should say so rather than showing an empty list.
-      legacy: !device,
     }));
   }
 
@@ -817,7 +892,7 @@ async function handle(req: Request): Promise<Response> {
       throw e;
     }
     console.log(`revoked: ${id}`);
-    return withCookie(json({ ok: true, self: device?.id === id }));
+    return withCookie(json({ ok: true, self: device.id === id }));
   }
 
   if (req.method === "POST" && path === "/api/devices/rename") {
@@ -842,7 +917,75 @@ async function handle(req: Request): Promise<Response> {
     return withCookie(json({ ok: true }));
   }
 
+  // Computer-owned metadata shared by paired devices. The security lock
+  // rechecks revocation after body reads and before the atomic commit.
+  if (path === "/api/organization" && ["GET", "POST"].includes(req.method)) {
+    try {
+      if (req.method === "GET") return withCookie(json(organization.read()));
+      const body = await boundedJson(req, ORGANIZATION_MAX_BYTES);
+      return await withSecurityLock(() => credentialRevoked()
+        ? fail("unauthorized", 401)
+        : withCookie(json(organization.save(body))));
+    } catch (e) {
+      if (e instanceof OrganizationError) return withCookie(fail(e.message, e.status));
+      throw e;
+    }
+  }
+
   // ---- sessions ----
+  if (req.method === "GET" && path === "/api/herdr") {
+    return withCookie(json(await herdr.list()));
+  }
+  if (req.method === "GET" && path === "/api/herdr/management") {
+    return withCookie(json(await herdrManagement.list()));
+  }
+  if (req.method === "POST" && path === "/api/herdr/action") {
+    const body = await boundedJson(req, HTTP_BODY_MAX);
+    if (credentialRevoked()) return fail("unauthorized", 401);
+    try {
+      const result = await herdrManagement.act(body, (cmd,args) => runAuthorized(device,cmd,args));
+      herdr.invalidate();
+      if (credentialRevoked()) return fail("unauthorized",401);
+      return withCookie(json(result));
+    } catch(error) {
+      if(error instanceof HerdrError)return fail(error.message,409);
+      if(error instanceof RevokedDuringRequest)throw error;
+      return fail("Herdr management is unavailable. Refresh its layout before retrying.",503);
+    }
+  }
+  if (req.method === "POST" && path === "/api/herdr/connect") {
+    const body = await boundedJson(req, HTTP_BODY_MAX);
+    if (credentialRevoked()) return fail("unauthorized", 401);
+    try {
+      const result = await herdr.enable(String(body?.id ?? ""),
+        (cmd, args) => runAuthorized(device, cmd, args));
+      if (credentialRevoked()) return fail("unauthorized", 401);
+      return withCookie(json({ ok: true, ...result }));
+    } catch (error) {
+      if (error instanceof HerdrError) return fail(error.message, 409);
+      if (error instanceof RevokedDuringRequest) throw error;
+      return fail("Could not connect to Herdr. Its desktop session is unchanged.", 503);
+    }
+  }
+  // Discovery reads the existing daemon. Connecting opens a tmux view and
+  // leaves the original desktop terminal and agent alone.
+  if (req.method === "GET" && path === "/api/conversations") {
+    return withCookie(json(await conversations.list()));
+  }
+  if (req.method === "POST" && path === "/api/conversations/connect") {
+    const body = await boundedJson(req, HTTP_BODY_MAX);
+    if (credentialRevoked()) return fail("unauthorized", 401);
+    try {
+      const result = await conversations.enable(String(body?.id ?? ""),
+        (cmd, args) => runAuthorized(device, cmd, args));
+      if (credentialRevoked()) return fail("unauthorized", 401);
+      return withCookie(json({ ok: true, ...result }));
+    } catch (error) {
+      if (error instanceof ConversationError) return fail(error.message, 409);
+      if (error instanceof RevokedDuringRequest) throw error;
+      return fail("Could not connect to Codex. Your desktop conversation is unchanged.", 503);
+    }
+  }
   if (req.method === "GET" && path === "/api/sessions") {
     // In-process rather than shelling out to sessions.sh: that script needed jq,
     // which was the last dependency in the portable half — a headless box with
@@ -1050,7 +1193,7 @@ async function handle(req: Request): Promise<Response> {
           kind,
           canApprove: !isUnmanaged && canApprove,
           reqid: !isUnmanaged && canApprove ? reqid : "",
-        }, device?.id);
+        }, device.id);
       } catch (e) {
         if (e instanceof RevokedDuringRequest) return fail("unauthorized", 401);
         throw e;
@@ -1069,9 +1212,9 @@ async function handle(req: Request): Promise<Response> {
 
   if (req.method === "GET" && path === "/api/push/status") {
     const endpoint = url.searchParams.get("endpoint") ?? "";
-    const owner = device?.id ?? null;
+    const owner = device.id;
     const registered = (await loadSubs()).some((s) =>
-      s.endpoint === endpoint && (tokenOk(given) || s.deviceId === owner)
+      s.endpoint === endpoint && s.deviceId === owner
     );
     return withCookie(json({ registered }));
   }
@@ -1095,19 +1238,10 @@ async function handle(req: Request): Promise<Response> {
     let next: OwnedSubscription[];
     try {
       next = await withSecurityLock(async () => {
-        if (device && !devices.has(device.id)) throw new RevokedDuringRequest();
+        if (!devices.has(device.id)) throw new RevokedDuringRequest();
         const subs = await loadSubs();
-        // Legacy master-token callers remain explicitly shared (deviceId null).
-        // They cannot be individually revoked and the UI already labels them.
-        const owner = device?.id ?? null;
-        const replaceEndpoint =
-          typeof (b as Record<string, unknown>).replaceEndpoint === "string"
-            ? String((b as Record<string, unknown>).replaceEndpoint)
-            : "";
-        const updated = subs.filter((s) =>
-          s.endpoint !== b.endpoint &&
-          (!replaceEndpoint || s.endpoint !== replaceEndpoint)
-        );
+        const owner = device.id;
+        const updated = subs.filter((s) => s.endpoint !== b.endpoint);
         const replacing = updated.length !== subs.length;
         const owned = updated.filter((s) => s.deviceId === owner).length;
         if (
@@ -1137,10 +1271,10 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === "POST" && path === "/api/push/unsubscribe") {
     const b = await boundedJson(req, HTTP_BODY_MAX);
     const next = await withSecurityLock(async () => {
-      if (device && !devices.has(device.id)) throw new RevokedDuringRequest();
+      if (!devices.has(device.id)) throw new RevokedDuringRequest();
       const subs = await loadSubs();
       const updated = subs.filter((s) =>
-        s.endpoint !== b?.endpoint || s.deviceId !== (device?.id ?? null)
+        s.endpoint !== b?.endpoint || s.deviceId !== (device.id)
       );
       await saveSubs(updated);
       return updated;
@@ -1158,7 +1292,7 @@ async function handle(req: Request): Promise<Response> {
     try {
       await notify(
         { title: "deskpilot", body: "Notifications are working.", session: "" },
-        device?.id,
+        device.id,
       );
     } catch (e) {
       if (e instanceof RevokedDuringRequest) return fail("unauthorized", 401);
@@ -1206,6 +1340,8 @@ async function handle(req: Request): Promise<Response> {
     if (credentialRevoked()) return fail("unauthorized", 401);
     const s = body?.session ?? "";
     if (!SAFE_NAME.test(s)) return fail("bad session name");
+    const exact = await terminalTarget(s,body?.expected,run);
+    if(!exact)return withCookie(fail("This terminal closed or changed. Input was not sent",409));
 
     if (Array.isArray(body?.keys)) {
       const bad = body.keys.filter((k: unknown) =>
@@ -1216,7 +1352,7 @@ async function handle(req: Request): Promise<Response> {
       const r = await runAuthorized(device, "tmux", [
         "send-keys",
         "-t",
-        s,
+        exact,
         ...body.keys.map(String),
       ]);
       if (r.code !== 0) return fail(r.err || "send failed", 500);
@@ -1238,7 +1374,7 @@ async function handle(req: Request): Promise<Response> {
     const sent = await runAuthorized(
       device,
       "tmux",
-      pasteInputArgs(buffer, s, body?.enter !== false),
+      pasteInputArgs(buffer, exact, body?.enter !== false),
     );
     if (sent.code !== 0) {
       await run("tmux", ["delete-buffer", "-b", buffer]);
@@ -1265,6 +1401,8 @@ async function handle(req: Request): Promise<Response> {
     if (credentialRevoked()) return fail("unauthorized", 401);
     const s = String(body?.session ?? "");
     if (!SAFE_NAME.test(s)) return fail("bad session name");
+    const exact = await terminalTarget(s,body?.expected,run);
+    if(!exact)return withCookie(fail("This terminal closed or changed. Input was not sent",409));
     const text = body?.text;
     if (typeof text !== "string" || !text.length) return fail("empty text");
     if (text.length > PASTE_MAX) {
@@ -1286,7 +1424,7 @@ async function handle(req: Request): Promise<Response> {
     const r = await runAuthorized(
       device,
       "tmux",
-      pasteInputArgs(buffer, s, false),
+      pasteInputArgs(buffer, exact, false),
     );
     if (r.code !== 0) {
       await run("tmux", ["delete-buffer", "-b", buffer]);
@@ -1348,21 +1486,27 @@ async function handle(req: Request): Promise<Response> {
       "on",
     ]);
 
+    let placementError: string | undefined;
     if (ws != null) {
       if (credentialRevoked()) return fail("unauthorized", 401);
-      const term = Deno.env.get("DESKPILOT_TERMINAL") ?? "alacritty";
-      await runAuthorized(device, `${scriptsDir()}/desk.sh`, [
-        "place",
-        String(ws),
-        term,
-        "-e",
-        "tmux",
-        "attach",
-        "-t",
-        name,
-      ]);
+      const placed = await placeSession(device, name, String(ws));
+      if (placed.code !== 0) {
+        placementError = placed.err || "could not open a desktop window";
+      }
     }
-    return withCookie(json({ ok: true, session: name, workspace: ws ?? null }));
+    // The session already exists and remains usable from the phone if window
+    // placement fails. Report that outcome without encouraging a duplicate.
+    return withCookie(json({
+      ok: true,
+      session: name,
+      workspace: placementError ? null : ws ?? null,
+      ...(placementError
+        ? {
+          warning:
+            `Session created, but could not open a desktop window: ${placementError.trim()}`,
+        }
+        : {}),
+    }));
   }
 
   // Candidate working directories for a new session. One level deep under a
@@ -1397,6 +1541,7 @@ async function handle(req: Request): Promise<Response> {
     const from = String(body?.session ?? "");
     const to = String(body?.name ?? "").trim();
     if (!SAFE_NAME.test(from)) return fail("bad session name");
+    const exact=await terminalTarget(from,body?.expected,run);if(!exact)return fail("This terminal closed or changed",409);
     if (!SAFE_NAME.test(to)) {
       return fail("names may use letters, numbers, dot, dash and underscore");
     }
@@ -1412,7 +1557,7 @@ async function handle(req: Request): Promise<Response> {
     const r = await runAuthorized(device, "tmux", [
       "rename-session",
       "-t",
-      from,
+      exact,
       to,
     ]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
@@ -1435,6 +1580,7 @@ async function handle(req: Request): Promise<Response> {
     if (credentialRevoked()) return fail("unauthorized", 401);
     const name = body?.session ?? "";
     if (!SAFE_NAME.test(name)) return fail("bad session name");
+    const exact=await terminalTarget(name,body?.expected,run);if(!exact)return fail("This terminal closed or changed",409);
     // Set this on the TARGET immediately before killing, not just on sessions
     // we created. With detach-on-destroy off — the global default on this box —
     // killing a session hands its clients to another session instead of closing
@@ -1443,12 +1589,12 @@ async function handle(req: Request): Promise<Response> {
     await runAuthorized(device, "tmux", [
       "set-option",
       "-t",
-      name,
+      exact,
       "detach-on-destroy",
       "on",
     ]);
     if (credentialRevoked()) return fail("unauthorized", 401);
-    const r = await runAuthorized(device, "tmux", ["kill-session", "-t", name]);
+    const r = await runAuthorized(device, "tmux", ["kill-session", "-t", exact]);
     if (r.code !== 0) return fail(r.err || "no such session", 404);
     agentStates.remove(name);
     return withCookie(json({ ok: true, killed: name }));
@@ -1461,21 +1607,12 @@ async function handle(req: Request): Promise<Response> {
     const name = body?.session ?? "";
     const ws = body?.workspace;
     if (!SAFE_NAME.test(name)) return fail("bad session name");
+    if(!await terminalTarget(name,body?.expected,run))return fail("This terminal closed or changed",409);
     if (ws == null) return fail("workspace required");
     const exists = await run("tmux", ["has-session", "-t", name]);
     if (exists.code !== 0) return fail("no such session", 404);
     if (credentialRevoked()) return fail("unauthorized", 401);
-    const term = Deno.env.get("DESKPILOT_TERMINAL") ?? "alacritty";
-    const r = await runAuthorized(device, `${scriptsDir()}/desk.sh`, [
-      "place",
-      String(ws),
-      term,
-      "-e",
-      "tmux",
-      "attach",
-      "-t",
-      name,
-    ]);
+    const r = await placeSession(device, name, String(ws));
     if (r.code !== 0) return fail(r.err || "place failed", 500);
     return withCookie(json({ ok: true, session: name, workspace: ws }));
   }
@@ -1548,6 +1685,11 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === "GET" && path === "/api/term") {
     const name = url.searchParams.get("session") ?? "";
     if (!SAFE_NAME.test(name)) return fail("bad session name");
+    const expected=url.searchParams.has("terminalId")?{terminalId:url.searchParams.get("terminalId"),generation:url.searchParams.get("generation")}:null;
+    const exact=await terminalTarget(name,expected,run);
+    if(!exact)return fail("This terminal closed or changed",409);
+    const detached=await runAuthorized(device,'tmux',['set-option','-t',exact,'detach-on-destroy','on']);
+    if(detached.code)return fail('This terminal is no longer running',409);
     const cols = Math.min(
       400,
       Math.max(20, Number(url.searchParams.get("cols")) || 80),
@@ -1565,7 +1707,7 @@ async function handle(req: Request): Promise<Response> {
     }
 
     let socket!: WebSocket, response!: Response;
-    const principal = device?.id ?? "legacy-master-token";
+    const principal = device.id;
     let reserved = false;
     try {
       // Every connection holds a tmux client, so a peer that goes away without
@@ -1574,7 +1716,7 @@ async function handle(req: Request): Promise<Response> {
       // in onclose below and reaps the child. A browser answers pings by
       // itself, so an idle-but-live terminal is unaffected.
       await withSecurityLock(() => {
-        if (device && !devices.has(device.id)) throw new RevokedDuringRequest();
+        if (!devices.has(device.id)) throw new RevokedDuringRequest();
         const activeForDevice = deviceConnections.get(principal)?.size ?? 0;
         const pendingForDevice = pendingConnections.get(principal) ?? 0;
         const activeTotal = [...deviceConnections.values()].reduce(
@@ -1626,7 +1768,7 @@ async function handle(req: Request): Promise<Response> {
 
     let ctl: ControlClient;
     try {
-      ctl = new ControlClient(name, {
+      ctl = new ControlClient(exact, {
         output: (pane, data) => {
           // Splits are rare here and a phone shows one pane, so only the active
           // one is rendered. Everything else is still running; it is just not
@@ -1661,7 +1803,7 @@ async function handle(req: Request): Promise<Response> {
         else pendingConnections.set(principal, pending - 1);
         reserved = false;
       }
-      if (device && !devices.has(device.id)) {
+      if (!devices.has(device.id)) {
         return shutdown(4003, "device revoked");
       }
       const set = deviceConnections.get(principal) ?? new Set<LiveConnection>();
@@ -1692,8 +1834,13 @@ async function handle(req: Request): Promise<Response> {
       });
     socket.onopen = async () => {
       try {
+        if(expected){
+          const line=(await ctl.send(`display -p -t '${exact}' '${TERMINAL_IDENTITY_FORMAT}'`))[0]||'';
+          const identity=terminalIdentity(...line.split('\t') as [string,string,string,string]);
+          if(!identity||identity.terminalId!==expected.terminalId||identity.generation!==expected.generation)return shutdown(4009,'terminal changed');
+        }
         await ctl.send(`refresh-client -C ${cols}x${rows}`);
-        active = (await ctl.send(`display -p -t ${name} '#{pane_id}'`))[0] ??
+        active = (await ctl.send(`display -p -t '${exact}' '#{pane_id}'`))[0] ??
           "";
         await restore();
       } catch {
@@ -1704,7 +1851,7 @@ async function handle(req: Request): Promise<Response> {
     socket.onmessage = (e) => {
       // Defense in depth for a connection whose close frame is delayed. The
       // registry closes it during revoke; this check prevents any later input.
-      if (device && !devices.has(device.id)) {
+      if (!devices.has(device.id)) {
         return shutdown(4003, "device revoked");
       }
       if (typeof e.data !== "string") return;
@@ -1718,8 +1865,9 @@ async function handle(req: Request): Promise<Response> {
         return;
       }
 
+      if(m.t==='i'&&!primed)return;
       if (m.t === "i" && typeof m.d === "string" && m.d.length) {
-        for (const c of keysCommand(name, m.d)) ctl.send(c).catch(shutdown);
+        for (const c of keysCommand(exact, m.d)) ctl.send(c).catch(shutdown);
       } else if (m.t === "r") {
         // The whole point of control mode: a resize is a request, not a
         // reconnect.
@@ -1853,12 +2001,11 @@ for (const sig of ["SIGTERM", "SIGINT"] as const) {
 // Nothing here parses the output. It only notices that the screen moved, which
 // is what keeps this agent-agnostic.
 
-const STATE_DIR = `${Deno.env.get("HOME")}/.local/state/deskpilot`;
 const VAPID_FILE = `${STATE_DIR}/vapid.json`;
 const SUBS_FILE = `${STATE_DIR}/subscriptions.json`;
 let subscriptionCount: number | undefined;
 type OwnedSubscription = Subscription & {
-  deviceId: string | null;
+  deviceId: string;
   machine?: string;
 };
 
@@ -1876,10 +2023,7 @@ async function loadSubs(): Promise<OwnedSubscription[]> {
   try {
     const raw = JSON.parse(await Deno.readTextFile(SUBS_FILE));
     if (!Array.isArray(raw)) throw new Error("root value is not an array");
-    const subscriptions = raw.map((s) => ({
-      ...s,
-      deviceId: typeof s.deviceId === "string" ? s.deviceId : null,
-    }));
+    const subscriptions = raw.filter((s) => typeof s.deviceId === "string" && devices.has(s.deviceId));
     subscriptionCount = subscriptions.length;
     return subscriptions;
   } catch (e) {
@@ -2065,22 +2209,57 @@ function lastMeaningful(lines: string[]): string {
 }
 
 const watched = new Map<string, Watched>();
+const herdrReports = new Map<string, { id: string; state: string; at: number }>();
+
+async function syncHerdrStates() {
+  const { items } = await herdr.list();
+  const live = new Set<string>();
+  for (const item of items) {
+    if (!item.session) continue;
+    live.add(item.session);
+    const previous = herdrReports.get(item.session);
+    const changed = previous?.id !== item.id || previous?.state !== item.state;
+    const now = Date.now();
+    if (!changed && now - previous.at < 60_000) continue;
+    herdrReports.set(item.session, { id: item.id, state: item.state, at: now });
+    const state = item.state === "error" ? "blocked" : item.state;
+    if (isLifecycle(state)) {
+      agentStates.report(item.session, {
+        state, source: "herdr-core", sourceSession: item.id,
+        observedAt: now, agent: item.agent, canApprove: false,
+      });
+      if (previous && changed && state !== "working") {
+        notify({ title: `${item.title} ${state === "blocked" ? "needs you" : "finished"}`,
+          body: `Herdr · ${item.agent}`, session: item.session, kind: state,
+          canApprove: false })
+          .catch(e => console.error("Herdr notification:", e?.message ?? e));
+      }
+    } else agentStates.remove(item.session);
+  }
+  for (const session of herdrReports.keys()) {
+    if (!live.has(session)) {
+      herdrReports.delete(session);
+      agentStates.remove(session);
+    }
+  }
+}
 
 async function tick() {
   const ls = await run("tmux", [
     "list-sessions",
     "-F",
-    "#{session_name} #{session_attached}",
+    "#{session_name} #{session_attached} #{@deskpilot-herdr-id}",
   ]);
   if (ls.code !== 0) return; // no tmux server yet
   const rows = ls.out.split("\n").map((l) => l.trim().split(/\s+/))
     .filter(([n]) => SAFE_NAME.test(n));
   const live = rows.map(([n]) => n);
+  if (rows.some(([, , bridge]) => bridge)) await syncHerdrStates();
 
   // Sessions that no longer exist stop being anything.
   agentStates.prune([...live, ...unmanagedAgents.keys()]);
 
-  for (const [s, attachedCount] of rows) {
+  for (const [s, attachedCount, herdrBridge] of rows) {
     // A session with a client attached is on a screen in front of you, so a
     // push tells you nothing you cannot already see. This is what stopped the
     // desk-side sessions from announcing themselves all evening.
@@ -2132,7 +2311,7 @@ async function tick() {
       w.busy = true;
       w.notified = false;
     } else if (
-      !attached && w.busy && !w.notified && Date.now() - w.changed > IDLE_MS
+      !herdrBridge && !attached && w.busy && !w.notified && Date.now() - w.changed > IDLE_MS
     ) {
       w.notified = true;
       w.busy = false;
@@ -2227,6 +2406,11 @@ async function serve(req: Request): Promise<Response> {
       res = fail("unauthorized", 401);
     } else if (e instanceof PushBusy) {
       res = fail("push delivery capacity reached", 503);
+    } else if (e instanceof PreviewInputError) {
+      res = fail(e.message, e.status);
+    } else if (e instanceof PreviewStoreError) {
+      console.error(e.message);
+      res = fail("preview storage is unavailable", 503);
     } else throw e;
   }
   if (res.status === 101 || !origin) return res;

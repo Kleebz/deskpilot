@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deskpilot layout sample</title>
+<link rel="stylesheet" href="./review.css">
+<div class="app">
+  <aside class="desktop-nav" aria-label="Spaces sidebar"></aside>
+  <main>
+    <header class="terminal-header">
+      <div class="heading-row"><button id="spaces-open" class="spaces-open" aria-label="Open Spaces">☰ <span>Spaces</span></button><div class="identity"><strong id="terminal-name"></strong><small id="breadcrumb"></small></div><button id="actions-open" class="icon" aria-label="Terminal actions">⋯</button></div>
+      <div class="context-row"><button id="computer-open" class="computer-link">● <span>Studio</span> ⌄</button><span class="source-status" id="source-status"></span><div class="steps"><button id="previous" class="icon" aria-label="Previous terminal">‹</button><button id="next" class="icon" aria-label="Next terminal">›</button></div></div>
+    </header>
+    <div id="feedback" class="feedback" hidden></div>
+    <div class="terminal-outline"><div class="output" tabindex="0" aria-label="Simulated terminal output"><pre id="transcript"></pre></div><span class="sample-label">SAMPLE OUTPUT</span></div>
+    <form class="composer"><button type="button" id="input-tools" class="icon" aria-label="Input tools">＋</button><input id="prompt" aria-label="Reply to this terminal" placeholder="Reply to this terminal…" autocomplete="off"><button id="send" class="send">Send</button></form>
+  </main>
+</div>
+<dialog id="navigator" class="navigator"><div class="drawer-head"><span>Spaces</span><button class="icon close-nav" aria-label="Close Spaces">×</button></div><div id="drawer-nav"></div></dialog>
+<dialog id="panel" class="panel"><header><div><small id="panel-context">STUDIO · SAMPLE</small><h1 id="panel-title"></h1></div><button id="panel-close" class="icon" aria-label="Close panel">×</button></header><div id="panel-body"></div></dialog>
+<script type="module" src="./review.js"></script>
+</html>

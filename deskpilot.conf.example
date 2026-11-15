@@ -8,9 +8,13 @@
 #
 # Read by the scripts, the server, and the generated systemd unit.
 
-# Terminal used when placing a session on a workspace. Must accept `-e CMD`.
-# Known to work: alacritty, foot, kitty, ghostty (all use -e).
-DESKPILOT_TERMINAL=alacritty
+# Terminal for `deskpilot session` and phone-requested desktop windows.
+# auto: use xdg-terminal-exec, then $TERMINAL, then an installed emulator.
+# To choose explicitly: ghostty, alacritty, kitty, foot, wezterm,
+# gnome-terminal, kgx, mate-terminal, konsole, xterm, or xdg-terminal-exec.
+# Other executable paths are supported as wrappers accepting `-e CMD ARGS...`.
+# An environment override wins over this file; no command strings or flags.
+DESKPILOT_TERMINAL=auto
 
 # Directories offered when creating a session. Colon-separated; each is scanned
 # one level deep. $HOME is always included.

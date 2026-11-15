@@ -15,7 +15,7 @@ Only `blocked` means the user is needed. A session with no current report is `un
 ## Report format
 
 POST JSON to `http://127.0.0.1:8790/api/event` using the bearer token from
-`~/.config/deskpilot/token`:
+`~/.local/state/deskpilot/local-token`:
 
 ```json
 {

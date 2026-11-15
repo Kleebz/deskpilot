@@ -48,7 +48,12 @@ async function freeName(base: string): Promise<string> {
   throw new Error(`could not find a free session name for ${base}`);
 }
 
-export function tmuxRunArgs(name: string, cwd: string, command: string[]) {
+export function tmuxRunArgs(
+  name: string,
+  cwd: string,
+  command: string[],
+  windowClass?: string,
+) {
   return [
     "new-session",
     "-d",
@@ -64,6 +69,17 @@ export function tmuxRunArgs(name: string, cwd: string, command: string[]) {
     name,
     "detach-on-destroy",
     "on",
+    ...(windowClass &&
+        /^com\.deskpilot\.Terminal\.[A-Za-z0-9_-]+$/.test(windowClass)
+      ? [
+        ";",
+        "set-option",
+        "-t",
+        name,
+        "@deskpilot-window-classes",
+        windowClass,
+      ]
+      : []),
     ";",
     "attach-session",
     "-t",
@@ -102,7 +118,12 @@ export async function runManaged(args: string[]): Promise<number> {
 
   try {
     const child = new Deno.Command("tmux", {
-      args: tmuxRunArgs(name, cwd, command),
+      args: tmuxRunArgs(
+        name,
+        cwd,
+        command,
+        Deno.env.get("DESKPILOT_WINDOW_CLASS"),
+      ),
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",

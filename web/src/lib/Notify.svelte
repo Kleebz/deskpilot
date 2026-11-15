@@ -87,20 +87,9 @@
         userVisibleOnly: true,
         applicationServerKey: keyBytes(key),
       });
-      // Before per-machine scopes there was one root subscription. It could
-      // only have used the serving machine's VAPID key, so migrate that exact
-      // case and retire the duplicate after the owned registration is durable.
-      const rootReg = actionHost.origin === location.origin
-        ? await navigator.serviceWorker.getRegistration("/")
-        : null;
-      const old = rootReg && rootReg.scope !== reg.scope
-        ? await rootReg.pushManager.getSubscription()
-        : null;
       const r = await post("/push/subscribe", {
         ...sub.toJSON(), machine: actionHost.origin,
-        ...(old ? { replaceEndpoint: old.endpoint } : {}),
       });
-      if (old) await old.unsubscribe();
       mode = "on";
       onstatus(`notifications on · ${r.devices} device${r.devices === 1 ? "" : "s"}`);
     } catch (e) {

@@ -211,7 +211,7 @@ export function keysCommand(session: string, data: string): string[] {
   const out: string[] = [];
   // Chunked so a paste cannot build a command line longer than tmux will read.
   for (let i = 0; i < codes.length; i += 200) {
-    out.push(`send-keys -t ${session} -H ${codes.slice(i, i + 200).join(" ")}`);
+    out.push(`send-keys -t ${/^\$\d+$/.test(session)?"\'"+session+"\'":session} -H ${codes.slice(i, i + 200).join(" ")}`);
   }
   return out;
 }

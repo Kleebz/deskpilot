@@ -169,10 +169,10 @@ cmd=\${1:-help}
 [ \$# -gt 0 ] && shift
 case "\$cmd" in
   run)    exec deno run --allow-env --allow-read --allow-run=tmux "\$REPO/server/run.ts" "\$@" ;;
+  preview) exec deno run --allow-env --allow-read --allow-net=127.0.0.1 --allow-run=tmux "\$REPO/server/preview-cli.ts" "\$@" ;;
   session) DESKPILOT_BIN="\$HOME/.local/bin/deskpilot" exec "\$REPO/scripts/session.sh" "\$@" ;;
   pair)   exec "\$REPO/shell/pair.sh" "\$@" ;;
   setup)  exec "\$REPO/shell/setup.sh" "\$@" ;;
-  rotate) exec "\$REPO/shell/rotate.sh" "\$@" ;;
   update) exec "\$REPO/shell/update.sh" "\$@" ;;
   check)  exec "\$REPO/shell/check.sh" "\$@" ;;
   pause|resume|disable|enable|status)
@@ -196,7 +196,7 @@ deskpilot — a phone-facing remote for the machine you left running
   deskpilot disable    stop and disable automatic startup
   deskpilot enable     start and enable automatic startup
   deskpilot status     show running and automatic-startup state
-  deskpilot rotate     replace this machine's shared token
+  deskpilot preview IMAGE [--task NAME] [--caption TEXT]  publish a task image
   deskpilot update     pull, rebuild and restart this checkout
   deskpilot check      verify every environment assumption
   deskpilot version    print the version

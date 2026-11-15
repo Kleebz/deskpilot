@@ -1,0 +1,436 @@
+// Real phone-sized same-origin iframe; measurements precede screenshots.
+// deno run -A tests/herdr-mobile.ts
+import { assert, assertEquals } from "jsr:@std/assert@1";
+import { connect } from "./browser.ts";
+import { fixture } from "./mobile_fixture.ts";
+
+const fx = await fixture();
+fx.state.conversationsOnly = true;
+const core = "0123456789abcdef0123456789abcdef";
+const spaceA = {
+  id: "space-a",
+  title: "Same project",
+  path: "/home/test/project",
+  order: 0,
+};
+const spaceB = {
+  id: "space-b",
+  title: "Same project",
+  path: "/home/test/project",
+  order: 1,
+};
+const build = { id: "build", title: "Build interface", order: 0 };
+const review = { id: "review", title: "Review changes", order: 1 };
+const item = (n: number, extra = {}) => ({
+  id: `${core}/t${n}/1793397428670`,
+  address: `t${n}`,
+  title: `Task ${n}`,
+  path: "/home/test/project",
+  state: "idle",
+  agent: "codex",
+  session: null,
+  space: spaceA,
+  tab: build,
+  ...extra,
+});
+fx.state.herdrTerminals = [
+  item(1, { title: "LongHerdrTitle".repeat(15), state: "blocked" }),
+  item(2, { title: "Build navigation", state: "working", agent: "claude" }),
+  item(3, { title: "Check current diff", tab: review }),
+  item(4, { title: "Second project terminal", state: "done", space: spaceB }),
+];
+const profile = await Deno.makeTempDir({
+  prefix: "deskpilot-herdr-browser-",
+});
+const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+const port = (listener.addr as Deno.NetAddr).port;
+listener.close();
+const chrome = new Deno.Command("chromium", {
+  args: [
+    "--headless=new",
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "about:blank",
+  ],
+  stdout: "null",
+  stderr: "null",
+}).spawn();
+const sleep = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
+let cdp: Awaited<ReturnType<typeof connect>> | undefined;
+try {
+  let endpoint = "";
+  for (let i = 0; i < 100; i++) {
+    try {
+      endpoint =
+        (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json())
+          .webSocketDebuggerUrl;
+      break;
+    } catch {
+      await sleep();
+    }
+  }
+  assert(endpoint, "Chromium did not start");
+  cdp = await connect(endpoint);
+  const { targetId } = await cdp.send("Target.createTarget", {
+    url: "about:blank",
+  });
+  const { sessionId } = await cdp.send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  const send = (method: string, params = {}) =>
+    cdp!.send(method, params, sessionId);
+  const evaluate = async (expression: string) => {
+    const r = await send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails));
+    return r.result?.value;
+  };
+  const run = (code: string) =>
+    evaluate(
+      `(async()=>{const f=document.querySelector('iframe'),d=f.contentDocument,w=f.contentWindow;${code}})()`,
+    );
+  const read = (expression: string) => run(`return (${expression});`);
+  const until = async (expression: string) => {
+    for (let i = 0; i < 100; i++) {
+      if (await read(expression)) return;
+      await sleep();
+    }
+    throw Error(`Timed out: ${expression}\n${await read("d.body.innerText")}`);
+  };
+  const check = async (expression: string, label: string) => {
+    assert(await read(expression), label);
+    console.log(`PASS ${label}`);
+  };
+  const click = async (text: string) => {
+    if(text==='Disconnect view')text='Disconnect mobile view';
+    const exists = async (label:string) => read(`[...d.querySelectorAll('button')].some(b=>b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)})`);
+    if(['Desktop','Previews','Settings','Add machine'].includes(text)&&!await exists(text)) await click('Computer');
+    if(['paste','copy','keys','normal','large'].includes(text)&&!await exists(text)) await click('Input tools');
+    if(['End session','Disconnect mobile view'].includes(text)&&!await exists(text)) {
+      await click(await exists('Session actions')?'Session actions':'Herdr actions');
+    }
+    if(text.startsWith('Back to ')&&await exists('Close panel')) await click('Close panel');
+    if(text==='Back to sessions'&&!await exists(text)&&await exists('Back to Attention')) text='Back to Attention';
+    await run(`[...d.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})?.click()`);
+    await sleep();
+  };
+  const choose = async (machine: number) => {
+    if(!await read(`!!d.querySelector('select[aria-label="Machine"]')`)) await click('Computer');
+    await run(`{const e=d.querySelector('select[aria-label="Machine"]');if(e){e.value='http://127.0.0.1:${machine}';e.dispatchEvent(new w.Event('change',{bubbles:true}));}else d.querySelector('[data-host="http://127.0.0.1:${machine}"]').click();}`);
+    await sleep();
+    await click('Sessions');
+  };
+  await send("Page.enable");
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1000,
+    height: 1000,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source:
+      `if(location.origin==='http://127.0.0.1:8892'&&!localStorage.getItem('dp_hosts')){localStorage.setItem('dp_hosts',JSON.stringify([{origin:location.origin,token:'fixture',name:'Desktop'},{origin:'http://127.0.0.1:8893',token:'fixture',name:'Headless'}]));localStorage.setItem('dp_host',location.origin);localStorage.setItem('dp_resume_v1',JSON.stringify({version:1,route:{host:location.origin,view:'sessions'}}));}window.__errors=[];window.addEventListener('error',e=>__errors.push(e.message));`,
+  });
+  await send("Page.navigate", {
+    url: "http://127.0.0.1:8892/__preview_harness",
+  });
+  await sleep(150);
+  await evaluate(
+    `{const f=document.createElement('iframe');f.src='/';f.style='display:block;border:0;width:390px;height:844px';document.body.append(f);}`,
+  );
+  await until(`d.querySelector('.herdr-terminals')`);
+  await check(
+    `d.querySelector('.herdr-terminals').textContent.includes('Needs you')`,
+    "Herdr native status appears",
+  );
+  await click('Needs you');
+  await check(`d.querySelector('select[aria-label="Machine"]').selectedOptions[0].textContent.includes(parseInt(d.querySelector('.filter-summary').textContent)+' need')`, 'Selected machine attention count matches Work across native and ordinary sources');
+  await click('All');
+  assert(
+    fx.state.requests.length === 0,
+    "discovery never launches a mobile view",
+  );
+  for (const width of [320, 360, 390, 430]) {
+    await evaluate(`document.querySelector('iframe').style.width='${width}px'`);
+    await sleep();
+    await check(
+      `w.innerWidth===${width}&&d.documentElement.scrollWidth<=${width}&&d.querySelector('header').scrollWidth<=d.querySelector('header').clientWidth&&[...d.querySelectorAll('.herdr-terminals,.herdr-terminals button')].every(el=>{const r=el.getBoundingClientRect();return r.left>=-1&&r.right<=${width}+1&&(!el.matches('button')||r.height>=44);})`,
+      `${width}px Herdr cards and controls fit`,
+    );
+  }
+  await check(
+    `d.querySelectorAll('.herdr-space').length===2`,
+    "same-named Herdr spaces stay separate",
+  );
+  await check(
+    `d.querySelector('[data-space="space-a"]').querySelectorAll('.tabs .tab').length===2&&d.querySelector('[data-space="space-a"]').querySelectorAll('.herdr-terminal').length===2`,
+    "tabs and split terminals stay together",
+  );
+  await run(
+    `d.querySelector('[data-space="space-b"] .space-toggle').click();d.querySelector('[data-space="space-b"] .space-toggle').click()`,
+  );
+  await check(
+    `d.querySelector('[data-space="space-b"] .space-toggle').getAttribute('aria-expanded')==='false'`,
+    "space collapses",
+  );
+  await click("Refresh");
+  await until(
+    `d.querySelector('[data-space="space-b"] .space-toggle').getAttribute('aria-expanded')==='false'`,
+  );
+  await check(
+    `JSON.parse(w.localStorage.getItem('dp_herdr_view_v2:http://127.0.0.1:8892')).expanded['space-b']===false`,
+    "collapse choice persists per machine",
+  );
+  await run(
+    `d.querySelectorAll('.work-filters button')[1].click()`,
+  );
+  await check(
+    `d.querySelectorAll('.herdr-terminal').length===1`,
+    "Needs you filter shows the waiting terminal only",
+  );
+  await run(
+    `d.querySelectorAll('.work-filters button')[0].click()`,
+  );
+  await click("Find");
+  await run(
+    `const input=d.querySelector('[aria-label="Search Herdr terminals"]');input.value='Review changes';input.dispatchEvent(new w.Event('input',{bubbles:true}));`,
+  );
+  await check(
+    `d.querySelectorAll('.herdr-terminal').length===1&&d.querySelector('.herdr-terminal').dataset.terminal.includes('/t3/')`,
+    "search matches the Herdr tab",
+  );
+  await run(
+    `const input=d.querySelector('[aria-label="Search Herdr terminals"]');input.value='no match';input.dispatchEvent(new w.Event('input',{bubbles:true}));`,
+  );
+  await check(
+    `d.body.innerText.includes('No matching Herdr terminals.')`,
+    "search has an explicit empty state",
+  );
+  await click("Find");
+  fx.state.connectFailure = true;
+  await run(
+    `d.querySelector('[data-space="space-a"] .herdr-terminal').click()`,
+  );
+  await until(
+    `d.querySelector('[role="alert"]')?.textContent.includes('unchanged')`,
+  );
+  await check(
+    `!d.querySelector('.herdr-terminal').disabled`,
+    "failed attach can be retried",
+  );
+  fx.state.connectFailure = false;
+  await run(
+    `d.querySelector('[data-space="space-a"] .herdr-terminal').click()`,
+  );
+  await until(`d.body.innerText.includes('Fixture terminal: herdr-mobile-t1')`);
+  assert(fx.state.requests.at(-1)?.body.id === fx.state.herdrTerminals[0].id);
+  await until(
+    `d.querySelector('.session-title .name')?.textContent.includes('LongHerdrTitle')`,
+  );
+  await check(
+    `d.querySelector('.terminal-context').textContent.includes('Same project')&&d.querySelector('.terminal-context').textContent.includes('Build interface')`,
+    "open terminal retains its space and tab context",
+  );
+  await click("Back to sessions");
+  await until(
+    `d.querySelector('.herdr-terminal .open')?.textContent.includes('Open')`,
+  );
+  await check(
+    `!d.querySelector('button.session-row[id="session-herdr-mobile-t1"]')`,
+    "mobile bridge is not duplicated in the ordinary session list",
+  );
+  await check(
+    `!d.body.innerText.includes('No sessions yet')`,
+    "Herdr-only host has no contradictory empty message",
+  );
+  const before = fx.state.requests.length;
+  await run(
+    `d.querySelector('[data-space="space-a"] .herdr-terminal').click()`,
+  );
+  await until(`d.body.innerText.includes('Fixture terminal: herdr-mobile-t1')`);
+  assert(fx.state.requests.length === before, "existing view reused");
+  await click("Back to sessions");
+  await choose(8893);
+  await until(`!d.querySelector('.herdr-terminals')`);
+  await check(
+    `!d.body.innerText.includes('LongHerdrTitle')`,
+    "machine switch clears Herdr cards",
+  );
+  await choose(8892);
+  await until(`d.querySelector('[data-space="space-b"] .space-toggle')`);
+  await check(
+    `d.querySelector('[data-space="space-b"] .space-toggle').getAttribute('aria-expanded')==='false'`,
+    "returning to machine restores its collapsed spaces",
+  );
+  await run(
+    `d.querySelector('[data-space="space-b"] .space-toggle').click();d.querySelector('[data-space="space-b"] .space-toggle').click()`,
+  );
+  await Deno.mkdir("/tmp/deskpilot-herdr-groups-review", { recursive: true });
+  for (const width of [320, 360, 390, 430]) {
+    await evaluate(`document.querySelector('iframe').style.width='${width}px'`);
+    await sleep();
+    await check(
+      `w.innerWidth===${width}&&d.documentElement.scrollWidth<=${width}&&[...d.querySelectorAll('.herdr-terminals button,.herdr-space,.herdr-tab')].every(el=>{const r=el.getBoundingClientRect();return r.left>=-1&&r.right<=${width}+1&&(!el.matches('button')||r.height>=44);})`,
+      `${width}px grouped Herdr view fits`,
+    );
+    const shot = await send("Page.captureScreenshot", {
+      format: "png",
+      clip: { x: 0, y: 0, width, height: 844, scale: 1 },
+    });
+    await Deno.writeFile(
+      `/tmp/deskpilot-herdr-groups-review/groups-${width}.png`,
+      Uint8Array.from(atob(shot.data), (c) => c.charCodeAt(0)),
+    );
+  }
+  await run(
+    `d.querySelector('[data-space="space-a"] .tabs button:nth-child(2)').click()`,
+  );
+  await check(
+    `d.querySelector('[data-space="space-a"] .herdr-terminal').dataset.terminal.includes('/t3/')`,
+    "native tab selection changes only its pane list",
+  );
+  await click("Refresh");
+  await until(
+    `d.querySelector('[data-space="space-a"] .herdr-terminal')?.dataset.terminal.includes('/t3/')`,
+  );
+  await run(`d.querySelector('[data-space="space-a"] .tabs button').click()`);
+  await until(
+    `d.querySelector('[data-space="space-a"] .herdr-terminal')?.dataset.terminal.includes('/t1/')`,
+  );
+  await run(
+    `d.querySelector('[data-space="space-a"] .herdr-terminal').click()`,
+  );
+  await until(`d.body.innerText.includes('Fixture terminal: herdr-mobile-t1')`);
+  await check(
+    `d.querySelector('[aria-label="Previous session"]').disabled&&!d.querySelector('[aria-label="Next session"]').disabled`,
+    "Herdr terminal navigation stays in its native tab",
+  );
+  await run(`d.querySelector('[aria-label="Next session"]').click()`);
+  await until(`d.body.innerText.includes('Fixture terminal: herdr-mobile-t2')`);
+  assert(
+    fx.state.requests.at(-1)?.body.id === fx.state.herdrTerminals[1].id,
+    "next attaches exact unconnected sibling",
+  );
+  await click("Herdr actions");
+  await check(
+    `!d.querySelector('input[aria-label="Session name"]')&&!d.body.innerText.includes('Open on desktop…')&&d.body.innerText.includes('Disconnect mobile view')`,
+    "Herdr exposes native management and disconnect semantics without ordinary session actions",
+  );
+  await click("Back to sessions");
+  fx.state.conversationsOnly = false;
+  fx.state.conversations = [{id:'77777777-7777-4777-8777-777777777777',title:'Another desktop conversation',path:'/home/test/other',state:'ready',session:null}];
+  await click("Refresh");
+  await until(`d.querySelector('.session-row')`);
+  await until(`d.querySelector('.conversation-card')`);
+  await check(
+    `!!(d.querySelector('.session-row').compareDocumentPosition(d.querySelector('.herdr-terminals'))&4)`,
+    "ordinary session cards stay before the distinct Herdr integration",
+  );
+  await check(`d.querySelector('.sessions .conversation-card')&&!!(d.querySelector('.conversation-card').compareDocumentPosition(d.querySelector('.herdr-terminals'))&4)`, 'Ordinary Codex conversations share Sessions above the native Herdr panel');
+  await run(`d.querySelector('[data-space="space-a"] .overflow').click()`);
+  await until(`d.querySelector('dialog[open]')`);
+  await check(`d.querySelector('[aria-label="Herdr action location"]').textContent.includes('Space: Same project')`, 'Space menu identifies its target');
+  await click('Back');
+  await check(`d.querySelector('dialog h2').textContent==='Herdr spaces & tabs'`, 'Back from a directly opened space returns to the Herdr library');
+  await run(`d.querySelector('dialog .actions button:nth-child(2)').click()`);
+  await click("Rename space");
+  for (const width of [320, 360, 390, 430]) {
+    await evaluate(`document.querySelector('iframe').style.width='${width}px'`);
+    await sleep();
+    await check(
+      `[...d.querySelectorAll('dialog[open],dialog[open] button,dialog[open] input')].every(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=${width}+1&&(!el.matches('button,input')||r.height>=44);})`,
+      `${width}px native management form fits`,
+    );
+  }
+  await run(
+    `const input=d.querySelector('input[aria-label="Herdr name"]');input.value='Phone project';input.dispatchEvent(new w.Event('input',{bubbles:true}));d.querySelector('dialog form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));`,
+  );
+  await until(
+    `!d.querySelector('dialog')&&d.querySelector('[data-space="space-a"]').textContent.includes('Phone project')`,
+  );
+  assert(
+    fx.state.requests.at(-1)?.body.action === "space.rename" &&
+      fx.state.requests.at(-1)?.body.spaceId === "space-a",
+    "rename sends exact native space",
+  );
+  await check(
+    `d.querySelector('[data-space="space-b"]').textContent.includes('Same project')`,
+    "same-named second space was not renamed",
+  );
+  await run(
+    `d.querySelector('[data-space="space-a"] .tabs button[aria-label^="Tab actions"]').click()`,
+  );
+  await until(`d.querySelector('dialog[open]')`);
+  await click("Close tab…");
+  await check(
+    `d.querySelector('dialog').textContent.includes('Build navigation')&&!d.querySelector('dialog').textContent.includes('Check current diff')`,
+    "close confirmation lists only the selected tab's split terminals",
+  );
+  fx.state.herdrActionFailure = true;
+  await click("Stop & close");
+  await until(
+    `d.querySelector('dialog [role="alert"]')?.textContent.includes('changed')`,
+  );
+  assertEquals(
+    fx.state.herdrTerminals.length,
+    4,
+    "failed close leaves source work intact",
+  );
+  assert(
+    !!fx.state.requests.at(-1)?.body.expected,
+    "close includes reviewed layout revision",
+  );
+  await click("Close");
+  fx.state.herdrActionFailure = false;
+  await run(`d.querySelector('[data-space="space-b"] .overflow').click()`);
+  await until(`d.querySelector('dialog[open]')`);
+  await click("Close space…");
+  await check(
+    `d.querySelector('dialog').textContent.includes('Second project terminal')&&!d.querySelector('dialog').textContent.includes('Build navigation')`,
+    "space close confirmation does not include unrelated work",
+  );
+  await click("Stop & close");
+  await until(
+    `!d.querySelector('dialog')&&!d.querySelector('[data-space="space-b"]')`,
+  );
+  assertEquals(fx.state.herdrTerminals.length, 3);
+  fx.state.herdrWritable = false;
+  await click("Refresh");
+  await until(
+    `d.querySelector('.herdr-terminals').textContent.includes('Open Herdr')`,
+  );
+  await check(
+    `d.querySelector('.herdr-terminals .primary').disabled&&!!d.querySelector('.session-row')&&!d.querySelector('.herdr-terminal').disabled`,
+    "unavailable management keeps ordinary sessions and native terminal attachment usable",
+  );
+  await check(`w.__errors.length===0`, "no Herdr browser runtime errors");
+  console.log(
+    "PASS: Herdr grouping, search, attention, collapse persistence, single-tap attach, exact identity, bridge deduplication and navigation context",
+  );
+} finally {
+  try {
+    await cdp?.send("Browser.close");
+  } catch { /* already closed */ }
+  cdp?.close();
+  try {
+    chrome.kill();
+  } catch { /* browser closed through CDP */ }
+  await chrome.status;
+  await fx.close();
+  // Chromium helpers can finish writing their profile just after the browser.
+  for (let i = 0; i < 10; i++) {
+    try {
+      await Deno.remove(profile, { recursive: true });
+      break;
+    } catch (error) {
+      if (i === 9) throw error;
+      await sleep();
+    }
+  }
+}

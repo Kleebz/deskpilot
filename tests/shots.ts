@@ -56,7 +56,7 @@ for (let i = 0; i < Deno.args.length; i += 2) {
 const base = args.get("url") ?? "http://127.0.0.1:8790";
 const out = args.get("out") ?? "docs/img";
 const token = args.get("token") ??
-  (await Deno.readTextFile(`${Deno.env.get("HOME")}/.config/deskpilot/token`)).trim();
+  (await Deno.readTextFile(`${Deno.env.get("HOME")}/.local/state/deskpilot/local-token`)).trim();
 
 await Deno.mkdir(out, { recursive: true });
 
@@ -118,7 +118,8 @@ await cdp.send("Emulation.setDeviceMetricsOverride", {
   width: WIDTH, height: HEIGHT, deviceScaleFactor: DPR, mobile: true,
 }, sessionId);
 await cdp.send("Page.enable", {}, sessionId);
-await cdp.send("Page.navigate", { url: `${base}/?token=${token}` }, sessionId);
+const { code } = await (await fetch(`${base}/api/devices/code`, { method: "POST", headers: { authorization: `Bearer ${token}` } })).json();
+await cdp.send("Page.navigate", { url: `${base}/?code=${code}` }, sessionId);
 
 for (let i = 0; i < 40; i++) {
   await new Promise((r) => setTimeout(r, 250));

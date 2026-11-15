@@ -10,12 +10,12 @@
   import { canRead, readText } from "./clipboard.js";
   import { vis } from "./visible.svelte.js";
 
-  let { ws, session, windows, orphans, allNames, workspaces, active, onstatus: reportStatus, onchanged, navigation, onstep, draft = $bindable({ input: "", clip: "" }) } = $props();
+  let { enabled=true, ws, session, windows, orphans, allNames, workspaces, active, onstatus: reportStatus, onchanged, navigation, onstep, draft = $bindable({ input: "", clip: "" }) } = $props();
   const actionHost = viewHost();
   let mounted = true;
   onDestroy(() => mounted = false);
   const onstatus = (...args) => { if (mounted && viewHost().origin === actionHost.origin) reportStatus?.(...args); };
-  const post = (path, body, opts = {}) => requestPost(path, body, { ...opts, host: actionHost });
+  const post = (path, body, opts = {}) => requestPost(path, { ...body, ...(session?.terminalId?{expected:{terminalId:session.terminalId,generation:session.generation}}:{}) }, { ...opts, host: actionHost });
 
 
   // Pane-local state. This is the reason for the framework: a poll updates
@@ -25,6 +25,7 @@
   let lastChange = $state(0);    // when output last moved
   let showWindows = $state(false);
   let showKeys = $state(false);
+  let tools = $state(false);
 
   // Two sizes, not a range. The useful choice on a phone is "as much of the
   // session as fits" against "readable without squinting"; the steps between
@@ -33,7 +34,7 @@
   let big = $state(
     savedBig !== null ? savedBig === "1" : Number(localStorage.getItem("dp_font")) >= 13,
   );
-  const fontPx = $derived(big ? 14 : 10);
+  const fontPx = $derived(big ? 16 : 12);
   $effect(() => localStorage.setItem("dp_big", big ? "1" : "0"));
 
   let creating = $state(false);
@@ -71,7 +72,7 @@
   async function send(ev) {
     ev.preventDefault();
     const text = draft.input.trim();
-    if (!text || !session) return;
+    if (!text || !session || !enabled) return;
     const name = session.session, sentDraft = draft;
     draft.input = "";
     // Acknowledge the tap straight away, rather than waiting for the echo to
@@ -82,8 +83,16 @@
       if (session.session === name) onstatus(`→ ${name}`);
     } catch (e) {
       if (session.session === name) onstatus(e.message, true);
-      sentDraft.input = text;
+      sentDraft.input = [text,sentDraft.input].filter(Boolean).join("\n");
     }
+  }
+
+  export function dismissTools(){
+    if(copying!==null){copying=null;return true;}
+    if(pasting){pasting=false;return true;}
+    if(showKeys){showKeys=false;return true;}
+    if(tools){tools=false;return true;}
+    return false;
   }
 
   // ---- clipboard ----
@@ -109,7 +118,7 @@
 
   $effect(() => {
     void sessionName;
-    lastChange = 0; showWindows = false; showKeys = false;
+    lastChange = 0; showWindows = false; showKeys = false; tools = false;
     pasting = false; copying = null;
   });
 
@@ -131,6 +140,7 @@
   }
 
   async function paste() {
+    if(!enabled)return onstatus("Connection unavailable. Paste draft preserved.",true);
     if (!draft.clip || !session) return;
     const text = draft.clip;
     const name = session.session, pasteDraft = draft;
@@ -146,6 +156,7 @@
   }
 
   async function key(k) {
+    if(!enabled)return onstatus("Connection unavailable. Key was not sent.",true);
     if (!session) return;
     const name = session.session;
     try {
@@ -183,9 +194,8 @@
   // PageUp/PageDown reach earlier output. A TUI holds the alternate screen,
   // which has no scrollback for the browser to scroll and none that tmux
   // records either, so scrolling is the application's own and it only ever
-  // hears about it as a keypress. A mouse wheel does not work at the desk
-  // either — the agent does not enable mouse reporting, so the wheel goes to
-  // tmux rather than to it. Dragging the terminal sends these same two keys.
+  // hears about it as input. Dragging uses the application's requested mouse
+  // wheel protocol, or these page keys when mouse reporting is unavailable.
   //
   // Grouped scroll | history | edit | cursor | control, because the row scrolls
   // horizontally and anything past the first few keys is off-screen on a narrow
@@ -210,19 +220,6 @@
       {#if navigation}{@render navigation()}{:else}
       {#if ws != null}<span class="badge">Screen {ws}</span>{/if}
       <span class="name">{session.session}</span>
-      {/if}
-      {#if working}<span class="pulse" title="output changing"></span>{/if}
-      <button class="sm ghost" class:on={big} title="text size"
-              onclick={() => (big = !big)}>{big ? "large" : "normal"}</button>
-      <!-- Labelled by what the drawer contains, not by what is left over. It
-           used to read "0 other" whenever a screen held only the session's own
-           terminal, which looks like an empty control rather than the way to
-           reach the window list — and moving that very terminal is one of the
-           things you most want from a phone. -->
-      <!-- Only on the pane you are looking at: the terminal it reads is the one
-           thing the other panes deliberately do not mount. -->
-      {#if active}
-        <button class="sm ghost" onclick={copy}>copy</button>
       {/if}
       {#if windows.length}<button class="sm ghost" onclick={() => (showWindows = !showWindows)}>
         {windows.length} window{windows.length === 1 ? "" : "s"}
@@ -252,9 +249,9 @@
            from directory names — meant the key did not change either, and you
            got the new machine's name in the bar over the old machine's
            terminal. Silent, and exactly the wrong kind of wrong. -->
-      {#key `${hosts.current}:${session.session}`}
+      {#key `${hosts.current}:${session.terminalId??session.session}:${session.generation??""}`}
         <Term bind:this={termRef}
-              session={session.session} {fontPx} {alive} busy={working} onactivity={activity} {onstep} />
+              session={session.session} terminalId={session.terminalId} generation={session.generation} {fontPx} {alive} busy={working} onactivity={activity} {onstep} />
       {/key}
     {:else}
       <div class="idle"></div>
@@ -264,14 +261,17 @@
       <form onsubmit={send}>
         <input
           bind:value={draft.input}
-          placeholder={hints[hintIdx % hints.length]}
+          aria-label="Reply to this session" placeholder="Reply to this session…"
           autocomplete="off" autocapitalize="off" autocorrect="off" />
-        <button class="sm ghost pastetoggle" class:on={pasting} type="button"
-                onclick={openPaste}>paste</button>
-        <button class="sm ghost keytoggle" class:on={showKeys} type="button"
-                aria-label="keys" onclick={() => (showKeys = !showKeys)}>⌨</button>
-        <button>send</button>
+        <button class="sm ghost tools-toggle" type="button" aria-label="Input tools" aria-expanded={tools} onclick={()=>tools=!tools}>＋</button>
+        <button aria-label="Send prompt" disabled={!enabled||!draft.input.trim()}>send</button>
       </form>
+      {#if tools}<div class="input-tools" aria-label="Input tools">
+        <button class="sm ghost" class:on={big} title="text size" onclick={()=>big=!big}>{big?'large':'normal'}</button>
+        <button class="sm ghost" onclick={copy}>copy</button>
+        <button class="sm ghost pastetoggle" class:on={pasting} type="button" onclick={openPaste}>paste</button>
+        <button class="sm ghost keytoggle" class:on={showKeys} type="button" aria-label="keys" onclick={()=>showKeys=!showKeys}>keys</button>
+      </div>{/if}
       {#if pasting}
         <div class="paste">
           <textarea bind:value={draft.clip} rows="3"
@@ -358,8 +358,8 @@
     section.composing { padding: .35rem .5rem; gap: .3rem; }
     .bar { font-size: .9rem; }
     .name { font-size: .95rem; }
-    .keys button { min-height: 38px; }
-    form input, form button { min-height: 38px; }
+    .keys button { min-height: 44px; }
+    form input, form button { min-height: 44px; }
   }
   section.composing {
     padding: .6rem; gap: .5rem; overflow: hidden;
@@ -389,14 +389,6 @@
   .ghost.on { color: var(--ok); }
   .keytoggle { min-width: 44px; font-size: 16px; }
   .keytoggle.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
-  .pulse {
-    width: 7px; height: 7px; border-radius: 50%; flex: none;
-    background: var(--ok);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 80%, transparent);
-    animation: breathe 1.2s ease-in-out infinite;
-  }
-  @keyframes breathe { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
-  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; opacity: .8 } }
 
   .drawer {
     display: flex; flex-direction: column; gap: .4rem; min-width: 0;
@@ -459,4 +451,7 @@
     border-left: 2px solid var(--line); padding-left: .5rem;
     overflow-wrap: anywhere;
   }
+
+section.composing{padding:4px 8px 8px;gap:6px;}.bar{width:100%;gap:0;}.composer form{align-items:center;gap:6px;}.composer input{font-size:15px;padding:11px 12px;min-height:46px;border-radius:11px;background:var(--panel);}.composer form>button:last-child{width:46px;padding:0;background:var(--ok);color:var(--bg);font-size:12px;border-color:var(--ok);}.tools-toggle{order:-1;border:0;padding:0!important;font-size:24px!important;width:44px;min-width:44px;color:var(--ok);}.input-tools{display:flex;gap:4px;flex-wrap:wrap;}.input-tools button{flex:1;min-height:44px;}.keys button{min-height:44px;}
+@media(max-height:520px){section.composing{padding:3px 7px 6px;gap:5px;}.composer form input,.composer form button{min-height:46px;}}
 </style>

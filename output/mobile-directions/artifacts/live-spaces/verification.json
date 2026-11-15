@@ -1,0 +1,145 @@
+{
+  "checks": 29,
+  "layouts": [
+    {
+      "label": "Spaces 320",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Spaces 360",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Spaces 390",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Spaces 430",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    },
+    {
+      "label": "Real terminal 320x844",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 560,
+      "composer": 202
+    },
+    {
+      "label": "Real terminal 360x844",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 560,
+      "composer": 242
+    },
+    {
+      "label": "Real terminal 390x844",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 560,
+      "composer": 272
+    },
+    {
+      "label": "Real terminal 430x844",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 560,
+      "composer": 312
+    },
+    {
+      "label": "Real terminal 932x430",
+      "width": 932,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 816
+    },
+    {
+      "label": "Real terminal 320x430",
+      "width": 320,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 204
+    },
+    {
+      "label": "Real terminal 390x430",
+      "width": 390,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 272,
+      "composer": 274
+    },
+    {
+      "label": "Readable terminal font",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 512,
+      "composer": 272
+    },
+    {
+      "label": "Empty task",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 576,
+      "composer": 272
+    },
+    {
+      "label": "Native close review",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "grid": 528,
+      "composer": 272
+    },
+    {
+      "label": "Desktop",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": []
+    }
+  ]
+}

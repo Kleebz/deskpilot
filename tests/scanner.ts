@@ -53,7 +53,7 @@ const fixtures = args.has("url") ? null : await fixture();
 const base = args.get("url") ?? "http://127.0.0.1:8892";
 const token = args.get("token") ??
   (fixtures ? "fixture" : (await Deno.readTextFile(
-    `${Deno.env.get("HOME")}/.config/deskpilot/token`,
+    `${Deno.env.get("HOME")}/.local/state/deskpilot/local-token`,
   )).trim());
 const port = 9334;
 const profile = await Deno.makeTempDir();
@@ -99,9 +99,10 @@ try {
     mobile: true,
   }, sessionId);
   await cdp.send("Page.enable", {}, sessionId);
+  const code = fixtures ? "34679CDF" : (await (await fetch(`${base}/api/devices/code`, { method: "POST", headers: { authorization: `Bearer ${token}` } })).json()).code;
   await cdp.send(
     "Page.navigate",
-    { url: `${base}/?token=${token}` },
+    { url: `${base}/?code=${code}` },
     sessionId,
   );
 
@@ -116,14 +117,15 @@ try {
   };
 
   for (let i = 0; i < 40; i++) {
-    if (await evaluate(`!!document.querySelector("button.addm")`)) break;
+    if (await evaluate(`!!document.querySelector('button[aria-label="Computer"]')`)) break;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  if (!await evaluate(`!!document.querySelector("button.addm")`)) {
-    throw new Error("add-another-machine button did not render");
+  if (!await evaluate(`!!document.querySelector('button[aria-label="Computer"]')`)) {
+    throw new Error("Computer navigation did not render");
   }
 
-  await evaluate(`document.querySelector("button.addm").click(); true`);
+  await evaluate(`document.querySelector('button[aria-label="Computer"]').click(); true`);
+  await evaluate(`document.querySelector("#add-machine").click(); true`);
   if (!await evaluate(`!!document.querySelector(".scanner button.scan")`)) {
     throw new Error("scan-QR button did not render");
   }

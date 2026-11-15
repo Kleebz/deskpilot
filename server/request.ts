@@ -14,17 +14,17 @@ export class BodyReadTimeout extends Error {
   }
 }
 
-/** Read and parse JSON while enforcing the limit on bytes actually received. */
-export async function boundedJson(
+/** Enforce the limit on bytes actually received, including chunked bodies. */
+export async function boundedBytes(
   req: Request,
   limit: number,
   timeoutMs = 10_000,
-): Promise<any | null> {
+): Promise<Uint8Array> {
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > limit) {
     throw new BodyTooLarge(limit);
   }
-  if (!req.body) return null;
+  if (!req.body) return new Uint8Array();
 
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -60,6 +60,16 @@ export async function boundedJson(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return bytes;
+}
+
+/** Read and parse JSON while enforcing the limit on bytes actually received. */
+export async function boundedJson(
+  req: Request,
+  limit: number,
+  timeoutMs = 10_000,
+): Promise<any | null> {
+  const bytes = await boundedBytes(req, limit, timeoutMs);
   try {
     return JSON.parse(DEC.decode(bytes));
   } catch {

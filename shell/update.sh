@@ -103,7 +103,7 @@ if systemctl --user is-active --quiet deskpilot; then
   systemctl --user is-active --quiet deskpilot \
     || rollback
   # A live process is insufficient: require the authenticated API to answer.
-  token_file=${DESKPILOT_TOKEN_FILE:-"$HOME/.config/deskpilot/token"}
+  token_file=${DESKPILOT_TOKEN_FILE:-"$HOME/.local/state/deskpilot/local-token"}
   token=$(tr -d '\n' < "$token_file" 2>/dev/null) || rollback
   curl -fsS --max-time 5 -H "Authorization: Bearer $token" \
     "http://127.0.0.1:${DESKPILOT_PORT:-8790}/api/capabilities" >/dev/null || rollback

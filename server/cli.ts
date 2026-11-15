@@ -23,11 +23,12 @@ import { qrTerminal } from "./qr.ts";
 import { scriptsDir } from "./scripts.ts";
 import { runManaged } from "./run.ts";
 import { type ServiceAction, serviceControl } from "./service-control.ts";
+import { publishPreview } from "./preview-cli.ts";
 
 const REPO = "Kleebz/deskpilot";
 const HOME = Deno.env.get("HOME") ?? "";
 const CONF_DIR = `${HOME}/.config/deskpilot`;
-const TOKEN_FILE = Deno.env.get("DESKPILOT_TOKEN_FILE") ?? `${CONF_DIR}/token`;
+const TOKEN_FILE = Deno.env.get("DESKPILOT_TOKEN_FILE") ?? `${HOME}/.local/state/deskpilot/local-token`;
 const UNIT_DIR = `${HOME}/.config/systemd/user`;
 // Fixed paths, and not a preference: the binary's allowlist is compiled with
 // SCRIPTS_DIR baked in, so that is the only desk.sh it may ever execute.
@@ -37,23 +38,6 @@ const METHOD_FILE = "/usr/share/deskpilot/install-method";
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-
-function randomHex(bytes: number): string {
-  const b = new Uint8Array(bytes);
-  crypto.getRandomValues(b);
-  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
-}
-
-function ensureToken(): string {
-  try {
-    const existing = Deno.readTextFileSync(TOKEN_FILE).trim();
-    if (existing) return existing;
-  } catch { /* first run */ }
-  Deno.mkdirSync(CONF_DIR, { recursive: true });
-  const token = randomHex(32);
-  Deno.writeTextFileSync(TOKEN_FILE, token + "\n", { mode: 0o600 });
-  return token;
-}
 
 function writeUnit(port: string): string {
   const exe = Deno.execPath();
@@ -83,26 +67,6 @@ WantedBy=default.target
 `,
   );
   return path;
-}
-
-// How many devices hold a credential of their own, and would therefore survive
-// the machine's token changing. null when the server cannot be reached, which
-// is a different answer from zero and must not be reported as one.
-async function enrolledCount(
-  port: string,
-  token: string,
-): Promise<number | null> {
-  try {
-    const r = await fetch(`http://127.0.0.1:${port}/api/devices`, {
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (!r.ok) return null;
-    const body = await r.json();
-    return Array.isArray(body.devices) ? body.devices.length : null;
-  } catch {
-    return null;
-  }
 }
 
 // The address a phone can open this machine at, or null when there is not one.
@@ -228,9 +192,10 @@ function help() {
     } — a phone-facing remote for the machine you left running
 
   deskpilot            run the server
-  deskpilot setup      create a token, write the service, say what to run next
+  deskpilot setup      write the service and say what to run next
   deskpilot session [NAME]  open a new desktop shell available on mobile
   deskpilot run CMD    start a phone-controllable command in this terminal
+  deskpilot preview IMAGE [--task NAME] [--caption TEXT]  publish a task image
   deskpilot pair       print a QR and complete link that pair another device
   deskpilot pair --link  print only the complete link (for agents and scripts)
   deskpilot pause      stop until the next login or reboot
@@ -238,17 +203,8 @@ function help() {
   deskpilot disable    stop and disable automatic startup
   deskpilot enable     start and enable automatic startup
   deskpilot status     show running and automatic-startup state
-  deskpilot rotate     replace this machine's shared token
   deskpilot update     replace this binary with the latest release
   deskpilot version    print the version
-
-${
-      dim(
-        "  rotate is what to run if the shared token has been seen by anyone — it",
-      )
-    }
-${dim("  is printed in QR codes and pairing links, so it leaks the way a URL")}
-${dim("  leaks. Devices holding their own credential are unaffected.")}
 
 ${
       dim(
@@ -306,6 +262,8 @@ export async function runCommand(
 
     case "run":
       return await runManaged(args.slice(1));
+    case "preview":
+      return await publishPreview(args.slice(1));
 
     case "version":
     case "--version":
@@ -341,8 +299,7 @@ export async function runCommand(
         );
         return 1;
       }
-      const token = ensureToken();
-      console.log(`  token      ${TOKEN_FILE}`);
+      console.log(`  local device credential (created on server start): ${TOKEN_FILE}`);
       const unit = writeUnit(port);
       console.log(`  service    ${unit}`);
       console.log(`
@@ -391,7 +348,7 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
         token = Deno.readTextFileSync(TOKEN_FILE).trim();
       } catch {
         console.error(
-          `no token at ${TOKEN_FILE} — run 'deskpilot setup' first`,
+          `no local device credential at ${TOKEN_FILE} — start the deskpilot service first`,
         );
         return 1;
       }
@@ -417,7 +374,7 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
   a compiled binary may only execute the copy at the path it was built for.
   Install it there:
 
-      sudo install -Dm755 scripts/desk.sh scripts/sessions.sh scripts/session.sh -t ${SCRIPTS_DIR}/
+      sudo install -Dm755 scripts/*.sh -t ${SCRIPTS_DIR}/
 
   ${dim("Running from a source checkout instead? Use shell/pair.sh — it asks the")}
   ${dim("repo's own desk.sh and has no allowlist to satisfy.")}
@@ -520,119 +477,6 @@ ${dim("Nothing else was touched. Remote unlock stays off until DESKPILOT_UNLOCK=
       return 0;
     }
 
-    case "rotate": {
-      // The one credential nothing could take back.
-      //
-      // Every device used to be handed this token and it is still what any
-      // device paired before per-device credentials holds. pair.sh prints it
-      // into a URL and a QR when the service is not answering, so it leaks the
-      // way a URL leaks — into history, into a screenshot, into a photograph of
-      // a terminal — and until now there was no way to make a leaked one stop
-      // working.
-      //
-      // The server cannot do this itself: running from source its --allow-write
-      // is scoped to the state directory, and the token lives under ~/.config.
-      let current = "";
-      try {
-        current = Deno.readTextFileSync(TOKEN_FILE).trim();
-      } catch {
-        console.error(`no token at ${TOKEN_FILE} — nothing to rotate`);
-        return 1;
-      }
-
-      const args = Deno.args.slice(1);
-      const yes = args.includes("--yes") || args.includes("-y");
-      const enrolled = await enrolledCount(port, current);
-
-      console.log(`
-${bold("Rotating the shared token for this machine.")}
-
-  ${dim(TOKEN_FILE)}
-`);
-      if (enrolled === null) {
-        console.log(
-          `  ${
-            bold("!")
-          } The server is not answering, so I cannot say how many devices
-` +
-            `    hold their own credential. Those survive; anything still on the
-` +
-            `    shared token will be locked out and has to pair again.
-`,
-        );
-      } else if (enrolled === 0) {
-        console.log(
-          `  ${bold("!")} No device holds its own credential, so ${
-            bold("every paired device")
-          }
-` +
-            `    ${
-              bold("will be locked out")
-            } and has to pair again from this machine.
-`,
-        );
-      } else {
-        console.log(
-          `  ${enrolled} device${enrolled === 1 ? "" : "s"} hold${
-            enrolled === 1 ? "s" : ""
-          } its own credential and will keep working.
-` +
-            `  Anything still on the shared token will be locked out and has to
-` +
-            `  pair again — the app's devices list is what says which is which.
-`,
-        );
-      }
-
-      if (!yes) {
-        if (!Deno.stdin.isTerminal()) {
-          console.error(
-            "not a terminal, and this locks devices out — re-run with --yes",
-          );
-          return 1;
-        }
-        const ok = prompt("  Rotate it? [y/N]")?.trim().toLowerCase();
-        if (ok !== "y" && ok !== "yes") {
-          console.log("  left alone");
-          return 1;
-        }
-      }
-
-      // Written beside the destination and renamed, so an interruption cannot
-      // leave a half-written token — which would lock out everything, including
-      // whatever you would use to fix it.
-      const next = randomHex(32);
-      const tmp = `${TOKEN_FILE}.new`;
-      try {
-        Deno.mkdirSync(CONF_DIR, { recursive: true });
-        Deno.writeTextFileSync(tmp, next + "\n", { mode: 0o600 });
-        Deno.renameSync(tmp, TOKEN_FILE);
-      } catch (e) {
-        try {
-          Deno.removeSync(tmp);
-        } catch { /* nothing staged */ }
-        console.error(
-          `could not write ${TOKEN_FILE}: ${
-            e instanceof Error ? e.message : e
-          }`,
-        );
-        return 1;
-      }
-
-      console.log(`
-  ${bold("rotated")}
-
-${bold("The old token keeps working until the service restarts:")}
-
-  systemctl --user restart deskpilot
-
-${dim("Your tmux sessions survive that. Devices with their own credential")}
-${dim("reconnect on their own; anything else gets the pairing screen and needs")}
-${dim("a fresh code from  deskpilot pair.")}
-`);
-      return 0;
-    }
-
     case "update": {
       // Running from a checkout there is no binary to replace, and the thing
       // that does the right job knows about git, npm and the service.
@@ -717,8 +561,8 @@ ${dim("a fresh code from  deskpilot pair.")}
         "scripts/desk.sh": `${SCRIPTS_DIR}/desk.sh`,
         "scripts/sessions.sh": `${SCRIPTS_DIR}/sessions.sh`,
         "scripts/session.sh": `${SCRIPTS_DIR}/session.sh`,
-        "deskpilot-terminal.desktop":
-          "/usr/share/applications/deskpilot-terminal.desktop",
+        "scripts/terminal.sh": `${SCRIPTS_DIR}/terminal.sh`,
+        "deskpilot-terminal.desktop": "/usr/share/applications/deskpilot-terminal.desktop",
       };
       const staged: [string, string][] = [];
       try {

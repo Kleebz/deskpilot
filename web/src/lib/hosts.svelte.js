@@ -16,7 +16,6 @@
 
 const HOSTS = "dp_hosts";
 const CURRENT = "dp_host";
-const LEGACY_TOKEN = "dp_token";
 
 function load() {
   try {
@@ -31,7 +30,7 @@ function load() {
   // this list most needs to render.
   return [{
     origin: location.origin,
-    token: localStorage.getItem(LEGACY_TOKEN) ?? "",
+    token: "",
     name: location.hostname,
   }];
 }
@@ -136,7 +135,7 @@ export function setCaps(origin, caps) {
 export const needsYou = $state({});
 export const attention = $state({});
 export function setAttention(origin, sessions) {
-  attention[origin] = sessions.filter((s) => s.state === "blocked");
+  attention[origin] = sessions.filter((s) => ["blocked", "error"].includes(s.state));
   const n = attention[origin].length;
   if (needsYou[origin] !== n) needsYou[origin] = n;
 }

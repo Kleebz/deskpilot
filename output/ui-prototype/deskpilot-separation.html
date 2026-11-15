@@ -1,0 +1,421 @@
+<div id="dp-nav-review" class="viz-dotted-background" aria-label="Deskpilot sessions and Herdr integration">
+  <div class="dp-stage"><div class="dp-phone" data-layout="grouped" aria-label="Deskpilot sessions with a separate Herdr area"></div></div>
+</div>
+<style>
+  #dp-nav-review .dp-stage { padding:18px 10px 0; min-height:1086px; display:flex; justify-content:center; align-items:flex-start; }
+  #dp-nav-review .dp-phone {
+    --dp-bg:light-dark(#f5f8fa,#0a0a0f); --dp-surface:light-dark(#ffffff,#11131c);
+    --dp-ink:light-dark(#192b34,#e0f7ff); --dp-muted:light-dark(#546674,#97a7bb);
+    --dp-line:light-dark(#cdd8df,#283044); --dp-accent:light-dark(#006d78,#00ffff);
+    --dp-tint:light-dark(#e3f2f3,#13252c); --dp-warn:light-dark(#805400,#ffd76a);
+    --dp-danger:light-dark(#b11c43,#ff7396); --dp-pad:14px;
+    color:var(--dp-ink); background:var(--dp-bg); font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+    border:1px solid var(--dp-line); border-radius:22px; width:100%; max-width:390px; min-width:0; min-height:1050px;
+    display:flex; flex-direction:column; overflow:clip; position:relative; color-scheme:light dark;
+  }
+  #dp-nav-review .dp-phone * { box-sizing:border-box; min-width:0; }
+  #dp-nav-review .dp-phone [hidden] { display:none !important; }
+  #dp-nav-review .dp-phone button, #dp-nav-review .dp-phone input, #dp-nav-review .dp-phone select { font:inherit; color:var(--dp-ink); background:var(--dp-surface); border:1px solid var(--dp-line); border-radius:9px; min-height:44px; padding:9px 12px; max-width:100%; }
+  #dp-nav-review .dp-phone button { display:inline-flex; align-items:center; justify-content:center; gap:7px; }
+  #dp-nav-review .dp-phone button:disabled { opacity:.45; }
+  #dp-nav-review .dp-phone input, #dp-nav-review .dp-phone select { font-size:16px; width:100%; }
+  #dp-nav-review .dp-phone input::placeholder { color:var(--dp-muted); }
+  #dp-nav-review .dp-phone strong, #dp-nav-review .dp-phone h2, #dp-nav-review .dp-phone h3 { font-weight:500; }
+  #dp-nav-review .dp-phone h2 { font-size:21px; margin:0; }
+  #dp-nav-review .dp-phone h3 { font-size:14px; margin:0; }
+  #dp-nav-review .dp-phone p { margin:0; }
+  #dp-nav-review .dp-phone .dp-muted { color:var(--dp-muted); }
+  #dp-nav-review .dp-phone .dp-small { font-size:11px; }
+  #dp-nav-review .dp-phone .dp-top { padding:15px 16px 12px; border-bottom:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-brand { display:flex; align-items:center; justify-content:space-between; font-size:11px; margin-bottom:9px; color:var(--dp-muted); letter-spacing:.08em; }
+  #dp-nav-review .dp-phone .dp-brand span:first-child { color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-machine-label { display:block; }
+  #dp-nav-review .dp-phone .dp-main { padding:18px 16px; flex:1; display:flex; flex-direction:column; gap:16px; }
+  #dp-nav-review .dp-phone .dp-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  #dp-nav-review .dp-phone .dp-heading-sub { margin-top:3px; }
+  #dp-nav-review .dp-phone .dp-primary { color:var(--dp-accent); border-color:var(--dp-accent); background:var(--dp-tint); }
+  #dp-nav-review .dp-phone .dp-filter { display:flex; gap:5px; flex-wrap:wrap; }
+  #dp-nav-review .dp-phone .dp-filter button { font-size:11px; flex:1; padding:9px 7px; background:transparent; }
+  #dp-nav-review .dp-phone .dp-filter button[aria-pressed="true"] { color:var(--dp-accent); border-color:var(--dp-accent); background:var(--dp-tint); }
+  #dp-nav-review .dp-phone .dp-stack { display:flex; flex-direction:column; gap:8px; }
+  #dp-nav-review .dp-phone .dp-group { padding:0; border:1px solid var(--dp-line); border-radius:12px; background:var(--dp-surface); }
+  #dp-nav-review .dp-phone .dp-group-head { width:100%; border:0; background:transparent; text-align:left; justify-content:flex-start; padding:13px 12px; }
+  #dp-nav-review .dp-phone .dp-grow { flex:1; display:flex; flex-direction:column; align-items:flex-start; gap:3px; overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-group-body { border-top:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-tab-name { padding:11px 12px 1px; font-size:11px; color:var(--dp-muted); }
+  #dp-nav-review .dp-phone .dp-row { border:0; border-bottom:1px solid var(--dp-line); border-radius:0; width:100%; text-align:left; justify-content:flex-start; background:transparent; padding:var(--dp-pad) 12px; }
+  #dp-nav-review .dp-phone .dp-row:last-child { border-bottom:0; }
+  #dp-nav-review .dp-phone .dp-row-title { font-size:13px; color:var(--dp-ink); overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-meta { color:var(--dp-muted); font-size:11px; display:flex; flex-wrap:wrap; gap:4px 9px; }
+  #dp-nav-review .dp-phone .dp-state { font-size:11px; display:flex; align-items:center; gap:5px; }
+  #dp-nav-review .dp-phone .dp-state::before { content:''; width:5px; height:5px; border-radius:50%; background:currentColor; flex:none; }
+  #dp-nav-review .dp-phone .dp-blocked { color:var(--dp-warn); }
+  #dp-nav-review .dp-phone .dp-working { color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-done, #dp-nav-review .dp-phone .dp-ready { color:var(--dp-muted); }
+  #dp-nav-review .dp-phone .dp-arrow { color:var(--dp-muted); font-size:20px; padding-left:5px; }
+  #dp-nav-review .dp-phone .dp-section-label { display:flex; justify-content:space-between; margin:5px 0 7px; color:var(--dp-muted); font-size:11px; }
+  #dp-nav-review .dp-phone .dp-section-label.dp-blocked { color:var(--dp-warn); }
+  #dp-nav-review .dp-phone .dp-bottom { padding:8px; border-top:1px solid var(--dp-line); display:flex; gap:6px; background:var(--dp-surface); }
+  #dp-nav-review .dp-phone .dp-bottom button { flex:1; font-size:11px; background:transparent; border-color:transparent; }
+  #dp-nav-review .dp-phone .dp-bottom button[aria-current="page"] { color:var(--dp-accent); background:var(--dp-tint); }
+  #dp-nav-review .dp-phone .dp-preview-note { padding:9px 16px; font-size:11px; color:var(--dp-muted); text-align:center; border-top:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-return { border:0; padding:0; background:transparent; color:var(--dp-accent); justify-content:flex-start; }
+  #dp-nav-review .dp-phone .dp-terminal-heading { display:flex; align-items:center; gap:10px; }
+  #dp-nav-review .dp-phone .dp-terminal-heading strong { font-size:16px; }
+  #dp-nav-review .dp-phone .dp-terminal-heading > button { flex:none; }
+  #dp-nav-review .dp-phone .dp-context { font-size:11px; color:var(--dp-muted); overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-terminal { background:var(--dp-surface); border:1px solid var(--dp-line); border-radius:10px; padding:15px 12px; min-height:285px; white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  #dp-nav-review .dp-phone .dp-compose { display:flex; gap:6px; }
+  #dp-nav-review .dp-phone .dp-compose input { flex:1; }
+  #dp-nav-review .dp-phone .dp-compose button { flex:none; }
+  #dp-nav-review .dp-phone .dp-siblings { display:flex; gap:7px; align-items:center; }
+  #dp-nav-review .dp-phone .dp-siblings select { flex:1; font-size:12px; }
+  #dp-nav-review .dp-phone .dp-siblings button { width:44px; flex:none; }
+  #dp-nav-review .dp-phone .dp-menu { display:flex; flex-direction:column; gap:7px; padding:12px; border:1px solid var(--dp-line); background:var(--dp-surface); border-radius:12px; }
+  #dp-nav-review .dp-phone .dp-menu button { width:100%; justify-content:flex-start; }
+  #dp-nav-review .dp-phone .dp-danger { color:var(--dp-danger); }
+  #dp-nav-review .dp-phone .dp-banner { border-left:2px solid var(--dp-accent); padding:7px 10px; background:var(--dp-tint); font-size:12px; overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-form { display:flex; flex-direction:column; gap:14px; }
+  #dp-nav-review .dp-phone .dp-form label { display:flex; flex-direction:column; gap:6px; }
+  #dp-nav-review .dp-phone .dp-form-actions { display:flex; gap:8px; }
+  #dp-nav-review .dp-phone .dp-form-actions button { flex:1; }
+  #dp-nav-review .dp-phone .dp-setting { display:flex; flex-direction:column; gap:5px; padding:14px 12px; border-bottom:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-setting:last-child { border-bottom:0; }
+  #dp-nav-review .dp-phone .dp-window { padding:14px 12px; display:flex; flex-direction:column; gap:12px; border:1px solid var(--dp-line); border-radius:12px; background:var(--dp-surface); }
+  #dp-nav-review .dp-phone .dp-window-actions { display:flex; gap:7px; flex-wrap:wrap; }
+  #dp-nav-review .dp-phone .dp-window-actions button { flex:1; font-size:11px; }
+  #dp-nav-review .dp-phone .dp-window-title { display:flex; flex-direction:column; gap:3px; }
+  #dp-nav-review .dp-phone .dp-image { border:1px solid var(--dp-line); border-radius:10px; padding:17px; display:flex; flex-direction:column; gap:13px; background:var(--dp-surface); min-height:240px; }
+  #dp-nav-review .dp-phone .dp-image-bar { height:7px; width:62%; background:var(--dp-line); border-radius:4px; }
+  #dp-nav-review .dp-phone .dp-image-links { display:flex; gap:12px; border-bottom:1px solid var(--dp-line); padding-bottom:12px; font-size:11px; color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-space-link { min-height:100px; border:1px solid var(--dp-line); border-radius:12px; width:100%; background:var(--dp-surface); text-align:left; justify-content:flex-start; padding:16px 12px; }
+  #dp-nav-review .dp-phone .dp-tabs { display:flex; flex-wrap:wrap; gap:6px; }
+  #dp-nav-review .dp-phone .dp-tabs button { font-size:11px; }
+  #dp-nav-review .dp-phone .dp-tabs button[aria-pressed="true"] { color:var(--dp-accent); border-color:var(--dp-accent); }
+  #dp-nav-review .dp-phone[data-sources="false"] .dp-origin { display:none; }
+  #dp-nav-review .dp-phone .dp-group-heading { display:flex; align-items:center; padding-right:5px; }
+  #dp-nav-review .dp-phone .dp-group-heading .dp-group-head { flex:1; }
+  #dp-nav-review .dp-phone .dp-overflow { flex:none; width:44px; padding:8px; border:0; background:transparent; }
+  #dp-nav-review .dp-phone .dp-tab-heading { display:flex; align-items:center; gap:6px; padding:3px 6px 0 12px; }
+  #dp-nav-review .dp-phone .dp-tab-heading .dp-tab-name { padding:0; flex:1; }
+  #dp-nav-review .dp-phone .dp-add-tab { width:100%; border:0; border-radius:0 0 12px 12px; color:var(--dp-accent); background:transparent; justify-content:flex-start; }
+  #dp-nav-review .dp-phone .dp-menu strong { overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-toolbar { display:flex; gap:6px; flex-wrap:wrap; }
+  #dp-nav-review .dp-phone .dp-toolbar button { flex:1; font-size:11px; }
+  #dp-nav-review .dp-phone .dp-form textarea { font:16px/1.5 ui-monospace,monospace; background:var(--dp-surface); color:var(--dp-ink); border:1px solid var(--dp-line); border-radius:9px; width:100%; min-height:110px; padding:10px; }
+  #dp-nav-review .dp-phone .dp-confirm-actions { display:flex; flex-direction:column; gap:10px; }
+  #dp-nav-review .dp-phone .dp-confirm-actions button { width:100%; }
+  #dp-nav-review .dp-phone .dp-terminal { font-size:var(--dp-terminal-font,12px); }
+  #dp-nav-review .dp-phone .dp-keys { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; }
+  #dp-nav-review .dp-phone .dp-keys button { padding:8px 3px; font-size:11px; }
+  #dp-nav-review .dp-phone .dp-bottom { gap:1px; }
+  #dp-nav-review .dp-phone .dp-bottom button { padding:8px 5px; }
+  #dp-nav-review .dp-phone .dp-machine-row { display:flex; gap:7px; align-items:center; }
+  #dp-nav-review .dp-phone .dp-machine-row select { flex:1; }
+  #dp-nav-review .dp-phone .dp-machine-row button { width:44px; padding:8px; color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-credential { color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-section-label { align-items:center; gap:8px; }
+  #dp-nav-review .dp-phone .dp-camera { min-height:190px; display:grid; place-items:center; border:1px dashed var(--dp-line); border-radius:12px; color:var(--dp-muted); text-align:center; padding:20px; }
+  #dp-nav-review .dp-phone .dp-list { list-style:none; padding:0; margin:0; }
+  #dp-nav-review .dp-phone .dp-list li { padding:12px 0; border-bottom:1px solid var(--dp-line); overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-list li:last-child { border:0; }
+  #dp-nav-review .dp-phone .dp-integration { display:flex; flex-direction:column; gap:8px; }
+  #dp-nav-review .dp-phone .dp-integration-heading { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 0 4px; }
+  #dp-nav-review .dp-phone .dp-integration-heading h3 { font-size:16px; }
+  #dp-nav-review .dp-phone .dp-integration-heading .dp-grow { min-width:90px; }
+  #dp-nav-review .dp-phone .dp-integration-heading button { padding:8px; font-size:11px; }
+  #dp-nav-review .dp-phone .dp-integration-heading .dp-herdr-title { color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-integration-heading .dp-herdr-toggle { flex:1; flex-direction:column; align-items:flex-start; justify-content:center; text-align:left; border:0; padding:4px 0; background:transparent; }
+  #dp-nav-review .dp-phone .dp-session-list { display:flex; flex-direction:column; gap:10px; }
+  #dp-nav-review .dp-phone .dp-session-card { display:flex; flex-direction:column; align-items:stretch; text-align:left; justify-content:flex-start; gap:7px; width:100%; padding:14px 12px; background:var(--dp-surface); border:1px solid var(--dp-line); border-radius:10px; }
+  #dp-nav-review .dp-phone .dp-session-title { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  #dp-nav-review .dp-phone .dp-session-title strong { flex:1; color:var(--dp-accent); overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-session-title .dp-state { flex:none; margin-top:3px; }
+  #dp-nav-review .dp-phone .dp-session-detail { color:var(--dp-muted); font-size:11px; overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-herdr-app { background:var(--dp-surface); border:1px solid var(--dp-line); border-top:2px solid var(--dp-accent); border-radius:12px; overflow:clip; margin-top:8px; }
+  #dp-nav-review .dp-phone .dp-herdr-app > .dp-integration-heading { padding:12px 10px; border-bottom:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-herdr-app .dp-group { border:0; border-bottom:1px solid var(--dp-line); border-radius:0; background:transparent; }
+  #dp-nav-review .dp-phone .dp-herdr-app .dp-group:last-child { border-bottom:0; }
+  #dp-nav-review .dp-phone .dp-native-tabs { display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:6px 8px; border-bottom:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-native-tabs button { font-size:11px; min-width:44px; padding:6px 8px; background:transparent; border-color:transparent; }
+  #dp-nav-review .dp-phone .dp-native-tabs button[aria-pressed="true"] { color:var(--dp-accent); border-color:var(--dp-accent); background:var(--dp-tint); }
+  #dp-nav-review .dp-phone .dp-pane { display:flex; align-items:center; justify-content:flex-start; gap:10px; border:0; border-radius:0; border-bottom:1px solid var(--dp-line); padding:12px; width:100%; background:transparent; text-align:left; }
+  #dp-nav-review .dp-phone .dp-pane-index { color:var(--dp-muted); width:20px; flex:none; font-size:11px; }
+  #dp-nav-review .dp-phone .dp-pane-meta { display:flex; flex-wrap:wrap; gap:6px 12px; color:var(--dp-muted); font-size:11px; }
+  #dp-nav-review .dp-phone .dp-space-type { color:var(--dp-muted); font-size:10px; }
+  @media(max-width:380px) { #dp-nav-review .dp-stage { padding:12px 0 0; min-height:1170px; } #dp-nav-review .dp-phone { min-height:1140px; } #dp-nav-review .dp-phone .dp-main { padding:16px 12px; } }
+</style>
+<script>
+(() => {
+  const root=document.getElementById('dp-nav-review');
+  const baseMachines=[{id:'omarchy',name:'Omarchy',desktop:true,herdr:true},{id:'laptop',name:'Laptop',desktop:true,herdr:false},{id:'build',name:'Build box',desktop:false,herdr:false}];
+  const examples={
+    omarchy:[
+      {id:'nav',title:'Redesign mobile navigation',agent:'Codex',state:'blocked',path:'~/Projects/deskpilot',space:'deskpilot',tab:'mobile',provider:'Herdr',screen:4},
+      {id:'checks',title:'Check attachment lifecycle',agent:'Claude',state:'working',path:'~/Projects/deskpilot',space:'deskpilot',tab:'mobile',provider:'Herdr',screen:4},
+      {id:'a11y',title:'Review accessibility changes',agent:'Codex',state:'done',path:'~/Projects/deskpilot',space:'deskpilot',tab:'review',provider:'Herdr',screen:4},
+      {id:'research',title:'Compare keyboard behavior',agent:'Codex',state:'done',path:'~/Projects/deskpilot',space:'research',tab:'notes',provider:'Herdr',screen:5},
+      {id:'shell',title:'project-shell',agent:'Shell',state:'ready',path:'~/Projects/deskpilot',provider:'Deskpilot',screen:2},
+      {id:'api',title:'api-review',agent:'Codex',state:'working',path:'~/Projects/api',provider:'Deskpilot',screen:6}],
+    laptop:[{id:'review',title:'Review authentication changes',agent:'Codex',state:'blocked',path:'~/Projects/api',provider:'Codex',screen:2},{id:'shell',title:'Project shell',agent:'Shell',state:'ready',path:'~/Projects/website',provider:'Deskpilot',screen:3},{id:'observe',title:'Explore search indexing',agent:'Claude',state:'working',path:'~/Projects/search',provider:'Local terminal',screen:4,viewOnly:true}],
+    build:[{id:'deploy',title:'Deploy release',agent:'Codex',state:'blocked',path:'~/services/api',provider:'Deskpilot'},{id:'assets',title:'Build assets',agent:'Shell',state:'working',path:'~/services/web',provider:'Deskpilot'}]
+  };
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const count=(n,name)=>`${n} ${name}${n===1?'':'s'}`;
+  const button=(text,action,cls='',attrs='')=>`<button type="button" class="cursor-interaction ${cls}" data-action="${esc(action)}" ${attrs}>${text}</button>`;
+  const status=t=>`<span class="dp-state dp-${t.state}">${({blocked:'Needs you',working:'Working',done:'Done',ready:'Ready'})[t.state]}</span>`;
+  const states={};
+  const saved=window.openai?.widgetState?.privateContent?.separation??{};
+  const store=()=>{try{window.openai?.setWidgetState?.({modelContent:{prototype:'Deskpilot sessions remain independent; Herdr owns its native spaces and tabs',layouts:Object.fromEntries(Object.entries(states).map(([id,s])=>[id,{machine:s.machine,view:s.view}]))},privateContent:{separation:Object.fromEntries(Object.entries(states).map(([id,s])=>[id,{machine:s.machine,density:s.density,sources:s.sources}]))}})?.catch(()=>{});}catch{}};
+  root.querySelectorAll('.dp-phone').forEach(phone=>{
+    const layout=phone.dataset.layout, prior=saved[layout]??{};
+    const s=states[layout]={machine:baseMachines.some(m=>m.id===prior.machine)?prior.machine:'omarchy',view:'work',filter:'all',selected:'',space:'deskpilot',tab:'mobile',screen:4,menu:null,notice:'',from:null,collapsed:[],machines:baseMachines.map(m=>({...m})),added:[],closed:[],membership:{},spaceNames:{deskpilot:'Mobile app',research:'Research'},tabNames:{mobile:'Mobile UI',review:'Review',notes:'Notes'},termNames:{},spaceOrder:{},tabOrder:{},logs:{},drafts:{},credentials:{},devices:{},notifications:{},edit:null,pending:null,drawer:'',preview:false,previewItems:[{id:'navigation',title:'Mobile navigation',caption:'Grouped work layout',time:'Today · 4:20 PM'},{id:'keyboard',title:'Terminal keyboard',caption:'Composer and key toolbar',time:'Today · 3:45 PM'}],previewId:'navigation',zoom:false,big:false,locked:false,connection:'Connected',density:prior.density==='Compact'?'Compact':'Comfortable',sources:prior.sources!==false};
+    const machine=()=>s.machines.find(m=>m.id===s.machine);
+    const key=id=>s.machine+':'+id;
+    const all=()=>[...(examples[s.machine]??[]),...s.added.filter(t=>t.machine===s.machine)].filter(t=>!s.closed.includes(key(t.id))).map(t=>({...t,...s.membership[key(t.id)],title:s.termNames[key(t.id)]||t.title}));
+    const titleSpace=id=>s.spaceNames[key(id)]||s.spaceNames[id]||'New space';
+    const titleTab=id=>s.tabNames[key(id)]||s.tabNames[id]||'New tab';
+    const current=()=>all().find(t=>t.id===s.selected);
+    const ordered=(ids,order)=>[...ids].sort((a,b)=>(order?.indexOf(a)===-1?999:order?.indexOf(a)??999)-(order?.indexOf(b)===-1?999:order?.indexOf(b)??999));
+    const spaces=()=>ordered([...new Set(all().filter(t=>t.space).map(t=>t.space))],s.spaceOrder[s.machine]);
+    const tabs=id=>ordered([...new Set(all().filter(t=>t.space===id).map(t=>t.tab))],s.tabOrder[key(id)]);
+    const matching=()=>all().filter(t=>s.filter==='all'||t.state===s.filter);
+    const context=t=>t.space?'Herdr / '+titleSpace(t.space)+' / '+titleTab(t.tab):t.path;
+    const origin=t=>t.provider===t.agent?'':`<span class="dp-origin">${esc(t.provider)}</span>`;
+    const here=()=>({view:s.view,space:s.space,tab:s.tab,screen:s.screen});
+    const restore=place=>{if(place)Object.assign(s,place);else s.view='work';s.menu=null;s.drawer='';s.preview=false;};
+    const back=(label='Settings',action='settings')=>button('‹ '+esc(label),action,'dp-return');
+    const heading=(title,sub='')=>`<div><h2>${esc(title)}</h2>${sub?`<p class="dp-small dp-muted dp-heading-sub">${esc(sub)}</p>`:''}</div>`;
+    const field=(label,name,value='',type='text',required=true)=>`<label>${label}<input type="${type}" name="${name}" value="${esc(value)}" ${required?'required':''} autocomplete="off" /></label>`;
+    const select=(label,name,items,value)=>`<label>${label}<select name="${name}">${items.map(([id,label])=>`<option value="${esc(id)}" ${String(id)===String(value)?'selected':''}>${esc(label)}</option>`).join('')}</select></label>`;
+    const form=(content,label='Save example',kind='edit')=>`<form class="dp-form" data-form="${kind}">${content}<div class="dp-form-actions">${button('Cancel','cancel-form')}<button type="submit" class="dp-primary cursor-interaction">${label}</button></div></form>`;
+    const begin=(kind,extra={})=>{s.edit={kind,returnTo:here(),...extra};s.view='edit';s.menu=null;};
+    const row=(t,details=true)=>button(`<span class="dp-grow"><strong class="dp-row-title">${esc(t.title)}</strong><span class="dp-meta">${esc(t.agent)} ${details||!t.space?origin(t):''}${t.viewOnly?'<span>View only</span>':''}</span>${details?`<span class="dp-meta">${esc(context(t))}</span>`:''}${status(t)}</span><span class="dp-arrow" aria-hidden="true">›</span>`,'open:'+t.id,'dp-row');
+    const filters=()=>`<div class="dp-filter" aria-label="Work filters">${[['all','All'],['blocked','Needs you '+all().filter(t=>t.state==='blocked').length],['working','Working']].map(([id,label])=>button(label,'filter:'+id,'',`aria-pressed="${s.filter===id}"`)).join('')}</div>`;
+    const overflow=(type,id)=>button('•••','menu:'+type+':'+id,'dp-overflow',`aria-label="${type==='space'?'Space':'Tab'} actions: ${esc(type==='space'?titleSpace(id):titleTab(id))}" aria-expanded="${s.menu?.kind===type&&s.menu.id===id}"`);
+    function nativeMenu(kind,id){
+      if(s.menu?.kind!==kind||s.menu.id!==id)return '';
+      return `<div class="dp-menu"><strong>${esc(kind==='space'?titleSpace(id):titleTab(id))}</strong>${kind==='space'?button('+ Tab','create-tab:'+id)+button('Rename space','rename-space:'+id)+button('Reorder spaces','spaces'):button('+ Terminal in this tab','create-pane:'+id)+button('Rename tab','rename-tab:'+id)+button('Move tab to another space','move-tab:'+id)+button('Move tab earlier','reorder-tab:up:'+id)+button('Move tab later','reorder-tab:down:'+id)}${button('Close '+kind+'…','close-'+kind+':'+id,'dp-danger')}${button('Dismiss','dismiss')}</div>`;
+    }
+    const tabHeading=(space,tab)=>`<div class="dp-tab-heading"><span class="dp-tab-name">Tab · ${esc(titleTab(tab))}</span>${overflow('tab',tab)}</div>${nativeMenu('tab',tab)}`;
+    const regularSession=t=>button(`<span class="dp-session-title"><strong>${esc(t.title)}</strong>${status(t)}</span><span class="dp-session-detail">${t.screen?'Screen '+t.screen:'No desktop window'} · ${esc(t.path)}</span>${t.viewOnly?'<span class="dp-session-detail">View only</span>':''}`,'open:'+t.id,'dp-session-card');
+    const nativePane=(t,index)=>button(`<span class="dp-pane-index" aria-hidden="true">${index+1}</span><span class="dp-grow"><strong>${esc(t.title)}</strong><span class="dp-pane-meta"><span>${esc(t.agent)}</span>${status(t)}</span></span><span class="dp-arrow" aria-hidden="true">›</span>`,'open:'+t.id,'dp-pane',`aria-label="Open Herdr terminal: ${esc(t.title)}"`);
+    s.activeTabs={};s.collapsed=['omarchy:research'];
+    function group(id,list){
+      const collapsed=s.collapsed.includes(key(id))&&s.filter==='all';
+      const available=tabs(id).filter(tab=>list.some(t=>t.tab===tab));
+      const active=available.includes(s.activeTabs[key(id)])?s.activeTabs[key(id)]:available[0];
+      return `<section class="dp-group" data-native-space="${id}"><div class="dp-group-heading">${button(`<span class="dp-muted" aria-hidden="true">${collapsed?'›':'⌄'}</span><span class="dp-grow"><span class="dp-space-type">Space</span><strong>${esc(titleSpace(id))}</strong><span class="dp-meta">${count(tabs(id).length,'tab')} · ${count(list.length,'terminal')}</span></span>`,'collapse:'+id,'dp-group-head',`aria-expanded="${!collapsed}"`)}${overflow('space',id)}</div>${nativeMenu('space',id)}${collapsed?'':`<div class="dp-group-body"><div class="dp-native-tabs" aria-label="Herdr tabs in ${esc(titleSpace(id))}">${available.map(tab=>button(esc(titleTab(tab)),'native-tab:'+id+':'+tab,'',`aria-pressed="${active===tab}"`)).join('')}${button('+','create-tab:'+id,'',`aria-label="Add Herdr tab to ${esc(titleSpace(id))}"`)}${active?overflow('tab',active):''}</div>${active?nativeMenu('tab',active):''}${list.filter(t=>t.tab===active).map((t,index)=>nativePane(t,index)).join('')}${active?button('+ Terminal in this tab','create-pane:'+active,'dp-add-tab'):''}</div>`}</section>`;
+    }
+    function work(){
+      const list=matching(), native=list.filter(t=>t.provider==='Herdr'), other=list.filter(t=>t.provider!=='Herdr');
+      let integration='';
+      if(machine().herdr){
+        const nativeBody=layout==='spaces'?spaceCards(native):spaces().filter(id=>native.some(t=>t.space===id)).map(id=>group(id,native.filter(t=>t.space===id))).join('');
+        const expanded=!s.herdrFolded||s.filter!=='all';
+        integration=`<section class="dp-herdr-app" data-area="herdr" aria-label="Herdr"><div class="dp-integration-heading">${button(`<h3 class="dp-herdr-title">${expanded?'⌄':'›'} Herdr</h3><span class="dp-small dp-muted">${count(spaces().length,'space')} · ${count(all().filter(t=>t.provider==='Herdr').length,'terminal')}</span>`,'toggle-herdr','dp-herdr-toggle',`aria-expanded="${expanded}"`)}${button('+ Space','create-space','dp-primary')}${button('Manage','spaces','',`aria-label="Manage Herdr spaces and tabs"`)}</div>${expanded?(nativeBody||'<p class="dp-small dp-muted">No matching Herdr terminals.</p>'):''}</section>`;
+      }
+      const sessions=`<section class="dp-integration" data-area="sessions" aria-label="Deskpilot sessions"><div class="dp-integration-heading"><span class="dp-grow"><h3>Sessions</h3><span class="dp-small dp-muted">${count(all().filter(t=>t.provider!=='Herdr').length,'session')}</span></span>${button('+ Session','create-terminal','dp-primary')}</div><div class="dp-session-list">${other.map(t=>regularSession(t)).join('')||'<p class="dp-small dp-muted">No matching sessions.</p>'}</div></section>`;
+      return `<div class="dp-heading">${heading('Work')}${button('Refresh','refresh-work')}</div>${filters()}${sessions}${integration}`;
+    }
+    function spaceCards(list=all()){
+      const cards=spaces().filter(id=>list.some(t=>t.space===id)).map(id=>`<section class="dp-group"><div class="dp-group-heading">${button(`<span class="dp-grow"><strong>${esc(titleSpace(id))}</strong><span class="dp-meta">${count(tabs(id).length,'tab')} · ${count(list.filter(t=>t.space===id).length,'terminal')}</span>${list.some(t=>t.space===id&&t.state==='blocked')?'<span class="dp-state dp-blocked">Needs you</span>':''}</span><span class="dp-arrow" aria-hidden="true">›</span>`,'space:'+id,'dp-group-head')}${overflow('space',id)}</div>${nativeMenu('space',id)}${s.view==='spaces'?`<div class="dp-toolbar">${button('Move earlier','reorder-space:up:'+id)}${button('Move later','reorder-space:down:'+id)}</div>`:''}</section>`).join('');
+      return cards;
+    }
+    const spacesView=()=>`${back('Work','work')}<div class="dp-heading">${heading('Herdr','Spaces & tabs · '+machine().name)}${button('+ Space','create-space','dp-primary')}</div><div class="dp-stack">${spaceCards()}</div>`;
+    function spaceView(){
+      const list=all().filter(t=>t.space===s.space), available=tabs(s.space);if(!available.includes(s.tab))s.tab=available[0];
+      return `${back('Work · Herdr','work')}<div class="dp-heading">${heading(titleSpace(s.space),'Herdr space')}${overflow('space',s.space)}</div>${nativeMenu('space',s.space)}<div class="dp-tabs" aria-label="Space tabs">${available.map(tab=>button(esc(titleTab(tab)),'tab:'+tab,'',`aria-pressed="${s.tab===tab}"`)).join('')}${button('+ Tab','create-tab:'+s.space,'dp-primary')}</div>${s.tab?tabHeading(s.space,s.tab):''}<div>${list.filter(t=>t.tab===s.tab).map((t,index)=>nativePane(t,index)).join('')}</div>`;
+    }
+    const terminalOutput=()=>{const t=current();return `${t.agent}\n\n${t.agent==='Shell'?'$ pwd\n'+t.path+'\n\n$ ▌':'I’ve updated the navigation.\n\n'+(t.state==='blocked'?'May I run the verification checks?\n\n› Waiting for your reply':t.state==='working'?'Checking the current changes…':'Changes are ready for review.')}\n${s.logs[key(t.id)]||''}`;};
+    const siblings=()=>all().filter(t=>current()?.space?t.space===current().space:!t.space);
+    function terminal(){
+      const t=current();if(!t)return heading('Terminal closed')+back('Work','work');const nearby=siblings(),idx=nearby.findIndex(x=>x.id===t.id);
+      const menu=s.menu?.kind==='terminal'?`<div class="dp-menu">${button('Connection details','details')}${!t.viewOnly?button('Rename mobile session','rename-terminal')+(machine().desktop?button('Open on desktop…','open-desktop'):'')+button('Disconnect mobile view','disconnect')+button('End running terminal…','end','dp-danger'):button('Close view','back')}${button('Dismiss','dismiss')}</div>`:'';
+      let drawer='';
+      if(s.drawer==='paste')drawer=`<form class="dp-form" data-form="paste"><label>Paste without sending<textarea name="paste" placeholder="Paste text here"></textarea></label><div class="dp-form-actions">${button('Cancel','close-drawer')}<button class="dp-primary cursor-interaction" type="submit">Insert unsent</button></div></form>`;
+      if(s.drawer==='keys')drawer=`<div class="dp-keys">${['PageUp','PageDown','Up','Down','BSpace','Ctrl-U','Ctrl-W','Left','Right','Enter','Escape','Tab','Shift-Tab','Ctrl-C','Ctrl-A'].map(k=>button(k,'key:'+k)).join('')}</div>`;
+      if(s.drawer==='copy')drawer=`<div class="dp-form"><label>Terminal output<textarea aria-label="Terminal output to copy" readonly>${esc(terminalOutput())}</textarea></label><div class="dp-form-actions">${button('Select all','select-output')}${button('Close','close-drawer')}</div></div>`;
+      return `${back(s.from?.view==='desktop'?'Desktop · Screen '+s.from.screen:s.from?.view==='space'?titleSpace(s.from.space):'Work','back')}<div class="dp-terminal-heading"><span class="dp-grow"><strong>${esc(t.title)}</strong><span class="dp-context">${esc(context(t))}</span></span>${button('•••','terminal-menu','',`aria-label="Terminal actions"`)}</div><div class="dp-meta">${esc(t.agent)} ${origin(t)} ${status(t)}</div>${menu}<div class="dp-filter">${button('Terminal','terminal-panel','',`aria-pressed="${!s.preview}"`)}${button('Preview','preview-panel','',`aria-pressed="${s.preview}"`)}</div>${s.preview?previewImage():`<pre class="dp-terminal">${esc(terminalOutput())}</pre>`}<div class="dp-toolbar">${button(s.big?'Compact text':'Readable text','text-size')}${button('Copy','copy')}${!t.viewOnly?button('Paste','paste')+button('Keys','keys'):''}</div>${drawer}${t.viewOnly?'<div class="dp-banner">View only. This terminal has no supported remote input connection.</div>':`<form class="dp-compose" data-form="send"><input aria-label="Message to terminal" name="prompt" value="${esc(s.drafts[key(t.id)]||'')}" placeholder="Message or command…" autocomplete="off"/><button type="submit" class="dp-primary cursor-interaction">Send</button></form>`}<div class="dp-siblings">${button('‹','prev','',`aria-label="Previous terminal" ${idx<=0?'disabled':''}`)}<select aria-label="Terminal in current group">${nearby.map((item,i)=>`<option value="${item.id}" ${item.id===t.id?'selected':''}>${i+1}/${nearby.length} · ${esc(item.title)}</option>`).join('')}</select>${button('›','next','',`aria-label="Next terminal" ${idx>=nearby.length-1?'disabled':''}`)}</div>`;
+    }
+    const settingsRows=[['Machines & pairing','Pair, label, switch or forget machines','machines'],['Authorized devices','Rename, revoke or re-pair a device','devices'],['Notifications','Enable, test or repair delivery','notifications'],['Agent usage','Limits, remaining allowance and reset times','usage'],['Connections','Availability and integration status','connections'],['App & installation','Home screen installation and version','app']];
+    const settings=()=>`${heading('Settings',machine().name)}<section class="dp-group">${settingsRows.map(([name,detail,view])=>button(`<span class="dp-grow"><strong>${name}</strong><span class="dp-small dp-muted">${detail}</span></span><span class="dp-arrow" aria-hidden="true">›</span>`,view,'dp-row')).join('')}</section>`;
+    function machinesView(){return `${back()}<div class="dp-heading">${heading('Machines & pairing')}${button('+ Pair','pair','dp-primary')}</div><div class="dp-stack">${s.machines.map(m=>`<section class="dp-group"><div class="dp-setting"><strong>${esc(m.name)} ${m.id===s.machine?'· selected':''}</strong><span class="dp-small dp-muted">https://${m.id}.example.ts.net</span><div class="dp-toolbar">${button('Rename label','rename-machine:'+m.id)}${button('Use reported name','reset-machine:'+m.id)}${button('Forget…','forget-machine:'+m.id,'dp-danger')}</div></div></section>`).join('')}</div>`;}
+    const getDevices=()=>s.devices[s.machine]??(s.devices[s.machine]=[{id:'phone',name:'My phone',current:true},{id:'tablet',name:'Tablet',current:false}]);
+    function devicesView(){return `${back()}${heading('Authorized devices',machine().name)}<div class="dp-stack">${getDevices().map(d=>`<section class="dp-group"><div class="dp-setting"><strong>${esc(d.name)}${d.current?' · this device':''}</strong><span class="dp-small dp-muted">Last used ${d.current?'just now':'yesterday'}</span><div class="dp-toolbar">${button('Rename','rename-device:'+d.id)}${button('Revoke…','revoke-device:'+d.id,'dp-danger')}</div></div></section>`).join('')}</div><div class="dp-banner">${s.credentials[s.machine]?'This device has its own credential.':'Individual device credentials let you revoke one device without disconnecting the others.'}</div>${button('Re-pair this device','re-pair')}${button('Give this device its own credential','own-credential')}`;}
+    const notifyView=()=>`${back()}${heading('Notifications',machine().name)}<section class="dp-group"><div class="dp-setting"><strong>${s.notifications[s.machine]===false?'Off':'Enabled'}</strong><span class="dp-small dp-muted">When work needs you or finishes</span><div class="dp-toolbar">${button(s.notifications[s.machine]===false?'Enable':'Turn off','notify-toggle')}${button('Send test','notify-test')}</div></div><div class="dp-setting"><strong>Delivery registration</strong><span class="dp-small dp-muted">Repair a missing browser subscription on this machine</span>${button('Repair registration','notify-repair')}</div></section>`;
+    const usage=()=>`${back()}${heading('Agent usage','Example allowance data · '+machine().name)}<section class="dp-group"><div class="dp-setting"><strong>Codex · 62% left</strong><span>5-hour allowance · comfortable</span><span class="dp-small dp-muted">Resets in 2h 15m · updated just now</span></div><div class="dp-setting"><strong>Claude · 28% left</strong><span>Session allowance · getting tight</span><span class="dp-small dp-muted">Resets in 1h 40m · weekly limit also available</span></div></section>${button('Refresh usage','refresh-usage')}`;
+    const connections=()=>`${back()}${heading('Connections',machine().name)}<section class="dp-group"><div class="dp-setting"><strong>Deskpilot · ${s.connection}</strong><span class="dp-small dp-muted">Terminals, pairing, notifications and previews</span></div><div class="dp-setting"><strong>Herdr · ${machine().herdr?'Running':'Not installed'}</strong><span class="dp-small dp-muted">${machine().herdr?'Local spaces, tabs and terminals':'Optional; ordinary sessions stay available'}</span>${machine().herdr?button('Manage spaces & tabs','spaces'):''}</div><div class="dp-setting"><strong>Desktop · ${machine().desktop?'Available':'Headless'}</strong><span class="dp-small dp-muted">${machine().desktop?'Windows, placement, capture and unlock':'Terminal work and task previews remain available'}</span></div></section>${button('Retry discovery','retry')}`;
+    const app=()=>`${back()}${heading('App & installation')}<section class="dp-group"><div class="dp-setting"><strong>Install Deskpilot</strong><span class="dp-small dp-muted">A browser app on your home screen</span>${button('Installation instructions','install-help')}</div><div class="dp-setting"><strong>Version & connection</strong><span class="dp-small dp-muted">The live app will show its build version here.</span></div><div class="dp-setting"><strong>Terminal text</strong><span class="dp-small dp-muted">Compact or readable, also available inside each terminal</span>${button(s.big?'Use compact text':'Use readable text','text-size')}</div></section>${s.installHelp?'<div class="dp-banner">Android: browser menu → Install app or Add to Home screen. iPhone: Share → Add to Home Screen.</div>':''}`;
+    function pair(){return `${back('Machines','machines')}${heading(s.repairing?'Re-pair this device':'Pair a machine')}<p class="dp-small dp-muted">Run deskpilot pair on the remote machine. Scan its QR or enter its link and code.</p>${s.scanning?'<div class="dp-camera">Example QR scanner<br/>Camera access is not requested in this prototype.</div>'+button('Use example QR result','example-qr'):button('Scan QR code','scan')} ${form(field('Machine name','name',s.repairing?machine().name:'New machine')+field('Pairing link or address','address',s.pairAddress||'https://workstation.example.ts.net')+field('Code or legacy token','code',s.pairCode||'', 'text',false),'Pair example','pair')}`;}
+    const previewImage=()=>`<div class="dp-image"><span class="dp-small dp-muted">Example task preview${s.zoom?' · actual size':''}</span><div class="dp-image-links"><span>Work</span><span>Desktop</span><span>Previews</span><span>Settings</span></div><strong>Navigation review</strong><div class="dp-image-bar"></div><div class="dp-image-bar" style="width:85%"></div><div class="dp-image-bar" style="width:40%"></div></div>`;
+    function previews(){const p=s.previewItems.find(p=>p.id===s.previewId)||s.previewItems[0];return `<div class="dp-heading">${heading('Previews',machine().name)}${button('Refresh','refresh-previews')}</div>${p?`<strong>${esc(p.title)}</strong><span class="dp-small dp-muted">${esc(p.caption)} · ${p.time}</span>${previewImage()}<div class="dp-toolbar">${button(s.zoom?'Fit image':'Enlarge / actual size','zoom')}${button('Remove preview…','remove-preview:'+p.id,'dp-danger')}</div><div class="dp-section-label">Recent previews</div>${s.previewItems.map(p=>button(esc(p.title),'select-preview:'+p.id)).join('')}`:'<p class="dp-muted">No previews published yet.</p>'}`;}
+    function desktop(){
+      const t=all().find(t=>t.screen===s.screen), name=t?.title||'Deskpilot · GitHub';
+      return `${heading('Desktop','Windows and placement')}<div class="dp-siblings">${button('‹','screen-prev','',`aria-label="Previous desktop workspace" ${s.screen===1?'disabled':''}`)}<select aria-label="Desktop workspace">${Array.from({length:10},(_,i)=>`<option value="${i+1}" ${s.screen===i+1?'selected':''}>Screen ${i+1}</option>`).join('')}</select>${button('›','screen-next','',`aria-label="Next desktop workspace" ${s.screen===10?'disabled':''}`)}</div>${s.locked?'<div class="dp-banner">Desktop locked. Terminal work stays available; desktop screenshots are blocked.</div>'+`<form class="dp-form" data-form="unlock">${field('Desktop password','password','','password')}<button type="submit" class="dp-primary cursor-interaction">Unlock example desktop</button></form>`:''}<section class="dp-window"><div class="dp-window-title"><strong>${esc(name)}</strong><span class="dp-small dp-muted">${t?(t.provider==='Herdr'?'Herdr':'Terminal'):'Chromium'} · ${s.tiled===false?'floating':'tiled'}</span></div><div class="dp-window-actions">${t?button('Open terminal','open:'+t.id,'dp-primary'):''}${button('Inspect','inspect','',s.locked?'disabled':'')}${button('Tile','tile')}${button('Move…','move-window:'+(t?.id||'browser'))}</div></section>${s.preview&&!s.locked?previewImage()+button('Enlarge / fit','zoom'):''}${button('+ Work on this screen','create-terminal','dp-primary')}`;
+    }
+    function edit(){
+      const e=s.edit;let body='',title='',label='Save example';
+      if(['space','tab','pane','terminal'].includes(e.kind)){
+        title='New '+({space:'Herdr space',tab:'Herdr tab',pane:'terminal in tab',terminal:'terminal or agent'})[e.kind];label='Create example';
+        body=field('Name','name','')+field('Folder','folder','~/Projects/deskpilot');
+        if(e.kind==='terminal')body+=select('Run in','runtime',[['deskpilot','Deskpilot terminal'],...(machine().herdr?spaces().map(id=>['space:'+id,'Herdr · '+titleSpace(id)]):[])],'deskpilot');
+        if(e.kind==='tab')body+=select('Space','space',spaces().map(id=>[id,titleSpace(id)]),e.space||spaces()[0]);
+        body+=select('Command preset','agent',[['Codex','Codex'],['Codex continue','Codex continue'],['Codex yolo','Codex yolo'],['Claude','Claude'],['Claude continue','Claude continue'],['Shell','Terminal'],['Custom','Custom command']],'Codex')+field('Command to run','command','codex --no-alt-screen');
+        if(machine().desktop&&e.kind==='terminal')body+=select('Desktop placement','screen',[['','No desktop window'],...Array.from({length:10},(_,i)=>[i+1,'Screen '+(i+1)])],e.returnTo.view==='desktop'?s.screen:'');
+      }else if(e.kind==='rename-space'){title='Rename space';body=field('Space name','name',titleSpace(e.space));}
+      else if(e.kind==='rename-tab'){title='Rename tab';body=field('Tab name','name',titleTab(e.tab));}
+      else if(e.kind==='move-tab'){title='Move tab';body=`<p>${esc(titleTab(e.tab))}</p>`+select('Destination space','space',spaces().map(id=>[id,titleSpace(id)]),spaces().find(id=>id!==e.space)||e.space);}
+      else if(e.kind==='rename-machine'){title='Rename machine label';body=field('Label in this app','name',s.machines.find(m=>m.id===e.id).name)+'<p class="dp-small dp-muted">Does not change the computer’s hostname.</p>';}
+      else if(e.kind==='rename-device'){title='Rename device';body=field('Device name','name',getDevices().find(d=>d.id===e.id).name);}
+      else if(e.kind==='re-pair'){title='Re-pair this device';body=field('Pairing code or legacy token','code','');}
+      else if(e.kind==='rename-terminal'){title='Rename mobile session';body=field('Session name','name',current().title);}
+      else if(e.kind==='open-desktop'||e.kind==='move-window'){title=e.kind==='open-desktop'?'Open on desktop':'Move window';body=select('Desktop screen','screen',Array.from({length:10},(_,i)=>[i+1,'Screen '+(i+1)]),s.screen);}
+      return `${back('Cancel','cancel-form')}${heading(title)}${form(body,label)}`;
+    }
+    const affected=p=>all().filter(t=>p.kind==='space'?t.space===p.space:p.kind==='tab'?t.space===p.space&&t.tab===p.tab:t.id===s.selected);
+    function confirm(){
+      const p=s.pending, native=['space','tab','terminal'].includes(p.kind), items=native?affected(p):[];
+      const title=p.kind==='space'?'Close '+titleSpace(p.space)+'?':p.kind==='tab'?'Close '+titleTab(p.tab)+'?':p.kind==='terminal'?'End this terminal?':p.kind==='forget'?'Forget this machine?':p.kind==='revoke'?'Revoke device access?':'Remove this preview?';
+      const detail=native?`Stops ${count(items.length,'terminal')} and any agents running inside ${machine().name}.`:(p.kind==='forget'?'Removes the machine from this app. Its running work continues.':p.kind==='revoke'?'Removes this device’s access to '+machine().name+'. Other devices stay paired.':'Removes this published image; running work continues.');
+      return `${heading(title)}<p class="dp-muted">${esc(detail)}</p>${items.length?'<ul class="dp-list">'+items.map(t=>`<li>${esc(t.title)}<br/>${status(t)}</li>`).join('')+'</ul>':''}${p.kind==='tab'&&tabs(p.space).length===1?'<div class="dp-banner">This is the last tab. Closing it also closes the space.</div>':''}<div class="dp-confirm-actions">${button('Cancel','cancel-confirm')}${button(native?'Stop & close example':p.kind==='forget'?'Forget example machine':p.kind==='revoke'?'Revoke example device':'Remove example preview','confirm-action','dp-danger')}</div>`;
+    }
+    function render(){
+      if(!machine().desktop&&s.view==='desktop')s.view='work';
+      phone.dataset.sources=String(s.sources);phone.style.setProperty('--dp-pad',s.density==='Compact'?'10px':'14px');phone.style.setProperty('--dp-terminal-font',s.big?'14px':'10px');
+      const views={work,spaces:spacesView,space:spaceView,terminal,desktop,settings,machines:machinesView,devices:devicesView,notifications:notifyView,usage,connections,app,pair,previews,edit,confirm};
+      const settingsViews=['settings','machines','devices','notifications','usage','connections','app','pair'];
+      const active=s.view==='desktop'?'desktop':s.view==='previews'?'previews':settingsViews.includes(s.view)?'settings':'work';
+      const gated=s.connection!=='Connected'&&['work','desktop','terminal','space','spaces'].includes(s.view);
+      const content=gated?heading(s.connection==='Offline'?'Machine offline':'Pairing required',machine().name)+button(s.connection==='Offline'?'Retry connection':'Pair this machine',s.connection==='Offline'?'retry':'repair-pair','dp-primary'):(views[s.view]||work)();
+      phone.innerHTML=`<header class="dp-top"><div class="dp-brand"><span>DESKPILOT</span><span>● ${s.connection}</span></div><div class="dp-machine-row"><label class="dp-machine-label dp-grow"><select aria-label="Machine">${s.machines.map(m=>`<option value="${m.id}" ${m.id===s.machine?'selected':''}>${esc(m.name)}${(examples[m.id]??[]).some(t=>t.state==='blocked')?' · needs you':''}</option>`).join('')}</select></label>${button('+','pair','',`aria-label="Pair another machine"`)}</div></header><main class="dp-main">${content}${s.notice?`<div class="dp-banner" role="status">${esc(s.notice)}</div>`:''}</main>${s.view==='terminal'||s.view==='confirm'||s.view==='edit'?'':`<nav class="dp-bottom" aria-label="Main views">${[['work','Work'],...(machine().desktop?[['desktop','Desktop']]:[]),['previews','Previews'],['settings','Settings']].map(([id,label])=>button(label,id,'',active===id?'aria-current="page"':'')).join('')}</nav>`}<footer class="dp-preview-note">Example data · no live changes</footer>`;
+    }
+    function openTerminal(id){s.from=here();s.selected=id;s.view='terminal';s.preview=false;s.menu=null;s.drawer='';}
+    function reorder(list,id,dir){const n=list.indexOf(id),j=n+(dir==='up'?-1:1);if(n>=0&&j>=0&&j<list.length)[list[n],list[j]]=[list[j],list[n]];return list;}
+    phone.addEventListener('click',e=>{
+      const el=e.target.closest('button[data-action]');if(!el)return;const [kind,...parts]=el.dataset.action.split(':'),value=parts.join(':');s.notice='';
+      if(['work','desktop','previews','settings','machines','devices','notifications','usage','connections','app','spaces'].includes(kind)){s.view=kind;s.menu=null;s.preview=false;}
+      else if(kind==='menu'){s.menu=s.menu?.kind===parts[0]&&s.menu.id===parts[1]?null:{kind:parts[0],id:parts[1]};if(parts[0]==='space')s.space=parts[1];if(parts[0]==='tab'){s.tab=parts[1];s.space=all().find(t=>t.tab===parts[1])?.space||s.space;}}
+      else if(kind==='dismiss')s.menu=null;
+      else if(kind==='filter')s.filter=value;
+      else if(kind==='refresh-work')s.notice='Example session and Herdr discovery refreshed.';
+      else if(kind==='native-tab'){s.space=parts[0];s.tab=parts[1];s.activeTabs[key(parts[0])]=parts[1];s.menu=null;}
+      else if(kind==='toggle-herdr')s.herdrFolded=!s.herdrFolded;
+      else if(kind==='collapse')s.collapsed=s.collapsed.includes(key(value))?s.collapsed.filter(x=>x!==key(value)):[...s.collapsed,key(value)];
+      else if(kind==='new-menu')s.menu=s.menu?.kind==='new'?null:{kind:'new'};
+      else if(kind==='create-space')begin('space');
+      else if(kind==='create-tab')begin('tab',{space:value});
+      else if(kind==='create-pane')begin('pane',{space:all().find(t=>t.tab===value)?.space||s.space,tab:value});
+      else if(kind==='create-terminal')begin('terminal');
+      else if(kind==='rename-space')begin('rename-space',{space:value});
+      else if(kind==='rename-tab')begin('rename-tab',{space:s.space,tab:value});
+      else if(kind==='move-tab')begin('move-tab',{space:s.space,tab:value});
+      else if(kind==='reorder-space')s.spaceOrder[s.machine]=reorder(spaces(),parts[1],parts[0]);
+      else if(kind==='reorder-tab')s.tabOrder[key(s.space)]=reorder(tabs(s.space),parts[1],parts[0]);
+      else if(kind==='close-space'||kind==='close-tab'){s.pending={kind:kind==='close-space'?'space':'tab',space:kind==='close-space'?value:s.space,tab:value,returnTo:here()};s.view='confirm';s.menu=null;}
+      else if(kind==='space'){s.space=value;s.tab=tabs(value)[0];s.view='space';s.menu=null;}
+      else if(kind==='tab')s.tab=value;
+      else if(kind==='open')openTerminal(value);
+      else if(kind==='back')restore(s.from);
+      else if(kind==='terminal-menu')s.menu=s.menu?null:{kind:'terminal'};
+      else if(kind==='terminal-panel')s.preview=false;
+      else if(kind==='preview-panel')s.preview=true;
+      else if(kind==='prev'||kind==='next'){const list=siblings(),n=list.findIndex(t=>t.id===s.selected)+(kind==='next'?1:-1);if(list[n])s.selected=list[n].id;s.menu=null;s.preview=false;s.drawer='';}
+      else if(kind==='disconnect'){restore(s.from);s.notice='Mobile view disconnected. The original program keeps running.';}
+      else if(kind==='details')s.notice=current().provider+' · '+current().path+(current().screen?' · Desktop screen '+current().screen:' · No desktop window');
+      else if(kind==='rename-terminal')begin('rename-terminal');
+      else if(kind==='open-desktop')begin('open-desktop',{id:s.selected});
+      else if(kind==='end'){s.pending={kind:'terminal',returnTo:here()};s.view='confirm';s.menu=null;}
+      else if(kind==='cancel-confirm')restore(s.pending.returnTo);
+      else if(kind==='confirm-action'){
+        const p=s.pending;
+        if(['space','tab','terminal'].includes(p.kind)){s.closed.push(...affected(p).map(t=>key(t.id)));s.view='work';s.notice='Example work closed.';}
+        else if(p.kind==='revoke'){const device=getDevices().find(d=>d.id===p.id);s.devices[s.machine]=getDevices().filter(d=>d.id!==p.id);s.view='devices';s.notice=device.current?'This example device was revoked. Re-pair to regain access.':'Example device revoked.';if(device.current)s.connection='Pairing required';}
+        else if(p.kind==='forget'){s.machines=s.machines.filter(m=>m.id!==p.id);if(s.machine===p.id)s.machine=s.machines[0].id;s.view='machines';s.notice='Machine forgotten from this example.';}
+        else if(p.kind==='preview'){s.previewItems=s.previewItems.filter(x=>x.id!==p.id);s.view='previews';}
+      }
+      else if(kind==='cancel-form')restore(s.edit?.returnTo||{view:'machines'});
+      else if(kind==='pair'||kind==='repair-pair'){s.repairing=kind==='repair-pair';s.edit=null;s.view='pair';s.scanning=false;s.pairAddress='';s.pairCode='';}
+      else if(kind==='scan')s.scanning=!s.scanning;
+      else if(kind==='example-qr'){s.pairAddress='https://new-workstation.example.ts.net';s.pairCode='EXAMPLE-CODE';s.scanning=false;}
+      else if(kind==='rename-machine')begin('rename-machine',{id:value});
+      else if(kind==='reset-machine'){s.machines.find(m=>m.id===value).name=baseMachines.find(m=>m.id===value)?.name||'Workstation';}
+      else if(kind==='forget-machine'){if(s.machines.length===1)s.notice='Keep at least one machine paired.';else{s.pending={kind:'forget',id:value,returnTo:here()};s.view='confirm';}}
+      else if(kind==='rename-device')begin('rename-device',{id:value});
+      else if(kind==='revoke-device'){s.pending={kind:'revoke',id:value,returnTo:here()};s.view='confirm';}
+      else if(kind==='re-pair')begin('re-pair');
+      else if(kind==='own-credential'){s.credentials[s.machine]=true;s.notice='Example device now has its own revocable credential.';}
+      else if(kind==='notify-toggle')s.notifications[s.machine]=s.notifications[s.machine]===false;
+      else if(kind==='notify-test')s.notice='Example test notification queued for this device.';
+      else if(kind==='notify-repair'){s.notifications[s.machine]=true;s.notice='Example delivery registration repaired.';}
+      else if(kind==='refresh-usage')s.notice='Example usage refreshed; stale collector data would be labeled here.';
+      else if(kind==='install-help')s.installHelp=!s.installHelp;
+      else if(kind==='retry'){s.connection='Connected';s.notice='Example connection refreshed.';}
+      else if(kind==='text-size')s.big=!s.big;
+      else if(['copy','paste','keys'].includes(kind))s.drawer=s.drawer===kind?'':kind;
+      else if(kind==='close-drawer')s.drawer='';
+      else if(kind==='select-output'){phone.querySelector('textarea[aria-label="Terminal output to copy"]')?.select();return;}
+      else if(kind==='key'){s.logs[key(s.selected)]=(s.logs[key(s.selected)]||'')+'\n[key: '+value+']';}
+      else if(kind==='refresh-previews')s.notice='Example preview history refreshed.';
+      else if(kind==='select-preview')s.previewId=value;
+      else if(kind==='zoom')s.zoom=!s.zoom;
+      else if(kind==='remove-preview'){s.pending={kind:'preview',id:value,returnTo:here()};s.view='confirm';}
+      else if(kind==='screen-prev'||kind==='screen-next'){s.screen=Math.max(1,Math.min(10,s.screen+(kind==='screen-next'?1:-1)));s.preview=false;}
+      else if(kind==='inspect')s.preview=!s.preview;
+      else if(kind==='tile'){s.tiled=true;s.notice='Example window tiled.';}
+      else if(kind==='move-window')begin('move-window',{id:value});
+      render();store();
+    });
+    phone.addEventListener('input',e=>{if(e.target.name==='prompt')s.drafts[key(s.selected)]=e.target.value;});
+    phone.addEventListener('change',e=>{
+      const el=e.target;
+      if(el.matches('[aria-label="Machine"]')){s.machine=el.value;s.view='work';s.filter='all';s.menu=null;s.drawer='';s.notice='';s.screen=s.machine==='laptop'?2:4;s.connection='Connected';}
+      else if(el.matches('[aria-label="Terminal in current group"]')){s.selected=el.value;s.drawer='';s.menu=null;}
+      else if(el.matches('[aria-label="Desktop workspace"]')){s.screen=Number(el.value);s.preview=false;}
+      else if(el.name==='agent'){
+        const presets={Codex:'codex --no-alt-screen','Codex continue':'codex resume --last --no-alt-screen','Codex yolo':'codex --yolo --no-alt-screen',Claude:'claude','Claude continue':'claude --continue',Shell:'bash',Custom:''};
+        el.form.elements.command.value=presets[el.value];let warning=el.form.querySelector('[data-yolo]');if(warning)warning.remove();if(el.value==='Codex yolo'){warning=document.createElement('p');warning.dataset.yolo='';warning.className='dp-banner';warning.textContent='Yolo mode disables approval prompts and sandboxing. This prototype does not launch any command.';el.after(warning);}return;
+      } else return;
+      render();store();
+    });
+    phone.addEventListener('submit',e=>{
+      e.preventDefault();const f=e.target,data=new FormData(f),kind=f.dataset.form;s.notice='';
+      if(kind==='send'){const text=String(data.get('prompt')||'').trim();if(!text)return;s.logs[key(s.selected)]=(s.logs[key(s.selected)]||'')+'\nYou: '+text+'\nExample reply received.';s.drafts[key(s.selected)]='';}
+      else if(kind==='paste'){s.drafts[key(s.selected)]=(s.drafts[key(s.selected)]||'')+String(data.get('paste')||'');s.drawer='';s.notice='Inserted without sending.';}
+      else if(kind==='unlock'){s.locked=false;s.notice='Example desktop unlocked.';}
+      else if(kind==='pair'){
+        if(!String(data.get('code')||'').trim()&&!String(data.get('address')).includes('code=')){s.notice='Enter a pairing code or use the example QR result.';render();return;}
+        if(!s.repairing){const id='paired-'+s.machines.length;s.machines.push({id,name:String(data.get('name')),desktop:true,herdr:false});s.machine=id;}
+        s.connection='Connected';s.view='machines';s.notice='Example pairing complete.';s.scanning=false;s.pairCode='';s.pairAddress='';
+      } else if(kind==='edit'){
+        const edit=s.edit,name=String(data.get('name')||'').trim();
+        if(['space','tab','pane','terminal'].includes(edit.kind)){
+          const id='created-'+s.added.length, runtime=String(data.get('runtime')||''),space=edit.kind==='space'?'space-'+id:edit.kind==='tab'?String(data.get('space')):edit.kind==='pane'?edit.space:runtime.startsWith('space:')?runtime.slice(6):null;
+          const tab=edit.kind==='pane'?edit.tab:space?'tab-'+id:null;
+          if(edit.kind==='space')s.spaceNames[key(space)]=name;
+          if(tab)s.activeTabs[key(space)]=tab;
+          if(tab&&edit.kind!=='pane')s.tabNames[key(tab)]=edit.kind==='space'?'Terminal':name;
+          const agent=String(data.get('agent')).split(' ')[0];s.added.push({id,machine:s.machine,title:edit.kind==='space'?'Project terminal':name,agent:agent==='Custom'?'Terminal':agent,state:'ready',path:String(data.get('folder')),provider:space?'Herdr':'Deskpilot',space,tab,screen:data.get('screen')?Number(data.get('screen')):undefined});
+          if(edit.kind==='space'){s.space=space;s.tab=tab;s.view='space';}
+          else if(['tab','pane'].includes(edit.kind)){s.space=space;s.tab=tab;restore(edit.returnTo);if(s.view==='space'){s.space=space;s.tab=tab;}}
+          else{restore(edit.returnTo);openTerminal(id);}
+          s.notice='Example '+edit.kind+' created.';
+        }else{
+          if(edit.kind==='rename-space')s.spaceNames[key(edit.space)]=name;
+          else if(edit.kind==='rename-tab')s.tabNames[key(edit.tab)]=name;
+          else if(edit.kind==='move-tab'){const destination=String(data.get('space'));all().filter(t=>t.space===edit.space&&t.tab===edit.tab).forEach(t=>s.membership[key(t.id)]={...s.membership[key(t.id)],space:destination,tab:t.tab});}
+          else if(edit.kind==='rename-machine')s.machines.find(m=>m.id===edit.id).name=name;
+          else if(edit.kind==='rename-device')getDevices().find(d=>d.id===edit.id).name=name;
+          else if(edit.kind==='re-pair'){s.credentials[s.machine]=true;s.connection='Connected';}
+          else if(edit.kind==='rename-terminal')s.termNames[key(s.selected)]=name;
+          else if(edit.kind==='move-window'||edit.kind==='open-desktop'){s.membership[key(edit.id)]={...s.membership[key(edit.id)],screen:Number(data.get('screen'))};}
+          restore(edit.returnTo);s.notice='Example change saved.';
+        }
+      }
+      render();store();
+    });
+    render();
+    if(globalThis.Tweak){const tweak=new Tweak({container:phone,onChange:()=>{render();store();}});tweak.addSelect(s,'density',{label:'Row spacing',options:['Compact','Comfortable']});tweak.addToggle(s,'sources',{label:'Show connection source'});tweak.addSelect(s,'connection',{label:'Example connection state',options:['Connected','Offline','Pairing required']});tweak.addToggle(s,'locked',{label:'Example desktop locked'});}
+  });
+})();
+</script>

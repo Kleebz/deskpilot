@@ -20,7 +20,8 @@ From the phone you can:
 - read and control live tmux terminals;
 - see which agents are working, blocked, or done;
 - move between several machines and sessions;
-- start work, paste text, copy output, and answer safe permission prompts; and
+- start work, paste text, copy output, and answer safe permission prompts;
+- review screenshots and renders published by a task, including work outside tmux; and
 - inspect screens and move windows when the desktop supports it.
 
 ## Contents
@@ -258,6 +259,41 @@ tmux session named `desk` (or the supplied name); collisions receive `-2`, `-3`,
 on. Closing the window detaches it, while exiting the shell ends it. Installed desktops
 also expose **Deskpilot Terminal** in the application launcher.
 
+Deskpilot uses your preferred terminal through `xdg-terminal-exec` when available,
+then `$TERMINAL`, then an installed emulator. This applies both to `deskpilot session`
+and windows requested from the phone. To choose one explicitly, set
+`DESKPILOT_TERMINAL=ghostty` (or another executable) in
+`~/.config/deskpilot/config`; an environment override takes precedence. Existing
+explicit choices are preserved. `auto` restores automatic selection.
+
+Ghostty, Alacritty, Kitty, Foot, WezTerm, GNOME Terminal, Konsole and Xterm have
+supported launch paths; `xdg-terminal-exec` also handles other terminals described by
+their desktop entries. Custom executable wrappers retain the `-e CMD ARGS...` contract.
+Ghostty windows launched by Deskpilot receive distinct application IDs, so their
+sessions can be associated with the correct desktop window. For an existing terminal
+process that owns several windows, Deskpilot leaves the workspace unassigned rather
+than guessing; its tmux sessions are still accessible from the phone.
+
+Codex CLI terminal pets are [unavailable inside tmux](https://learn.chatgpt.com/docs/pets#choose-a-terminal-pet).
+If you use pets, keep ordinary terminal startup and use `deskpilot session` only
+for work that needs mobile access. Pets will not be available in those sessions.
+
+To make future shells in your usual terminal accessible automatically, opt in by
+setting that terminal's startup command to `deskpilot run /path/to/your/shell -l`.
+For example, a Bash user can set this in Ghostty's configuration:
+
+```ini
+command = deskpilot run /usr/bin/bash -l
+```
+
+This applies to new windows, tabs and splits; it does not adopt already running shells.
+Use your own shell's executable path, and remove the setting to return to ordinary
+shells. Deskpilot does not write this setting for you. Each new shell gets a separate
+tmux session, even when opened in the same directory. Native tabs and splits remain
+usable on the phone, but their desktop window association may be unavailable when
+they share a terminal process. Closing the terminal detaches these shells; `exit` ends
+them.
+
 To start an agent on the desktop and control that same process from the phone later:
 
 ```bash
@@ -268,16 +304,128 @@ deskpilot run aider --model sonnet
 
 `deskpilot run` creates a named tmux session from the current directory and attaches the
 terminal you are already using. Leaving the desk, closing the terminal, or losing the
-phone connection does not stop the command; it remains available in Deskpilot's Sessions
+phone connection does not stop the command; it remains available in Deskpilot's Spaces
 view. Name collisions receive `-2`, `-3`, and so on automatically.
 
 This is the explicit alternative to shell integration. It does not edit a shell profile
 or shadow the underlying command. Running `tmux new-session -s NAME COMMAND` directly
 also works, because Deskpilot discovers every tmux session rather than only ones it made.
 
-An arbitrary process started outside tmux cannot be moved into it later. Deskpilot can
-track supported agents in that state and show their desktop windows, but terminal capture
-and input require starting them with `deskpilot run` (or tmux itself).
+An arbitrary process started outside tmux cannot be moved into it later. Use
+`deskpilot run` (or tmux itself) for full access to an ordinary shell or program.
+
+### Connect an existing Codex conversation
+
+Leave Ghostty and Codex startup as usual. On the phone, open **Spaces**, search for the conversation, then choose **Connect** for the conversation you want. Deskpilot opens
+a mobile terminal attached to that exact conversation on Codex's already running shared
+server. Your desktop window, pet, conversation and permission settings stay in place.
+Returning to an enabled conversation opens the same mobile terminal again.
+
+You can also find it by desktop location in **Desktop**. A terminal with a unique
+matching conversation title and project shows a compact **Open terminal**
+link beneath its window controls. The terminal menu provides desktop placement for the
+same match. If the window cannot be matched uniquely, **Connect conversation…** opens
+a chooser with conversation names, projects and IDs. Opening a terminal from Desktop
+keeps that screen as the Back destination. Screenshots remain behind the **look** button.
+
+This is an explicit action: discovery doesn't launch terminals, submit prompts, publish
+previews, or close windows. Desktop and phone can use the same conversation without
+moving its original shell. Closing the phone page leaves its terminal available for
+reconnection. Closing the mobile tmux session leaves the original Codex terminal usable.
+
+This requires a Codex CLI with shared-daemon, proxy and remote-resume support (verified
+with CLI 0.162.1 and daemon 0.164.0). Conversations using `--no-daemon`, another Codex home,
+or an independent backend are not offered. Only loaded, directly addressable root
+conversations are listed; Codex can keep an idle conversation loaded after its window
+closes. Folder trust and permission dialogs remain interactive on the phone. No trust or
+sandbox bypass flags are added. Other agents and arbitrary shells still use the explicit
+Deskpilot Terminal launcher.
+
+### Connect a Herdr desktop terminal
+
+The new **Herdr desktop app** runs its terminals in `herdr-core`. When that
+runtime is installed and running on a paired computer, Deskpilot automatically
+shows its live local terminals in **Spaces**, including ordinary
+shells. Spaces and tabs follow the desktop layout, with split terminals kept
+together. Tap a terminal row to connect or reopen the same running terminal on
+your phone. Enabled terminals appear once in their Herdr group.
+
+Collapse spaces to keep the view compact; Deskpilot remembers this per computer.
+The current desktop space expands by default. Select a tab to see its terminals;
+the tab choice and explicit space expansion choices survive polling and reloads.
+**Needs you** shows terminals reporting blocked or error states; the visible search
+field finds space names, tasks, terminal titles, agents, and project paths. If the
+desktop layout is unavailable, live terminals remain under **Other terminals**.
+
+The space and terminal **•••** menus open Herdr management, which uses native
+commands to create, rename, reorder, split, and close its spaces and tabs.
+Management requires the Herdr desktop app to be open on that computer. Terminal
+discovery and mobile attachment remain available when only its core is running.
+The installed app currently supports moving tabs earlier/later within a space;
+transferring a whole tab to a different space is unavailable.
+
+Closing a Herdr tab/space or stopping a Herdr terminal stops the original work.
+The phone lists affected terminals before confirming a close, and rejects the
+request if its reviewed layout changed. **Disconnect view** closes just the
+mobile attachment. Native terminal swiping and the picker stay within the same
+Herdr tab, attaching another pane's terminal on demand. Desktop actions point to
+Herdr's window, which may contain several spaces and tabs.
+
+Ordinary Deskpilot sessions and Codex conversations begin **Unassigned** in the same
+Spaces browser. Move them into local spaces and tabs explicitly; native Herdr
+membership remains owned by Herdr. Session controls and desktop placement remain available. **Desktop** retains the workspace
+and window tools; **Previews** retains the independent image gallery. **Settings**
+separates machines/pairing, authorized devices, notifications, usage, connections,
+and this browser's app/installation information. Herdr is optional throughout.
+
+Discovery only reads the running runtime. Connecting creates a tmux session
+containing `herdr-core attach`; the original program stays in Herdr. Closing the
+mobile session ends that viewing client and leaves the Herdr program running.
+Terminal dimensions are shared: using the phone can resize the desktop view;
+the desktop viewer can resize it again when you return.
+
+Enabled mobile sessions use Herdr's reported working, blocked, and done state.
+Deskpilot checks it in the background and sends its existing push notifications
+when an observed state changes to blocked or done. Answer questions and approvals
+in the terminal; Herdr status alone does not enable Deskpilot's one-tap approval.
+
+This adapter targets the default local **herdr-core** session used by the new
+desktop app. It does not discover the original Herdr TUI runtime, custom core
+sessions, or SSH machines configured inside Herdr. Pair each computer with
+Deskpilot for its local terminals. Herdr remains optional on every other host.
+
+### Publish a task image
+
+To check visual progress from your phone, have the task save a screenshot or render and
+publish it:
+
+```bash
+deskpilot preview ./artifacts/login-page.png --caption "Login page after layout changes"
+deskpilot preview ./renders/mount.jpg --task sink-fitting --caption "Current fitting geometry"
+```
+
+Open **Previews** in the phone app to see the latest image, caption, update time, and
+recent history. Tap the image to enlarge it; **Actual size** allows scrolling around a
+full-resolution image. Images refresh while the view is open, and can be removed there.
+
+This works from ordinary Ghostty terminals with pets, from another terminal, and on a
+headless host. It does not require a tmux session. The task label defaults to the current
+tmux session when applicable, otherwise the project directory name. `--task` sets it
+explicitly; `--session` is an alias. Previews are on demand: ask the working agent,
+“Show me one preview of the current work and publish it to Deskpilot.” Nothing captures
+or saves an image after each prompt, and **Refresh** only reloads images already published.
+
+The optional Codex skill at [`skills/deskpilot-preview/SKILL.md`](skills/deskpilot-preview/SKILL.md)
+provides this request workflow. When installed in Codex's skills directory, invoke
+`$deskpilot-preview` in the working session, or ask it to show one Deskpilot preview.
+It captures and publishes one relevant image on request, with no background capture.
+
+Publishing uploads the selected file to the local service; it does not capture your
+desktop automatically. Existing desktop screenshot lock checks still apply to desktop
+captures. Previews accept PNG and JPEG images up to 8 MiB, 8192 pixels per side and
+32 megapixels. The latest 20 images are retained per machine under
+`~/.local/state/deskpilot/previews/` and require the same authentication as terminal data.
+The command uses the service port from Deskpilot's configuration or `DESKPILOT_PORT`.
 
 ## Connecting a phone
 
@@ -305,7 +453,7 @@ open either one; there is no second code to enter. `deskpilot pair --link` print
 link for scripts or agents to relay.
 
 For the first machine, open the link directly and install the app. To add another machine,
-open the installed app, choose **Add machine**, and paste the new machine's pairing link.
+open the installed app, choose **Computer → Pair computer**, and paste the new machine's pairing link.
 Each phone or browser receives its own revocable credential.
 
 Two things it can say instead of printing a QR, and they are not the same problem:
@@ -325,11 +473,29 @@ Deskpilot is a progressive web app:
 Installation provides full-screen use, durable local settings, offline access to the
 machine picker, and iOS push notifications. It requires HTTPS.
 
-The machine picker switches between paired hosts. Swipe horizontally between terminals,
-or tap the session name to jump directly. **Screens** provides workspace and window
-controls where supported. **Manage** contains devices, credentials, notifications, and
-machine labels. Drafts and the current view are restored after backgrounding without
-submitting or repeating an action.
+Deskpilot restores saved work and uses one **Spaces → tabs → terminals** hierarchy.
+At 960px and wider it stays in a left sidebar; on phones, **Spaces** near the top
+opens the same navigator. One terminal stays visible. Previous/next and horizontal
+swipes stay within the current tab; vertical drags scroll ordinary or application-owned
+history. The separate bottom dock and horizontal tab/pane strips are removed.
+
+Herdr supplies native layout when available. Ordinary terminals start **Unassigned**;
+unorganized Codex work sits in collapsed **Available conversations**, with search and
+**Hide / Show hidden / Restore**. Organizing or hiding work does not stop its original
+program. Spaces and tabs can also organize work on computers without Herdr.
+
+**Needs you** filters the navigator with This computer / All computers scope and
+explicit coverage. **Computer** contains switching, Desktop, Previews, pairing and
+settings. Opening it preserves the active terminal connection. Input tools retains
+paste without Enter, keys, selectable copy and text size. Contextual actions retain
+source identity, original folder/window links and distinct adapter/session lifecycle.
+
+Search, expansion, scroll and drafts restore without replaying actions. Drafts follow
+stable source identities; a replacement with the same name cannot inherit them.
+UI upgrades preserve pairings and drafts. An installed replacement offers **New UI ready
+→ Reload**; it never reloads automatically while composing. Settings shows UI build and
+backend version separately. A saved offline UI is identified independently of the
+selected computer's connection.
 
 To stop all Deskpilot background work temporarily, use `deskpilot pause`; `deskpilot
 resume` starts it again. A paused service remains enabled and starts normally at the next
@@ -347,7 +513,7 @@ so a restart leaves every session attached and running — verified when the ser
 crash-looped for thirty seconds and everything was still there afterwards.
 
 `deskpilot version` says what the command will run, and `shell/check.sh` verifies the live
-service. The app also shows the version of each selected machine under **Manage**.
+service. The app also shows the version of each selected machine under **Settings → App & installation**.
 
 **From a release** — the `install.sh` path:
 
@@ -409,8 +575,8 @@ self-updater, and package replace the complete set; `shell/check.sh` detects a m
 ### Recovery data
 
 Preserve `~/.config/deskpilot/` and `~/.local/state/deskpilot/` when repairing or
-reinstalling. The first contains the shared recovery token and configuration. The second
-contains per-device hashes, push identity and subscriptions, and agent state. The tmux
+reinstalling. The first contains configuration. The second contains per-device hashes, the
+local-helper credential, push identity and subscriptions, and agent state. The tmux
 server is separate from both and survives a Deskpilot service restart because the unit
 uses `KillMode=process`.
 
@@ -471,16 +637,12 @@ plainly rather than burying.
 - **Every device gets its own credential.** Pairing hands over a single-use code, not the
   machine's key. Revoke a lost phone from the app and nothing else is disturbed — that
   covers the cookie the app falls back on as well as the token it normally sends, which is
-  what makes revoking mean anything. Tokens are stored hashed — the state file is not a
-  set of working credentials.
-- **The machine's shared token can be replaced.** It predates per-device credentials and
-  is still what an old pairing holds, and `pair.sh` prints it into a URL and a QR whenever
-  the service is not answering — so it leaks the way a URL leaks, into history or a
-  screenshot or a photograph of a terminal. Revoking a device does nothing about a copy of
-  it. `deskpilot rotate`, or `shell/rotate.sh` from a checkout, mints a new one: devices
-  holding their own credential keep working, anything still on the shared token has to
-  pair again, and the command says how many of each there are before it touches
-  anything.
+  what makes revoking mean anything. Phone credentials are stored only as hashes in `devices.json`.
+- **Only registered device credentials authorize connections.** Pairing accepts a
+  QR/link or one-time code; shared machine tokens and token-bearing pairing links
+  are not supported. Phones paired with an old shared token must pair again.
+  Desktop helpers use their own registered credential, generated on server startup
+  at `~/.local/state/deskpilot/local-token`; it is never printed in a pairing link.
 - **Remote unlock is off** unless you set `DESKPILOT_UNLOCK=1`. It types your password
   into the lock screen through PAM and needs `ydotool`'s udev rule, so having the tool
   installed is not the same as consenting to it being reachable. Attempts are rate
@@ -511,12 +673,18 @@ The short version:
 
 ## Development and releases
 
+The real Spaces/task interface is in `web/`, with shared navigation and the host-bound organization client under `web/src/lib/spaces/`. The isolated sample is under `output/mobile-directions/` (`npm run dev`, then `/spaces`). Registered devices can GET/POST `/api/organization` for computer-owned space/task metadata. Saves include the current revision; conflicts require refresh. The store excludes drafts, credentials, terminal output and native Herdr layout. The trial uses its own local sample middleware and never calls this production endpoint.
+
+
 ```
-deno test --allow-read --allow-write --allow-env tests/   # unit tests
+deno test --allow-read --allow-write --allow-env --allow-run=sh tests/  # unit tests
 deno run -A tests/layout.ts                               # mobile flows/layout, disposable fixtures
 deno run -A tests/scanner.ts                              # QR preview, fixtures + simulated camera
 deno run -A tests/recovery.ts                             # reconnects, offline cold launch (restarts the service)
 tests/headless.sh dist/deskpilot                          # a host with no desktop
+deno run -A tests/terminal-launch.ts                      # real Ghostty/default terminal, disposable windows on Screen 99
+deno run -A tests/previews.ts                            # image publishing without tmux or a desktop
+deno run -A tests/previews-mobile.ts                      # phone preview layout and image review
 shell/check.sh                                            # every environment assumption
 shell/build.sh                                            # the single binary
 ```

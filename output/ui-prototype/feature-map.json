@@ -1,0 +1,156 @@
+{
+  "purpose": "Existing Deskpilot capabilities to retain when implementing the navigation redesign. Prototype controls use example data only.",
+  "integration_contract": {
+    "intent": "A proper Herdr integration that adds to Deskpilot without replacing or reducing Deskpilot's existing uses.",
+    "herdr": "A clearly labeled Herdr area preserves native spaces, tabs, split membership, order and management actions. Native identity is never inferred from a name or folder.",
+    "deskpilot": "Ordinary sessions and supported conversations stay outside Herdr groups. Desktop, previews, pairing, devices, notifications, usage and installation retain clear access.",
+    "shared": "Machine selection, consistent status language, terminal rendering, input tools and navigation are shared. A machine without Herdr remains a complete Deskpilot experience.",
+    "presentation": "Keep familiar Deskpilot session cards first, with session name, status, desktop screen and path. Herdr has a visibly separate native area with space headers, selectable tabs, pane rows and scoped management. Regular sessions never acquire Herdr spaces or tabs.",
+    "latest_review": "deskpilot-separation.html; review-separation.html is its browser wrapper",
+    "scope": "Implemented and activated after review; prototypes remain as design history."
+  },
+  "work": {
+    "features": [
+      "machine selection and attention counts",
+      "all/attention/working discovery",
+      "tmux sessions",
+      "Codex shared conversations",
+      "Herdr spaces/tabs/terminals",
+      "view-only agents",
+      "create session with directory, editable command, presets, and desktop placement",
+      "connect/reconnect exact running work",
+      "cross-machine attention entry"
+    ],
+    "sources": [
+      "web/src/App.svelte",
+      "web/src/lib/NewSession.svelte",
+      "web/src/lib/ConversationCard.svelte",
+      "web/src/lib/HerdrSessions.svelte"
+    ]
+  },
+  "herdr_management_proposed": {
+    "features": [
+      "create/rename/reorder/close space",
+      "create/rename/reorder/close tab",
+      "add a terminal inside a tab",
+      "list affected running work before close",
+      "last tab closure also closes space"
+    ],
+    "status": "Native create/rename/reorder/split/close and exact-pane stop implemented. Cross-space tab transfer is unavailable in the installed Herdr API and explicitly labeled in the UI."
+  },
+  "terminal": {
+    "features": [
+      "live terminal and scrollback",
+      "composer and unsent drafts per machine/session",
+      "swipe/previous/next and direct picker",
+      "return to originating work list or desktop workspace",
+      "compact/readable text",
+      "copy output and select all",
+      "paste without sending",
+      "special keys",
+      "rename mobile session",
+      "open on desktop",
+      "task previews",
+      "disconnect versus end semantics",
+      "request-specific approval only when explicitly supported"
+    ],
+    "sources": [
+      "web/src/App.svelte",
+      "web/src/lib/Pane.svelte",
+      "web/src/lib/Copy.svelte",
+      "web/src/lib/Term.svelte"
+    ]
+  },
+  "desktop": {
+    "features": [
+      "workspace selector and adjacent navigation",
+      "windows and session associations",
+      "tile",
+      "move",
+      "inspect and enlarge window capture",
+      "locked/unknown capture guard",
+      "unlock where supported",
+      "create on selected workspace",
+      "connect supported conversations from their window"
+    ],
+    "sources": [
+      "web/src/App.svelte",
+      "web/src/lib/WindowRow.svelte",
+      "web/src/lib/ConversationPicker.svelte"
+    ]
+  },
+  "previews": {
+    "features": [
+      "refresh",
+      "select recent published image",
+      "caption/task/timestamp/dimensions",
+      "enlarge, actual size and fit",
+      "remove published image",
+      "preserve independently published artifacts when no exact terminal association exists"
+    ],
+    "sources": [
+      "web/src/lib/Previews.svelte"
+    ]
+  },
+  "settings": {
+    "machines_and_pairing": [
+      "pair another machine",
+      "QR scan",
+      "pairing link",
+      "address plus code",
+      "legacy token compatibility",
+      "machine label/reset",
+      "forget local machine entry"
+    ],
+    "authorized_devices": [
+      "current-device indicator",
+      "last-seen timestamp",
+      "rename",
+      "revoke one credential",
+      "re-pair this device",
+      "upgrade shared legacy key to individual credential"
+    ],
+    "notifications": [
+      "enable",
+      "disable",
+      "test",
+      "repair missing registration",
+      "permission denied/unsupported states",
+      "per-machine scope"
+    ],
+    "usage": [
+      "agent allowances",
+      "remaining percentage",
+      "reset windows",
+      "stale collector status"
+    ],
+    "app": [
+      "installation prompt or iOS instructions",
+      "build version",
+      "capability/connection status"
+    ],
+    "sources": [
+      "web/src/lib/AddMachine.svelte",
+      "web/src/lib/PairScanner.svelte",
+      "web/src/lib/Management.svelte",
+      "web/src/lib/Notify.svelte",
+      "web/src/lib/Usage.svelte",
+      "web/src/lib/Install.svelte"
+    ]
+  },
+  "behavior_to_preserve": [
+    "no agent lock-in",
+    "Herdr optional",
+    "headless capability negotiation",
+    "offline/auth/loading/error states",
+    "exact source identities",
+    "no duplicate attachment rows",
+    "no same-folder identity guesses",
+    "no lost drafts during polling or route changes",
+    "resume selected machine/session after phone reload",
+    "no replay of actions on resume",
+    "late requests cannot target a newly selected machine",
+    "screenshots remain explicit and lock-guarded"
+  ],
+  "review_note": "The feature inventory is the implementation parity reference. A clickable example is not evidence of backend support or a real permission/camera/push/terminal operation."
+}

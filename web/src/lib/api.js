@@ -5,20 +5,6 @@
 import { addHost, currentHost, hosts } from "./hosts.svelte.js";
 import { deviceName } from "./device-name.js";
 
-const KEY = "dp_token";
-
-function readToken() {
-  const q = new URLSearchParams(location.search).get("token");
-  if (q) {
-    localStorage.setItem(KEY, q);
-    history.replaceState(null, "", location.pathname);
-    return q;
-  }
-  return localStorage.getItem(KEY) ?? "";
-}
-
-export let token = readToken();
-
 // Pairing now hands over a one-time code rather than the machine's own token,
 // and the code is exchanged here for a credential belonging to this device
 // alone. That is what makes losing a phone survivable: revoke that one, leave
@@ -44,12 +30,6 @@ export async function enroll(code, host, { activate = true } = {}) {
   if (!res.ok) throw new Error(body.error ?? "pairing failed");
   if (body.token && activate) {
     addHost({ origin: h.origin, token: body.token, name: h.name });
-    // The legacy same-origin token only ever covered this machine, so only
-    // this machine's credential may overwrite it.
-    if (same) {
-      token = body.token;
-      localStorage.setItem(KEY, body.token);
-    }
   }
   return body;
 }
@@ -64,8 +44,7 @@ async function enrollFromCode() {
   const self = { origin: location.origin, token: "", name: location.hostname };
   // Opening successive QRs in the system camera returns to this same origin.
   // If it already has a device credential, consume neither the new code nor a
-  // second row in the device list. A legacy shared credential deliberately
-  // continues through enrollment so the visit upgrades it to a revocable one.
+  // second row in the device list.
   try {
     if (await hasDeviceCredential(self)) {
       addHost({ ...self, token: hosts.list.find(h => h.origin === self.origin)?.token });
@@ -88,26 +67,10 @@ export async function hasDeviceCredential(host) {
   });
   if (!res.ok) return false;
   const body = await res.json().catch(() => ({}));
-  return body.legacy === false;
+  return Array.isArray(body.devices) && body.devices.some(device => device.current);
 }
 
 export const ready = enrollFromCode();
-
-export function setToken(t) {
-  // Keep the keyring in step, so the machine that served this page is a
-  // first-class entry rather than a special case — but against the machine
-  // that is *selected*. Writing location.origin here meant that typing another
-  // machine's token into the gate overwrote this machine's working credential
-  // with one for a different box, and then switched you back here, because
-  // addHost selects whatever it adds. Two machines, one of them broken, and
-  // the obvious recovery broke the other one.
-  const h = currentHost();
-  addHost({ origin: h.origin, token: t, name: h.name });
-  if (h.origin === location.origin) {
-    token = t;
-    localStorage.setItem(KEY, t);
-  }
-}
 
 // A dropped tailnet does not refuse connections, it swallows packets — so
 // without a deadline the app spins forever and looks broken when the real
@@ -130,7 +93,7 @@ export function resolve(path, host) {
   const same = h.origin === location.origin;
   return {
     url: same ? `/api${path}` : `${h.origin}/api${path}`,
-    token: h.token || (same ? token : ""),
+    token: h.token || "",
     same,
   };
 }

@@ -55,7 +55,7 @@ unavailable, and passes `check.sh` with those rows shown as notes rather than fa
 |---|---|---|
 | Compositor | **Hyprland 0.56.2+** — `hyprctl` and numbered workspaces are load-bearing | windows only |
 | Lock | `hyprlock`, or a compositor lock helper | screenshots and unlock |
-| Terminal | `alacritty`, must accept `-e CMD` | opening a session *in a window* |
+| Terminal | system preference through `xdg-terminal-exec`, or `DESKPILOT_TERMINAL` | opening a session *in a window* |
 | Shell | bash or zsh for the wrapper | the desk-side tmux wrapper |
 | Session env | systemd user manager must have `WAYLAND_DISPLAY` (uwsm does this) | `hyprctl` and `grim` inside the service |
 
@@ -158,8 +158,9 @@ $REPO/shell/install-service.sh          # binds 127.0.0.1 — the right default
 $REPO/shell/install-service.sh --lan    # also reachable on your home wifi
 ```
 
-It generates a token if you have none, writes the unit into `~/.config/systemd/user/`
-with absolute paths resolved from where you cloned, enables it, and prints the URL.
+It writes the unit into `~/.config/systemd/user/` with absolute paths resolved from
+where you cloned, enables it, and prints the URL. On startup, the server creates
+a registered credential for desktop helpers.
 
 **Which one to pass depends on where you are going next**, and this is the one place
 the choice actually matters:
@@ -178,7 +179,7 @@ on a network you do not control. **Never port-forward this.**
 **Verify:**
 
 ```bash
-T=$(cat ~/.config/deskpilot/token)
+T=$(cat ~/.local/state/deskpilot/local-token)
 curl -s -H "authorization: Bearer $T" localhost:8790/api/sessions | jq
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8790/api/sessions   # 401, no token
 ```
@@ -459,11 +460,15 @@ setup and you never need the Claude mobile app.
 
 Each paired device registration is stored with its device id. Revoking that device closes
 its live terminal sockets and removes its subscriptions before the credential is removed.
-Subscriptions created with the legacy shared token remain shared and cannot honestly be
-revoked as one device; rotate the shared token and re-pair to replace them.
-The older single root-scope browser subscription is migrated when notifications are next
-enabled for the machine serving the app. A legacy subscription on another machine has no
-trustworthy owner metadata; turn it off there or rotate and re-pair rather than guessing.
+Only subscriptions owned by a registered device are used. Unowned or revoked
+subscriptions are ignored. Enable notifications again on a freshly paired device
+if its subscription has no current owner. Shared machine tokens and token-bearing
+pairing links are unsupported; pair old devices again with a one-time code.
+
+Desktop helpers authenticate with their own registered device credential at
+`~/.local/state/deskpilot/local-token`, created by the server on startup. The old
+`~/.config/deskpilot/token` file is not an authentication authority. `deskpilot pair`
+requires a running server and never falls back to printing a bearer token.
 
 A browser origin can hold several push subscriptions by using a separate service-worker
 registration scope for each machine. This lets each machine keep its own VAPID key. The

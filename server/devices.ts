@@ -1,23 +1,7 @@
-// Per-device credentials, and the enrollment that mints them.
-//
-// Until now there was one token for everything: written once at install, never
-// expiring, handed to every device that paired. Losing a phone meant
-// regenerating it and re-pairing every other device, because there was nothing
-// smaller than "all access" to take away. Two people pairing to one machine
-// were the same identity, since identity was the secret and the secret was
-// shared.
-//
-// A device now gets its own token. Revoking one leaves the others alone, and
-// the list says what is paired so you can tell.
-//
-// Tokens are stored as SHA-256 hashes. The server never needs the original —
-// it only ever answers "does this match" — so the state file is not a set of
-// working credentials. That is a straight improvement on the shared token,
-// which necessarily sits in plaintext because pair.sh has to print it.
-//
-// This is deliberately not passkeys yet. Passkeys change what the credential
-// *is*; revocation and per-device identity are what actually unblock other
-// people using this, and they are the foundation the passkey work sits on.
+// Per-device credentials and single-use enrollment codes. Every authenticated
+// client, including local desktop helpers, has a registered, revocable identity.
+// The device store contains only SHA-256 hashes; raw phone credentials are
+// returned once at enrollment and are not retained by the server.
 
 const ENC = new TextEncoder();
 

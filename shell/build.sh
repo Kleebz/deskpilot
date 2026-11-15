@@ -54,7 +54,7 @@ deno compile \
   --allow-read \
   --allow-env \
   --allow-write \
-  --allow-run=tmux,ps,hyprctl,systemctl,"$SCRIPTS_TARGET/desk.sh","$SCRIPTS_TARGET/session.sh" \
+  --allow-run=tmux,ps,hyprctl,systemctl,codex,herdr-core,herdr-app,"$SCRIPTS_TARGET/desk.sh","$SCRIPTS_TARGET/session.sh" \
   server/server.ts
 rc=$?
 mv "$INFO.orig" "$INFO"
@@ -67,6 +67,7 @@ mv "$INFO.orig" "$INFO"
 cp "$REPO/scripts/desk.sh" "$OUT/scripts/desk.sh"
 cp "$REPO/scripts/sessions.sh" "$OUT/scripts/sessions.sh"
 cp "$REPO/scripts/session.sh" "$OUT/scripts/session.sh"
+cp "$REPO/scripts/terminal.sh" "$OUT/scripts/terminal.sh"
 chmod +x "$OUT/scripts/"*.sh
 echo "    (install these to $SCRIPTS_TARGET — the binary can execute no other copy)"
 

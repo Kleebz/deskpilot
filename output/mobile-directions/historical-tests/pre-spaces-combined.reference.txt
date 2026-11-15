@@ -1,0 +1,88 @@
+// The real mobile app, served by disposable API/WebSocket fixtures. No live services.
+import { connect } from './browser.ts';
+import { fixture } from './mobile_fixture.ts';
+const fx=await fixture();
+const space={id:'product',title:'Product',path:'/home/test/project',order:0};
+const tab={id:'mobile',title:'Mobile',order:0};
+fx.state.herdrTerminals=[0,1,2].map(n=>({id:`core/t${n}/1793397428670`,address:`t${n}`,title:n===2?'Other tab':'Native pane '+n,path:'/home/test/project',state:n===0?'blocked':'idle',agent:'shell',session:null,space,tab:n===2?{id:'other',title:'Other',order:1}:tab,paneOrder:n}));
+fx.state.conversations=[{id:'e263226a-1111-4111-8111-111111111111',title:'Reconnect race with a very long conversation title',path:'/home/test/project',state:'ready',session:null}];
+const profile=await Deno.makeTempDir({prefix:'dp-combined-'});
+const chrome=new Deno.Command('chromium',{args:['--headless=new','--disable-background-networking','--no-first-run','--remote-debugging-port=9346',`--user-data-dir=${profile}`,'about:blank'],stdout:'null',stderr:'null'}).spawn();
+const pause=(ms=80)=>new Promise(r=>setTimeout(r,ms));
+let cdp;let count=0;const layouts:any[]=[];
+try {
+ let endpoint;for(let i=0;i<70;i++){try{endpoint=(await(await fetch('http://127.0.0.1:9346/json/version')).json()).webSocketDebuggerUrl;break;}catch{await pause();}}
+ if(!endpoint)throw Error('Chromium did not start');cdp=await connect(endpoint);
+ const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
+ const send=(m:string,p={})=>cdp!.send(m,p,sessionId);
+ const run=async(expression:string)=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result?.value;};
+ const ui=(source:string)=>run(`document.querySelector('iframe').contentWindow.eval(${JSON.stringify(source)})`);
+ const until=async(e:string)=>{for(let n=0;n<120;n++){try{if(await ui(e))return;}catch{}await pause();}throw Error('Timed out: '+e+'\n'+await ui('document.body.innerText'));};
+ const check=async(e:string,label:string)=>{if(!await ui(e))throw Error(label+'\n'+await ui('document.body.innerText'));console.log('✓ '+label);count++;};
+ const click=async(label:string)=>{const ok=await ui(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.getAttribute('aria-label')===${JSON.stringify(label)}||e.textContent.trim()===${JSON.stringify(label)});if(!e||e.disabled)return false;e.click();return true;})()`);if(!ok)throw Error('Missing button: '+label+'\n'+await ui('document.body.innerText'));await pause();};
+ const input=async(selector:string,value:string)=>{await ui(`{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));}`);await pause();};
+ const choose=async(port:number)=>{await ui(`{const e=document.querySelector('select[aria-label="Machine"]');e.value='http://127.0.0.1:${port}';e.dispatchEvent(new Event('change',{bubbles:true}));}`);await pause();};
+ const size=async(w:number,h:number)=>{await run(`{const f=document.querySelector('iframe');f.style.width='${w}px';f.style.height='${h}px';}`);await pause();};
+ const measure=async(label:string)=>{if(await ui(`!!document.querySelector('.composing')`))await until(`!!document.querySelector('.xterm-screen')&&!document.querySelector('.wrap .state')`);const m=await ui(`(()=>{const targets=[...document.querySelectorAll('button,input,select,textarea')].filter(e=>{const r=e.getBoundingClientRect();return r.width&&r.height&&!e.classList.contains('xterm-helper-textarea')&&!e.closest('[aria-hidden="true"],[inert]')&&(!document.querySelector('dialog[open]')||!!e.closest('dialog[open]'));});return {width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,short:targets.filter(e=>e.getBoundingClientRect().height<43.9).map(e=>({text:e.textContent,height:e.getBoundingClientRect().height})),escaped:targets.filter(e=>{const r=e.getBoundingClientRect();return r.left<-.5||r.right>innerWidth+.5}).map(e=>e.textContent),grid:document.querySelector('.xterm-screen')?.getBoundingClientRect().height,composer:document.querySelector('.composer input')?.getBoundingClientRect().width}})()`);layouts.push({label,...m});if(m.overflow||m.short.length||m.escaped.length)throw Error(label+' '+JSON.stringify(m));if(m.width===390&&m.height===430&&m.grid&&m.grid<258)throw Error('Terminal grid below 60% '+JSON.stringify(m));};
+ const reload=async()=>{const origin=await ui('performance.timeOrigin');await ui('location.reload()');await until(`performance.timeOrigin!==${origin}&&!!document.querySelector('nav')`);};
+ const shot=async(name:string,w=390,h=844)=>{await ui('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');const r=await send('Page.captureScreenshot',{format:'png',clip:{x:0,y:0,width:w,height:h,scale:1}});await Deno.writeFile(`/tmp/deskpilot-combined-review/${name}.png`,Uint8Array.from(atob(r.data),c=>c.charCodeAt(0)));};
+ await Deno.mkdir('/tmp/deskpilot-combined-review',{recursive:true});
+ await send('Page.enable');await send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+ await send('Page.addScriptToEvaluateOnNewDocument',{source:`if(location.origin==='http://127.0.0.1:8892'&&!localStorage.getItem('dp_hosts')){localStorage.setItem('dp_hosts',JSON.stringify([{origin:location.origin,token:'fixture',name:'Desktop',alias:'Desktop'},{origin:'http://127.0.0.1:8893',token:'fixture',name:'Headless',alias:'Headless'},{origin:'http://127.0.0.1:8895',token:'fixture',name:'Offline'}]));localStorage.setItem('dp_host',location.origin)}window.__errors=[];window.addEventListener('error',e=>__errors.push(e.message));window.addEventListener('unhandledrejection',e=>__errors.push(String(e.reason)));`});
+ await send('Emulation.setDeviceMetricsOverride',{width:1100,height:1000,deviceScaleFactor:1,mobile:false});
+ await send('Page.navigate',{url:'http://127.0.0.1:8892/'});await pause(250);
+ await run(`document.body.innerHTML='<iframe src="/" style="display:block;border:0;width:390px;height:844px"></iframe>';document.body.style.margin='0'`);
+ await until(`document.querySelector('h1')?.textContent==='Sessions'&&document.querySelectorAll('.session-row').length>=27`);
+ await check(`[...document.querySelectorAll('nav>button')].map(e=>e.getAttribute('aria-label')).join(',')==='Sessions,Attention,Computer'`,'one navigation: Sessions, Attention, Computer');
+ await check(`getComputedStyle(document.body).fontFamily.includes('sans-serif')`,'navigation uses system sans-serif');
+ for(const w of [320,360,390,430]){await size(w,844);await measure('Sessions '+w);}
+ await size(390,844);await shot('sessions');
+ await input('[aria-label="Search work"]','project-17');await check(`document.querySelectorAll('.sessions .session-row').length===1`,'visible search finds named work among more than 20 sessions');
+ await input('[aria-label="Search work"]','Mobile');await check(`document.querySelectorAll('.native-search .session-row').length===2`,'global search covers native tab context');
+ await input('[aria-label="Search work"]','');
+ await ui(`document.getElementById('session-detached').click()`);await until(`!!document.querySelector('.xterm-screen')`);
+ await input('.composer input','draft for detached');await ui(`document.querySelector('.composer input').focus()`);
+ await click('Previous session');await click('Next session');
+ await check(`document.querySelector('.composer input').value==='draft for detached'`,'normal switching preserves source-scoped draft');
+ for(const [w,h]of [[320,844],[360,844],[390,844],[430,844],[932,430],[320,430],[390,430]]){await size(w,h);await measure('Terminal '+w+'x'+h);}
+ await shot('terminal-reduced',390,430);await size(390,844);
+ await check(`!document.querySelector('.terminal-heading').textContent.includes('End session')`,'destructive actions live in the contextual menu');
+ await click('Input tools');await click('paste');await input('.paste textarea','independent paste');await reload();await until(`!!document.querySelector('.composer input')`);
+ await check(`document.querySelector('.composer input').value==='draft for detached'`,'relaunch resumes the terminal without submitting');
+ await click('Input tools');await click('paste');await check(`document.querySelector('.paste textarea').value==='independent paste'`,'separate paste draft survives relaunch');await click('cancel');await click('Input tools');
+ await click('Choose session');await input('[aria-label="Search sessions"]','Native pane 0');await ui(`document.querySelector('.switch-results .session-row').click()`);await until(`document.querySelector('.name')?.textContent==='Native pane 0'`);
+ await check(`document.querySelector('.terminal-context').textContent.includes('Product / Mobile')`,'native source scope stays visible');await click('Next session');await until(`document.querySelector('.name')?.textContent==='Native pane 1'`);
+ await check(`!document.querySelector('[aria-label="Next session"]')||document.querySelector('[aria-label="Next session"]').disabled`,'native swipes stay inside one native tab');
+ await click('Back to sessions');await until(`document.querySelector('h1')?.textContent==='Sessions'`);await click('Attention');
+ await until(`document.querySelectorAll('.attention-row').length>=3`);await shot('attention');
+ await check(`document.querySelector('.coverage').textContent.includes('Codex')&&document.querySelector('.coverage').textContent.includes('Offline')`,'cross-computer inbox exposes coverage gaps and offline machines');
+ const expected=await ui(`[...document.querySelectorAll('.attention-row strong')].map(e=>e.textContent)`);
+ await click('Review across computers');await until(`!!document.querySelector('.composer input')`);
+ await until(`!!JSON.parse(localStorage.getItem('dp_resume_v1')).route.review?.length`);
+ const review=await ui(`JSON.parse(localStorage.getItem('dp_resume_v1')).route.review`);if(!review?.length)throw Error('missing frozen review');
+ fx.state.connectFailure=true;await click('Next session');await pause(150);
+ await check(`document.querySelector('.terminal-context').textContent.includes('Review 1/')&&document.querySelector('.composer input').value==='draft for detached'`,'failed review attachment preserves the current source and draft');
+ fx.state.connectFailure=false;
+ for(let i=1;i<review.length;i++){await click('Next session');await pause(150);await until(`document.querySelector('.terminal-context').textContent.includes('Review ${i+1}/')`);}
+ await check(`document.querySelector('.terminal-context').textContent.includes('Headless')`,'explicit review alone crosses computers');
+ await click('Back to Attention');await until(`document.querySelector('h1')?.textContent==='Attention'`);
+ await check(`document.querySelector('.attention-row').textContent.includes(${JSON.stringify(expected[0])})`,'review returns directly to its inbox origin');
+ await click('Sessions');await choose(8892);await until(`!!document.getElementById('session-detached')`);await ui(`document.getElementById('session-detached').click()`);await until(`!!document.querySelector('.composer input')`);await input('.composer input','only desktop draft');
+ await ui(`document.querySelector('.composer input')?.blur()`);await click('Computer');await check(`document.querySelector('dialog').textContent.includes('Desktop')&&document.querySelector('dialog').textContent.includes('Settings')`,'Computer groups desktop, previews and administration');await measure('Computer');await shot('computer');
+ await click('Settings');await until(`document.querySelector('h1')?.textContent==='Settings'`);await click('Machines & pairing');await click('Pair computer');await click('Cancel');
+ await check(`document.querySelector('.machine-summary')&&document.activeElement.id==='settings-pair'`,'pairing cancellation restores its subsection and invoking control');
+ await click('Sessions');await ui(`document.querySelector('.composer input')?.blur()`);await click('Computer');await click('Previews');await until(`document.querySelector('h1')?.textContent==='Previews'`);await check(`document.body.textContent.includes('Website')`,'independent previews remain connected to real API data');
+ await ui(`document.querySelector('.composer input')?.blur()`);await click('Computer');await click('Desktop');await until(`document.querySelector('h1')?.textContent==='Desktop'`);await measure('Desktop');
+ await click('Sessions');await ui(`document.getElementById('session-detached').click()`);await until(`!!document.querySelector('.composer input')`);
+ await check(`document.querySelector('.composer input').value==='only desktop draft'`,'administration and desktop visits preserve unsent work');
+ await ui(`document.querySelector('.composer input').blur()`);await click('Computer');await ui(`document.querySelector('[data-host="http://127.0.0.1:8893"]').click()`);await pause(200);await click('Sessions');await until(`!!document.getElementById('session-headless-job')`);await ui(`document.getElementById('session-headless-job').click()`);await until(`!!document.querySelector('.composer input')`);await input('.composer input','headless-only draft');
+ await ui(`document.querySelector('.composer input').blur()`);await click('Computer');await ui(`document.querySelector('[data-host="http://127.0.0.1:8892"]').click()`);await until(`!!document.querySelector('.composer input')`);
+ await check(`document.querySelector('.composer input').value==='only desktop draft'&&document.querySelector('.terminal-context').textContent.includes('Desktop')`,'explicit computer switch restores its own previous terminal and draft');
+ await ui(`document.querySelector('.composer input').blur()`);await click('Computer');await ui(`document.querySelector('[data-host="http://127.0.0.1:8893"]').click()`);await until(`!!document.querySelector('.composer input')`);
+ await check(`document.querySelector('.composer input').value==='headless-only draft'`,'returning to another computer restores that computer’s draft');
+ await click('Attention');await until(`!!document.querySelector('.review-start')`);await click('Review across computers');await until(`!!document.querySelector('.composer input')`);fx.state.connectDelay=700;await click('Next session');await click('Sessions');await pause(900);
+ await check(`document.querySelector('h1')?.textContent==='Sessions'&&!document.querySelector('.composer input')`,'canceling a delayed review cannot navigate after leaving Attention');fx.state.connectDelay=0;
+ await check(`window.__errors.length===0`,'combined app has no runtime errors');
+ await Deno.writeTextFile('/tmp/deskpilot-combined-review/verification.json',JSON.stringify({checks:count,layouts},null,2));
+ console.log(`PASS ${count} combined app checks / ${layouts.length} measured layouts`);
+}finally{cdp?.close();chrome.kill('SIGTERM');await chrome.status;await fx.close();await Deno.remove(profile,{recursive:true}).catch(()=>{});}

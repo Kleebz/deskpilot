@@ -13,6 +13,8 @@
 #   desk.sh move <addr> <ws>           move a window to a workspace, silently
 #   desk.sh tile <addr>                clear float+fullscreen so the tiler takes over
 #   desk.sh place <ws> <cmd...>        launch a command in a window on a workspace
+#   desk.sh place-terminal <ws> <cmd...>  launch in the preferred terminal
+#   desk.sh place-session <ws> <name>  give a tmux session an identifiable window
 #
 #   desk.sh type [text]                type into the FOCUSED window (stdin if no arg)
 #   desk.sh key <name...>              press keys: enter escape tab up down left right
@@ -214,7 +216,37 @@ esac
 # every dispatcher is reached through `hl.dsp.*` taking a table of named args.
 # Anything interpolated into one of those has to be a real Lua string literal,
 # so escape it rather than pasting it in raw.
-lua_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+lua_str() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '"%s"' "$value"
+}
+
+# Hyprland accepts one shell command. Quote every word before quoting that
+# string for Lua, so paths containing spaces/quotes remain one argument.
+place_command() {
+  local command="" arg
+  for arg in "$@"; do
+    command+="'${arg//\'/\'\\\'\'}' "
+  done
+  hyprctl dispatch "hl.dsp.exec_cmd($(lua_str "$command"), { workspace = $(lua_str "$ws silent") })"
+}
+
+place_session_command() {
+  local known
+  local -a identities
+  known=$(tmux show-option -qv -t "$session" @deskpilot-window-classes) || return
+  read -r -a identities <<< "$known $DESKPILOT_WINDOW_CLASS"
+  # Closed windows leave harmless stale identities. Bound their storage even
+  # when a long-running session is repeatedly attached on the desktop.
+  if [ "${#identities[@]}" -gt 32 ]; then identities=("${identities[@]: -32}"); fi
+  tmux set-option -t "$session" @deskpilot-window-classes "${identities[*]}" >/dev/null || return
+  place_command "$@"
+}
 
 # Switching the visible workspace. Wrapped because three commands below need it
 # and the dispatcher name is no longer guessable from the old one.
@@ -359,13 +391,24 @@ case "$cmd" in
     hyprctl dispatch "hl.dsp.window.float({ window = $sel, action = \"disable\" })" >/dev/null
     ;;
 
-  place)
+  place | place-terminal)
     ws=${1:?workspace required}; shift
     [ $# -gt 0 ] || die "command required"
-    # Window rules that used to ride along in `[brackets]` are now a table
-    # passed beside the command. The command stays one string — Hyprland splits
-    # it — so it must be escaped as a Lua literal, not concatenated in.
-    hyprctl dispatch "hl.dsp.exec_cmd($(lua_str "$*"), { workspace = $(lua_str "$ws silent") })"
+    if [ "$cmd" = place-terminal ]; then
+      . "${BASH_SOURCE[0]%/*}/terminal.sh"
+      terminal=$(deskpilot_terminal_select) || exit 1
+      deskpilot_terminal_command place_command "$terminal" "$@"
+    else
+      place_command "$@"
+    fi
+    ;;
+
+  place-session)
+    ws=${1:?workspace required}
+    session=${2:?session required}
+    . "${BASH_SOURCE[0]%/*}/terminal.sh"
+    terminal=$(deskpilot_terminal_select) || exit 1
+    deskpilot_terminal_command place_session_command "$terminal" tmux attach -t "$session"
     ;;
 
   # ---- input (ydotool). Everything below needs ydotoold running. ----

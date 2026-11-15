@@ -1,0 +1,206 @@
+{
+  "checks": 12,
+  "layouts": [
+    {
+      "label": "Phone 320",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Drawer 320",
+      "width": 320,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Phone 360",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Drawer 360",
+      "width": 360,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Phone 390",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Drawer 390",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Phone 430",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Drawer 430",
+      "width": 430,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Shell 390x430",
+      "width": 390,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 276,
+      "sidebar": "none"
+    },
+    {
+      "label": "Shell 932x430",
+      "width": 932,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 276,
+      "sidebar": "none"
+    },
+    {
+      "label": "Shell 959x844",
+      "width": 959,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 690,
+      "sidebar": "none"
+    },
+    {
+      "label": "Shell 960x844",
+      "width": 960,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 662,
+      "sidebar": "block"
+    },
+    {
+      "label": "Shell 1024x840",
+      "width": 1024,
+      "height": 840,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 658,
+      "sidebar": "block"
+    },
+    {
+      "label": "Shell 1280x840",
+      "width": 1280,
+      "height": 840,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 658,
+      "sidebar": "block"
+    },
+    {
+      "label": "Shell 1440x840",
+      "width": 1440,
+      "height": 840,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 658,
+      "sidebar": "block"
+    },
+    {
+      "label": "Keyboard terminal",
+      "width": 390,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 276,
+      "sidebar": "none"
+    },
+    {
+      "label": "Without Herdr",
+      "width": 390,
+      "height": 430,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 276,
+      "sidebar": "none"
+    },
+    {
+      "label": "offline",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 622,
+      "sidebar": "none"
+    },
+    {
+      "label": "auth",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 622,
+      "sidebar": "none"
+    },
+    {
+      "label": "update",
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "short": [],
+      "escaped": [],
+      "output": 622,
+      "sidebar": "none"
+    }
+  ],
+  "boundary": "Design sample only; production xterm/transport and physical Android validation remain release gates"
+}

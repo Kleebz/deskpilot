@@ -18,9 +18,9 @@ REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 CONF="${DESKPILOT_CONFIG:-$HOME/.config/deskpilot/config}"
 [ -f "$CONF" ] && . "$CONF"
 
-TERMINAL="${DESKPILOT_TERMINAL:-alacritty}"
 LOCKPROC="${DESKPILOT_LOCK_PROCESS:-hyprlock}"
 PORT="${DESKPILOT_PORT:-8790}"
+LOCAL_CREDENTIAL="${DESKPILOT_TOKEN_FILE:-$HOME/.local/state/deskpilot/local-token}"
 
 fails=0
 warns=0
@@ -36,7 +36,7 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 head_ "Build"
 if v=$(curl -s -m 3 "http://127.0.0.1:${PORT}/api/capabilities" \
-        -H "authorization: Bearer $(cat "$HOME/.config/deskpilot/token" 2>/dev/null | tr -d '\n')" \
+        -H "authorization: Bearer $(cat "$LOCAL_CREDENTIAL" 2>/dev/null | tr -d '\n')" \
         2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p') && [ -n "$v" ]; then
   ok "deskpilot version $v (running)"
 else
@@ -172,10 +172,13 @@ head_ "Terminal"
 # a missing emulator there is not a fault, and failing on it was the third way
 # this file called a supported configuration broken.
 if [ "$DESK" = no ]; then
-  note "$TERMINAL not needed while headless" \
+  note "terminal emulator not needed while headless" \
        "it is only used to open a session in a window, and there are none"
-elif command -v "$TERMINAL" >/dev/null; then ok "$TERMINAL"
-else bad "$TERMINAL not found" "set DESKPILOT_TERMINAL in the config to one you have"; fi
+else
+  . "$REPO/scripts/terminal.sh"
+  if terminal=$(deskpilot_terminal_select 2>&1); then ok "terminal launcher: $terminal"
+  else bad "$terminal" "set DESKPILOT_TERMINAL in the config to an installed terminal"; fi
+fi
 
 head_ "Input (optional — needed for remote unlock and typing)"
 if command -v ydotool >/dev/null; then
@@ -211,8 +214,8 @@ fi
   "the wrapper is bash/zsh syntax; fish users need to port it"
 
 head_ "Service"
-[ -f "$HOME/.config/deskpilot/token" ] && ok "token present" \
-  || warn "no token" "run shell/install-service.sh"
+[ -f "$LOCAL_CREDENTIAL" ] && ok "local device credential present" \
+  || warn "no local device credential" "start the deskpilot service"
 if [ -f "$REPO/web/dist/index.html" ]; then ok "web UI built"
 else bad "web UI not built" "cd $REPO/web && npm install && npm run build"; fi
 if systemctl --user is-active --quiet deskpilot; then
@@ -227,22 +230,20 @@ fi
 
 head_ "Tests"
 if command -v deno >/dev/null; then
-  if deno test --quiet --allow-read --allow-write --allow-env "$REPO/tests/" >/dev/null 2>&1; then
+  if deno test --quiet --allow-read --allow-write --allow-env --allow-run=sh "$REPO/tests/" >/dev/null 2>&1; then
     ok "test suite passes"
   else
-    bad "test suite fails" "run: deno test --allow-read --allow-write --allow-env tests/"
+    bad "test suite fails" "run: deno test --allow-read --allow-write --allow-env --allow-run=sh tests/"
   fi
 else
   warn "deno not found" "cannot run the test suite"
 fi
 
-# Not run here: they start a browser and talk to the live service, which is a
-# different kind of slow and flaky from a unit test. Named so they are findable.
-# recovery.ts restarts the service, which is why it is not run as part of a
-# check whose whole job is to leave things as it found them.
+# Separate integration checks use disposable browser fixtures and private tmux
+# state. Named here so they are findable without slowing every health check.
 say_manual() {
-  printf '  \033[2m·\033[0m %s\n' "phone layout:  deno run -A tests/layout.ts"
-  printf '  \033[2m·\033[0m %s\n' "recovery:      deno run -A tests/recovery.ts  (restarts the service)"
+  printf '  \033[2m·\033[0m %s\n' "phone layout:  deno run -A tests/spaces-mobile.ts"
+  printf '  \033[2m·\033[0m %s\n' "recovery:      deno run -A tests/recovery.ts  (isolated tmux)"
 }
 say_manual
 

@@ -1,3 +1,4 @@
+import { terminalIdentity } from './terminal-identity.ts';
 // Listing tmux sessions, and where each one is on screen.
 //
 // This is a port of scripts/sessions.sh, and the reason is packaging rather
@@ -24,6 +25,8 @@
 export type Session = {
   session: string;
   created: number;
+  terminalId?: string;
+  generation?: string;
   activity: number;
   path: string;
   command: string;
@@ -31,9 +34,18 @@ export type Session = {
   workspaces: number[];
   windows: string[];
   attached: boolean;
+  herdrId?: string;
+  codexThreadId?: string;
+  conversationTitle?: string;
 };
 
-type Client = { pid: number; workspace: { id: number }; address: string };
+type Client = {
+  pid: number;
+  workspace: { id: number };
+  address: string;
+  class?: string;
+  initialClass?: string;
+};
 
 export type UnmanagedProcess = {
   id: string;
@@ -87,11 +99,30 @@ export function windowForPid(
   let p: number | undefined = start;
   for (let i = 0; i < 6; i++) {
     if (!p || p <= 1) return null;
-    const hit = clients.find((c) => c.pid === p);
-    if (hit) return hit;
+    const hits = clients.filter((c) => c.pid === p);
+    // Single-instance terminals (including Ghostty's native tabs/windows)
+    // can own several windows with one PID. There is no unique association
+    // in that case. Guessing the first window routes controls to other work.
+    if (hits.length > 1) return null;
+    if (hits.length === 1) return hits[0];
     p = parents.get(p);
   }
   return null;
+}
+
+// Launch identities cover windows whose terminal client has not started yet,
+// such as Ghostty on a hidden workspace. A native tab/window can reuse a class;
+// retain the same rule as PID matching: only a unique association is usable.
+export function windowsForClasses(
+  classes: string[],
+  clients: Client[],
+): Client[] {
+  return classes.filter((c) =>
+    /^com\.deskpilot\.Terminal\.[A-Za-z0-9_-]+$/.test(c)
+  ).flatMap((c) => {
+    const hits = clients.filter((w) => w.class === c || w.initialClass === c);
+    return hits.length === 1 ? hits : [];
+  });
 }
 
 export async function listSessions(): Promise<Session[]> {
@@ -108,25 +139,63 @@ export async function listSessions(): Promise<Session[]> {
   const parents = await processParents();
 
   const pids = new Map<string, number[]>();
-  for (const line of (await run("tmux", ["list-clients", "-F", "#{session_name} #{client_pid}"])).split("\n")) {
+  for (
+    const line of (await run("tmux", [
+      "list-clients",
+      "-F",
+      "#{session_name} #{client_pid}",
+    ])).split("\n")
+  ) {
     const [name, pid] = line.trim().split(/\s+/);
     if (!name || !pid) continue;
     pids.set(name, [...(pids.get(name) ?? []), Number(pid)]);
   }
 
   const FIELDS = [
-    "#{session_name}", "#{session_created}", "#{session_activity}",
-    "#{session_path}", "#{pane_current_command}",
+    "#{session_name}",
+    "#{session_created}",
+    "#{session_activity}",
+    "#{session_path}",
+    "#{pane_current_command}",
+    "#{@deskpilot-window-classes}",
+    "#{@deskpilot-herdr-id}",
+    "#{@deskpilot-codex-thread}",
+    "#{@deskpilot-codex-title64}",
+    "#{session_id}",
+    "#{pid}",
+    "#{start_time}",
   ].join("\t");
 
   const out: Session[] = [];
-  for (const line of (await run("tmux", ["list-sessions", "-F", FIELDS])).split("\n")) {
+  for (
+    const line of (await run("tmux", ["list-sessions", "-F", FIELDS])).split(
+      "\n",
+    )
+  ) {
     if (!line.trim()) continue;
-    const [name, created, activity, path, command] = line.split("\t");
+    const [
+      name,
+      created,
+      activity,
+      path,
+      command,
+      identities = "",
+      herdrId = "",
+      codexThreadId = "",
+      title64 = "",
+      terminalId = "", serverPid = "", serverStarted = "",
+    ] = line
+      .split("\t");
     if (!name) continue;
 
     const spaces = new Set<number>();
     const windows = new Set<string>();
+    for (
+      const win of windowsForClasses(identities.trim().split(/\s+/), clients)
+    ) {
+      spaces.add(win.workspace.id);
+      windows.add(win.address);
+    }
     for (const pid of pids.get(name) ?? []) {
       const win = windowForPid(pid, clients, parents);
       if (!win) continue;
@@ -134,10 +203,19 @@ export async function listSessions(): Promise<Session[]> {
       windows.add(win.address);
     }
 
+    let conversationTitle = "";
+    try {
+      if (title64.length <= 1024) {
+        conversationTitle = new TextDecoder().decode(
+          Uint8Array.from(atob(title64), (c) => c.charCodeAt(0)),
+        ).replace(/[\x00-\x1f\x7f]/g, "").slice(0, 160);
+      }
+    } catch { /* Invalid optional title metadata must not hide a session. */ }
     const workspaces = [...spaces].sort((a, b) => a - b);
     out.push({
       session: name,
       created: Number(created) || 0,
+      ...(terminalIdentity(terminalId,serverPid,serverStarted,created)??{}),
       activity: Number(activity) || 0,
       path: path ?? "",
       // What is running matters to the client: advice for a shell is wrong
@@ -147,6 +225,13 @@ export async function listSessions(): Promise<Session[]> {
       workspaces,
       windows: [...windows].sort(),
       attached: workspaces.length > 0,
+      ...(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
+          .test(codexThreadId)
+        ? { codexThreadId, ...(conversationTitle ? { conversationTitle } : {}) }
+        : {}),
+      ...(/^[a-f0-9]{32}\/t[0-9a-z]{1,13}\/[0-9]{1,16}$/.test(herdrId)
+        ? { herdrId }
+        : {}),
     });
   }
 

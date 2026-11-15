@@ -131,7 +131,7 @@ allowlist, and the server is an HTTP endpoint whose job is executing things.
 systemctl --user is-active deskpilot          # want: active
 curl -sf -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8790/    # want: 200
 curl -s http://127.0.0.1:8790/api/capabilities \
-  -H "authorization: Bearer $(tr -d '\n' < ~/.config/deskpilot/token)"
+  -H "authorization: Bearer $(tr -d '\n' < ~/.local/state/deskpilot/local-token)"
 ```
 
 The last one should be JSON naming a version, `"sessions":true` and `"terminal":true`.

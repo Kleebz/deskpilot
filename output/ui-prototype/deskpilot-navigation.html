@@ -1,0 +1,245 @@
+<div id="dp-nav-review" class="viz-carousel viz-dotted-background" aria-label="Deskpilot navigation designs">
+  <section data-variant="Grouped work" aria-label="Grouped work design"><div class="dp-stage"><div class="dp-phone" data-layout="grouped" aria-label="Deskpilot grouped work"></div></div></section>
+  <section data-variant="Space browser" aria-label="Space browser design" hidden><div class="dp-stage"><div class="dp-phone" data-layout="spaces" aria-label="Deskpilot space browser"></div></div></section>
+  <section data-variant="Attention first" aria-label="Attention first design" hidden><div class="dp-stage"><div class="dp-phone" data-layout="attention" aria-label="Deskpilot attention first"></div></div></section>
+</div>
+<style>
+  #dp-nav-review .dp-stage { padding:18px 10px 0; min-height:1086px; display:flex; justify-content:center; align-items:flex-start; }
+  #dp-nav-review .dp-phone {
+    --dp-bg:light-dark(#f5f8fa,#0a0a0f); --dp-surface:light-dark(#ffffff,#11131c);
+    --dp-ink:light-dark(#192b34,#e0f7ff); --dp-muted:light-dark(#546674,#97a7bb);
+    --dp-line:light-dark(#cdd8df,#283044); --dp-accent:light-dark(#006d78,#00ffff);
+    --dp-tint:light-dark(#e3f2f3,#13252c); --dp-warn:light-dark(#805400,#ffd76a);
+    --dp-danger:light-dark(#b11c43,#ff7396); --dp-pad:14px;
+    color:var(--dp-ink); background:var(--dp-bg); font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+    border:1px solid var(--dp-line); border-radius:22px; width:100%; max-width:390px; min-width:0; min-height:1050px;
+    display:flex; flex-direction:column; overflow:clip; position:relative; color-scheme:light dark;
+  }
+  #dp-nav-review .dp-phone * { box-sizing:border-box; min-width:0; }
+  #dp-nav-review .dp-phone [hidden] { display:none !important; }
+  #dp-nav-review .dp-phone button, #dp-nav-review .dp-phone input, #dp-nav-review .dp-phone select { font:inherit; color:var(--dp-ink); background:var(--dp-surface); border:1px solid var(--dp-line); border-radius:9px; min-height:44px; padding:9px 12px; max-width:100%; }
+  #dp-nav-review .dp-phone button { display:inline-flex; align-items:center; justify-content:center; gap:7px; }
+  #dp-nav-review .dp-phone button:disabled { opacity:.45; }
+  #dp-nav-review .dp-phone input, #dp-nav-review .dp-phone select { font-size:16px; width:100%; }
+  #dp-nav-review .dp-phone input::placeholder { color:var(--dp-muted); }
+  #dp-nav-review .dp-phone strong, #dp-nav-review .dp-phone h2, #dp-nav-review .dp-phone h3 { font-weight:500; }
+  #dp-nav-review .dp-phone h2 { font-size:21px; margin:0; }
+  #dp-nav-review .dp-phone h3 { font-size:14px; margin:0; }
+  #dp-nav-review .dp-phone p { margin:0; }
+  #dp-nav-review .dp-phone .dp-muted { color:var(--dp-muted); }
+  #dp-nav-review .dp-phone .dp-small { font-size:11px; }
+  #dp-nav-review .dp-phone .dp-top { padding:15px 16px 12px; border-bottom:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-brand { display:flex; align-items:center; justify-content:space-between; font-size:11px; margin-bottom:9px; color:var(--dp-muted); letter-spacing:.08em; }
+  #dp-nav-review .dp-phone .dp-brand span:first-child { color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-machine-label { display:block; }
+  #dp-nav-review .dp-phone .dp-main { padding:18px 16px; flex:1; display:flex; flex-direction:column; gap:16px; }
+  #dp-nav-review .dp-phone .dp-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  #dp-nav-review .dp-phone .dp-heading-sub { margin-top:3px; }
+  #dp-nav-review .dp-phone .dp-primary { color:var(--dp-accent); border-color:var(--dp-accent); background:var(--dp-tint); }
+  #dp-nav-review .dp-phone .dp-filter { display:flex; gap:5px; flex-wrap:wrap; }
+  #dp-nav-review .dp-phone .dp-filter button { font-size:11px; flex:1; padding:9px 7px; background:transparent; }
+  #dp-nav-review .dp-phone .dp-filter button[aria-pressed="true"] { color:var(--dp-accent); border-color:var(--dp-accent); background:var(--dp-tint); }
+  #dp-nav-review .dp-phone .dp-stack { display:flex; flex-direction:column; gap:8px; }
+  #dp-nav-review .dp-phone .dp-group { padding:0; border:1px solid var(--dp-line); border-radius:12px; background:var(--dp-surface); }
+  #dp-nav-review .dp-phone .dp-group-head { width:100%; border:0; background:transparent; text-align:left; justify-content:flex-start; padding:13px 12px; }
+  #dp-nav-review .dp-phone .dp-grow { flex:1; display:flex; flex-direction:column; align-items:flex-start; gap:3px; overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-group-body { border-top:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-tab-name { padding:11px 12px 1px; font-size:11px; color:var(--dp-muted); }
+  #dp-nav-review .dp-phone .dp-row { border:0; border-bottom:1px solid var(--dp-line); border-radius:0; width:100%; text-align:left; justify-content:flex-start; background:transparent; padding:var(--dp-pad) 12px; }
+  #dp-nav-review .dp-phone .dp-row:last-child { border-bottom:0; }
+  #dp-nav-review .dp-phone .dp-row-title { font-size:13px; color:var(--dp-ink); overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-meta { color:var(--dp-muted); font-size:11px; display:flex; flex-wrap:wrap; gap:4px 9px; }
+  #dp-nav-review .dp-phone .dp-state { font-size:11px; display:flex; align-items:center; gap:5px; }
+  #dp-nav-review .dp-phone .dp-state::before { content:''; width:5px; height:5px; border-radius:50%; background:currentColor; flex:none; }
+  #dp-nav-review .dp-phone .dp-blocked { color:var(--dp-warn); }
+  #dp-nav-review .dp-phone .dp-working { color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-done, #dp-nav-review .dp-phone .dp-ready { color:var(--dp-muted); }
+  #dp-nav-review .dp-phone .dp-arrow { color:var(--dp-muted); font-size:20px; padding-left:5px; }
+  #dp-nav-review .dp-phone .dp-section-label { display:flex; justify-content:space-between; margin:5px 0 7px; color:var(--dp-muted); font-size:11px; }
+  #dp-nav-review .dp-phone .dp-section-label.dp-blocked { color:var(--dp-warn); }
+  #dp-nav-review .dp-phone .dp-bottom { padding:8px; border-top:1px solid var(--dp-line); display:flex; gap:6px; background:var(--dp-surface); }
+  #dp-nav-review .dp-phone .dp-bottom button { flex:1; font-size:11px; background:transparent; border-color:transparent; }
+  #dp-nav-review .dp-phone .dp-bottom button[aria-current="page"] { color:var(--dp-accent); background:var(--dp-tint); }
+  #dp-nav-review .dp-phone .dp-preview-note { padding:9px 16px; font-size:11px; color:var(--dp-muted); text-align:center; border-top:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-return { border:0; padding:0; background:transparent; color:var(--dp-accent); justify-content:flex-start; }
+  #dp-nav-review .dp-phone .dp-terminal-heading { display:flex; align-items:center; gap:10px; }
+  #dp-nav-review .dp-phone .dp-terminal-heading strong { font-size:16px; }
+  #dp-nav-review .dp-phone .dp-terminal-heading > button { flex:none; }
+  #dp-nav-review .dp-phone .dp-context { font-size:11px; color:var(--dp-muted); overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-terminal { background:var(--dp-surface); border:1px solid var(--dp-line); border-radius:10px; padding:15px 12px; min-height:285px; white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  #dp-nav-review .dp-phone .dp-compose { display:flex; gap:6px; }
+  #dp-nav-review .dp-phone .dp-compose input { flex:1; }
+  #dp-nav-review .dp-phone .dp-compose button { flex:none; }
+  #dp-nav-review .dp-phone .dp-siblings { display:flex; gap:7px; align-items:center; }
+  #dp-nav-review .dp-phone .dp-siblings select { flex:1; font-size:12px; }
+  #dp-nav-review .dp-phone .dp-siblings button { width:44px; flex:none; }
+  #dp-nav-review .dp-phone .dp-menu { display:flex; flex-direction:column; gap:7px; padding:12px; border:1px solid var(--dp-line); background:var(--dp-surface); border-radius:12px; }
+  #dp-nav-review .dp-phone .dp-menu button { width:100%; justify-content:flex-start; }
+  #dp-nav-review .dp-phone .dp-danger { color:var(--dp-danger); }
+  #dp-nav-review .dp-phone .dp-banner { border-left:2px solid var(--dp-accent); padding:7px 10px; background:var(--dp-tint); font-size:12px; overflow-wrap:anywhere; }
+  #dp-nav-review .dp-phone .dp-form { display:flex; flex-direction:column; gap:14px; }
+  #dp-nav-review .dp-phone .dp-form label { display:flex; flex-direction:column; gap:6px; }
+  #dp-nav-review .dp-phone .dp-form-actions { display:flex; gap:8px; }
+  #dp-nav-review .dp-phone .dp-form-actions button { flex:1; }
+  #dp-nav-review .dp-phone .dp-setting { display:flex; flex-direction:column; gap:5px; padding:14px 12px; border-bottom:1px solid var(--dp-line); }
+  #dp-nav-review .dp-phone .dp-setting:last-child { border-bottom:0; }
+  #dp-nav-review .dp-phone .dp-window { padding:14px 12px; display:flex; flex-direction:column; gap:12px; border:1px solid var(--dp-line); border-radius:12px; background:var(--dp-surface); }
+  #dp-nav-review .dp-phone .dp-window-actions { display:flex; gap:7px; flex-wrap:wrap; }
+  #dp-nav-review .dp-phone .dp-window-actions button { flex:1; font-size:11px; }
+  #dp-nav-review .dp-phone .dp-window-title { display:flex; flex-direction:column; gap:3px; }
+  #dp-nav-review .dp-phone .dp-image { border:1px solid var(--dp-line); border-radius:10px; padding:17px; display:flex; flex-direction:column; gap:13px; background:var(--dp-surface); min-height:240px; }
+  #dp-nav-review .dp-phone .dp-image-bar { height:7px; width:62%; background:var(--dp-line); border-radius:4px; }
+  #dp-nav-review .dp-phone .dp-image-links { display:flex; gap:12px; border-bottom:1px solid var(--dp-line); padding-bottom:12px; font-size:11px; color:var(--dp-accent); }
+  #dp-nav-review .dp-phone .dp-space-link { min-height:100px; border:1px solid var(--dp-line); border-radius:12px; width:100%; background:var(--dp-surface); text-align:left; justify-content:flex-start; padding:16px 12px; }
+  #dp-nav-review .dp-phone .dp-tabs { display:flex; flex-wrap:wrap; gap:6px; }
+  #dp-nav-review .dp-phone .dp-tabs button { font-size:11px; }
+  #dp-nav-review .dp-phone .dp-tabs button[aria-pressed="true"] { color:var(--dp-accent); border-color:var(--dp-accent); }
+  #dp-nav-review .dp-phone[data-sources="false"] .dp-origin { display:none; }
+  @media(max-width:380px) { #dp-nav-review .dp-stage { padding:12px 0 0; min-height:1170px; } #dp-nav-review .dp-phone { min-height:1140px; } #dp-nav-review .dp-phone .dp-main { padding:16px 12px; } }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('dp-nav-review');
+  const machines = [
+    { id:'omarchy', name:'Omarchy', desktop:true, herdr:true },
+    { id:'laptop', name:'Laptop', desktop:true, herdr:false },
+    { id:'build', name:'Build box', desktop:false, herdr:false },
+  ];
+  const examples = {
+    omarchy:[
+      {id:'nav',title:'Redesign mobile navigation',agent:'Codex',state:'blocked',path:'~/Projects/deskpilot',space:'Deskpilot',tab:'Mobile UI',provider:'Herdr',screen:4},
+      {id:'checks',title:'Check attachment lifecycle',agent:'Claude',state:'working',path:'~/Projects/deskpilot',space:'Deskpilot',tab:'Mobile UI',provider:'Herdr',screen:4},
+      {id:'a11y',title:'Review accessibility changes',agent:'Codex',state:'done',path:'~/Projects/deskpilot',space:'Deskpilot',tab:'Review',provider:'Herdr',screen:4},
+      {id:'research',title:'Compare keyboard behavior',agent:'Codex',state:'done',path:'~/Projects/deskpilot',space:'Research',tab:'Notes',provider:'Herdr',screen:5},
+      {id:'shell',title:'Project shell',agent:'Shell',state:'ready',path:'~/Projects/deskpilot',space:null,tab:null,provider:'Deskpilot',screen:2},
+    ],
+    laptop:[
+      {id:'review',title:'Review authentication changes',agent:'Codex',state:'blocked',path:'~/Projects/api',provider:'Codex',screen:2},
+      {id:'shell',title:'Project shell',agent:'Shell',state:'ready',path:'~/Projects/website',provider:'Deskpilot',screen:3},
+      {id:'observe',title:'Explore search indexing',agent:'Claude',state:'working',path:'~/Projects/search',provider:'Local terminal',screen:4,viewOnly:true},
+    ],
+    build:[
+      {id:'deploy',title:'Deploy release',agent:'Codex',state:'blocked',path:'~/services/api',provider:'Deskpilot'},
+      {id:'assets',title:'Build assets',agent:'Shell',state:'working',path:'~/services/web',provider:'Deskpilot'},
+    ],
+  };
+  const labels={blocked:'Needs you',working:'Working',done:'Done',ready:'Ready'};
+  const names={grouped:'Grouped work',spaces:'Space browser',attention:'Attention first'};
+  const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const saved=window.openai?.widgetState?.privateContent?.variants??{};
+  const states={};
+  const button=(text,action,cls='',extra='')=>`<button type="button" class="cursor-interaction ${cls}" data-action="${action}" ${extra}>${text}</button>`;
+  function remember() {
+    try { window.openai?.setWidgetState?.({modelContent:{prototype:'Deskpilot navigation',views:Object.fromEntries(Object.entries(states).map(([id,s])=>[names[id],{machine:s.machine,view:s.view}]))},privateContent:{variants:Object.fromEntries(Object.entries(states).map(([id,s])=>[id,{machine:s.machine,view:['work','desktop','settings'].includes(s.view)?s.view:'work',filter:s.filter,collapsed:s.collapsed,density:s.density,sources:s.sources}]))}})?.catch(()=>{}); } catch {}
+  }
+  root.querySelectorAll('.dp-phone').forEach(phone=>{
+    const layout=phone.dataset.layout;
+    const initial=saved[layout]??{};
+    const s=states[layout]={machine:machines.some(m=>m.id===initial.machine)?initial.machine:'omarchy',view:['work','desktop','settings'].includes(initial.view)?initial.view:'work',filter:['all','blocked','working'].includes(initial.filter)?initial.filter:'all',collapsed:Array.isArray(initial.collapsed)?initial.collapsed:[],density:initial.density==='Compact'?'Compact':'Comfortable',sources:initial.sources!==false,selected:'',from:'work',space:'',tab:'',screen:4,menu:false,notice:'',logs:{},added:[],ended:[],preview:false};
+    const machine=()=>machines.find(m=>m.id===s.machine);
+    const all=()=>[...examples[s.machine],...s.added.filter(t=>t.machine===s.machine)].filter(t=>!s.ended.includes(s.machine+':'+t.id));
+    const selected=()=>all().find(t=>t.id===s.selected);
+    const filtered=()=>all().filter(t=>s.filter==='all'||t.state===s.filter);
+    const status=t=>`<span class="dp-state dp-${t.state}">${labels[t.state]}</span>`;
+    const origin=t=>t.provider===t.agent?'':`<span class="dp-origin">${escape(t.provider)}</span>`;
+    const count=(n,noun)=>`${n} ${noun}${n===1?'':'s'}`;
+    const row=(t,context=true)=>button(`<span class="dp-grow"><strong class="dp-row-title">${escape(t.title)}</strong><span class="dp-meta">${escape(t.agent)} ${context||!t.space?origin(t):''}${t.viewOnly?'<span>View only</span>':''}</span>${context?`<span class="dp-meta">${escape(t.space?[t.space,t.tab].filter(Boolean).join(' / '):t.path)}</span>`:''}${status(t)}</span><span class="dp-arrow" aria-hidden="true">›</span>`,`open:${t.id}`,'dp-row');
+    const filters=()=>`<div class="dp-filter" aria-label="Work filters">${[['all','All'],['blocked','Needs you'],['working','Working']].map(([key,label])=>button(label+(key==='blocked'?' '+all().filter(t=>t.state==='blocked').length:''),'filter:'+key,'',`aria-pressed="${s.filter===key}"`)).join('')}</div>`;
+    const group=(name,list)=>{
+      const closed=s.collapsed.includes(name)&&s.filter==='all';
+      const tabs=[...new Set(list.map(t=>t.tab))];
+      return `<section class="dp-group">${button(`<span class="dp-muted" aria-hidden="true">${closed?'›':'⌄'}</span><span class="dp-grow"><strong>${escape(name)}</strong><span class="dp-meta">${count(list.length,'terminal')} ${name==='Other work'?'':origin(list[0])}</span></span>${list.some(t=>t.state==='blocked')?'<span class="dp-state dp-blocked">Needs you</span>':''}`,'collapse:'+name,'dp-group-head',`aria-expanded="${!closed}"`)}${closed?'':`<div class="dp-group-body">${tabs.map(tab=>`${tab?`<div class="dp-tab-name">${escape(tab)}</div>`:''}${list.filter(t=>t.tab===tab).map(t=>row(t,false)).join('')}`).join('')}</div>`}</section>`;
+    };
+    const work=()=>{
+      const list=filtered();
+      let body='';
+      if(layout==='spaces'&&machine().herdr) {
+        const spaces=[...new Set(list.filter(t=>t.space).map(t=>t.space))];
+        body=spaces.map(name=>{const members=list.filter(t=>t.space===name);return button(`<span class="dp-grow"><strong>${escape(name)}</strong><span class="dp-meta">${count([...new Set(members.map(t=>t.tab))].length,'tab')} · ${count(members.length,'terminal')} ${origin(members[0])}</span>${members.some(t=>t.state==='blocked')?'<span class="dp-state dp-blocked">Needs you</span>':'<span class="dp-small dp-muted">'+(members.some(t=>t.state==='working')?'Working':'Ready')+'</span>'}</span><span class="dp-arrow" aria-hidden="true">›</span>`,'space:'+name,'dp-space-link');}).join('');
+        const others=list.filter(t=>!t.space);if(others.length)body+='<div><div class="dp-section-label">Other work</div>'+others.map(t=>row(t)).join('')+'</div>';
+      } else if(layout==='attention'&&s.filter==='all') {
+        const sections=[['Needs you','blocked'],['In progress','working'],['Ready to return to','rest']];
+        body=sections.map(([title,key])=>{const members=list.filter(t=>key==='rest'?!['blocked','working'].includes(t.state):t.state===key);return members.length?`<section><div class="dp-section-label ${key==='blocked'?'dp-blocked':''}">${title}<span>${members.length}</span></div>${members.map(t=>row(t)).join('')}</section>`:'';}).join('');
+      } else if(layout==='grouped'&&machine().herdr) {
+        body=[...new Set(list.map(t=>t.space||'Other work'))].map(name=>group(name,list.filter(t=>(t.space||'Other work')===name))).join('');
+      } else body=list.map(t=>row(t)).join('');
+      return `<div class="dp-heading"><div><h2>Work</h2><p class="dp-heading-sub dp-small dp-muted">${count(all().length,'terminal')}${machine().herdr?' · '+count(new Set(all().filter(t=>t.space).map(t=>t.space)).size,'space'):''}</p></div>${button('+ New','new','dp-primary')}</div>${filters()}<div class="dp-stack">${body||'<p class="dp-muted">Nothing here needs your attention.</p>'}</div>`;
+    };
+    const space=()=>{
+      const list=all().filter(t=>t.space===s.space);
+      const tabs=[...new Set(list.map(t=>t.tab))];
+      if(!tabs.includes(s.tab))s.tab=tabs[0];
+      return `${button('‹ All work','back-work','dp-return')}<div class="dp-heading"><div><h2>${escape(s.space)}</h2><span class="dp-small dp-muted">Herdr space</span></div>${button('+ Tab','new-tab','dp-primary')}</div><div class="dp-tabs" aria-label="Space tabs">${tabs.map(t=>button(escape(t),'tab:'+t,'',`aria-pressed="${s.tab===t}"`)).join('')}</div><div>${list.filter(t=>t.tab===s.tab).map(t=>row(t,false)).join('')}</div>`;
+    };
+    function siblings(){const t=selected();return all().filter(item=>t?.space?item.space===t.space:!item.space);}
+    const terminal=()=>{
+      const t=selected();if(!t)return '<h2>Terminal closed</h2>'+button('Back to work','back-work');
+      const siblingsList=siblings(), index=siblingsList.findIndex(x=>x.id===t.id);
+      const context=[t.space,t.tab].filter(Boolean).join(' / ')||t.path;
+      const output=t.agent==='Shell'?`$ pwd\n${t.path.replace('~','/home/jacob')}\n\n$ ▌`:`${t.agent}\n\nI’ve updated the navigation and kept\nthe terminal connection unchanged.\n\n${t.state==='blocked'?'May I run the verification checks?\n\n› Waiting for your reply':t.state==='working'?'Checking the current changes…':'Changes are ready for review.'}`;
+      return `${button('‹ '+(s.from==='desktop'?'Desktop · Screen '+s.screen:s.from==='space'?s.space:'Work'),'back','dp-return')}<div class="dp-terminal-heading"><span class="dp-grow"><strong>${escape(t.title)}</strong><span class="dp-context">${escape(context)}</span></span>${button('•••','menu','',`aria-label="Terminal actions" aria-expanded="${s.menu}"`)}</div><div class="dp-meta">${escape(t.agent)} ${origin(t)} ${status(t)}</div>${s.menu?`<div class="dp-menu">${button('Connection details','details')}${button('Disconnect mobile view','disconnect')}${t.viewOnly?'':button('End running terminal…','end','dp-danger')}</div>`:''}<div class="dp-filter">${button('Terminal','terminal-panel','',`aria-pressed="${!s.preview}"`)}${button('Preview','preview-panel','',`aria-pressed="${s.preview}"`)}</div>${s.preview?`<div class="dp-image"><span class="dp-small dp-muted">Example task preview</span><div class="dp-image-links"><span>Work</span><span>Desktop</span><span>Settings</span></div><strong>Navigation review</strong><div class="dp-image-bar"></div><div class="dp-image-bar" style="width:85%"></div><div class="dp-image-bar" style="width:40%"></div></div>`:`<pre class="dp-terminal">${escape(output+(s.logs[s.machine+':'+t.id]||''))}</pre>`}${t.viewOnly?'<div class="dp-banner">This terminal can be observed. Remote input is unavailable because it has no supported attachment connection.</div>':`<form class="dp-compose"><input name="prompt" aria-label="Message to terminal" placeholder="Message or command…" autocomplete="off" /><button class="dp-primary cursor-interaction" type="submit">Send</button></form>`}<div class="dp-siblings">${button('‹','prev','',`aria-label="Previous terminal" ${index<=0?'disabled':''}`)}<select aria-label="Terminal in current group">${siblingsList.map((item,i)=>`<option value="${escape(item.id)}" ${item.id===t.id?'selected':''}>${i+1}/${siblingsList.length} · ${escape(item.title)}</option>`).join('')}</select>${button('›','next','',`aria-label="Next terminal" ${index>=siblingsList.length-1?'disabled':''}`)}</div>`;
+    };
+    const desktop=()=>{
+      const work=all().find(t=>t.screen===s.screen);
+      return `<div class="dp-heading"><div><h2>Desktop</h2><span class="dp-small dp-muted">Windows and placement</span></div></div><div class="dp-siblings">${button('‹','screen-prev','',`aria-label="Previous desktop workspace" ${s.screen<=1?'disabled':''}`)}<select aria-label="Desktop workspace">${Array.from({length:10},(_,i)=>`<option value="${i+1}" ${s.screen===i+1?'selected':''}>Screen ${i+1}</option>`).join('')}</select>${button('›','screen-next','',`aria-label="Next desktop workspace" ${s.screen>=10?'disabled':''}`)}</div>${work?`<div class="dp-window"><div class="dp-window-title"><strong>${escape(work.title)}</strong><span class="dp-small dp-muted">${work.provider==='Herdr'?'Herdr':'Terminal'} · tiled</span></div>${status(work)}<div class="dp-window-actions">${button('Open terminal','open:'+work.id,'dp-primary')}${button('Move…','move')}</div></div>`:'<p class="dp-muted">No terminal window on this screen.</p>'}<div class="dp-window"><div class="dp-window-title"><strong>Deskpilot · GitHub</strong><span class="dp-small dp-muted">Chromium · tiled</span></div><div class="dp-window-actions">${button('Inspect window','inspect')}${button('Move…','move')}</div></div>${s.preview?'<div class="dp-image"><span class="dp-small dp-muted">Example window preview</span><strong>deskpilot / deskpilot</strong><div class="dp-image-links"><span>Code</span><span>Issues</span><span>Pull requests</span></div><div class="dp-image-bar"></div><div class="dp-image-bar" style="width:85%"></div></div>':''}`;
+    };
+    const settings=()=>`<h2>Settings</h2><section class="dp-group"><div class="dp-setting"><strong>Machines</strong><span class="dp-small dp-muted">Omarchy, Laptop, Build box</span>${button('Pair another machine','pair')}</div><div class="dp-setting"><strong>Notifications</strong><span class="dp-small dp-muted">When work needs you or finishes</span>${button(s.notifications===false?'Enable notifications':'Notifications enabled','notifications')}</div><div class="dp-setting"><strong>Connections on ${machine().name}</strong><span class="dp-small dp-muted">${machine().herdr?'Herdr · Codex · Deskpilot terminals':'Codex · Deskpilot terminals'}</span></div><div class="dp-setting"><strong>Recent previews</strong><span class="dp-small dp-muted">Task images from this machine</span>${button('Browse previews','recent-previews')}</div></section>`;
+    const newWork=()=>`${button('‹ '+(s.from==='space'?s.space:'Work'),'cancel-new','dp-return')}<h2>${s.createTab?'New tab':'New work'}</h2><form class="dp-form"><label>Name<input name="name" placeholder="e.g. Review mobile navigation" required /></label><label>Folder<input name="folder" value="~/Projects/deskpilot" required /></label>${machine().herdr?`<label>Start in<select name="runtime"><option value="deskpilot">Deskpilot terminal</option><option value="herdr" ${s.createTab?'selected':''}>Herdr · ${escape(s.space||'Deskpilot')}</option></select></label>`:''}<label>Program<select name="agent"><option>Codex</option><option>Claude</option><option>Shell</option></select></label><div class="dp-form-actions">${button('Cancel','cancel-new')}<button type="submit" class="dp-primary cursor-interaction">Create example</button></div></form>`;
+    const confirmation=()=>`${button('‹ Terminal','cancel-end','dp-return')}<h2>End this terminal?</h2><p>${escape(selected()?.title)}</p><p class="dp-muted">This stops the running program on ${machine().name}, including any agent work in progress.</p><div class="dp-form-actions">${button('Keep running','cancel-end')}${button('End terminal','confirm-end','dp-danger')}</div>`;
+    function render(){
+      if(!machine().desktop&&s.view==='desktop')s.view='work';
+      phone.dataset.sources=String(s.sources);phone.style.setProperty('--dp-pad',s.density==='Compact'?'10px':'14px');
+      const active=s.view==='desktop'?'desktop':s.view==='settings'||s.view==='recent'?'settings':'work';
+      const views={work,space,terminal,desktop,settings,new:newWork,confirm:confirmation,recent:()=>`${button('‹ Settings','settings','dp-return')}<h2>Recent previews</h2><div class="dp-image"><span class="dp-small dp-muted">Example · today</span><strong>Navigation review</strong><div class="dp-image-links"><span>Work</span><span>Desktop</span><span>Settings</span></div><div class="dp-image-bar"></div></div>`};
+      phone.innerHTML=`<header class="dp-top"><div class="dp-brand"><span>DESKPILOT</span><span>● Connected</span></div><label class="dp-machine-label"><select aria-label="Machine">${machines.map(m=>`<option value="${m.id}" ${m.id===s.machine?'selected':''}>${m.name} · ${examples[m.id].filter(t=>t.state==='blocked').length} needs you</option>`).join('')}</select></label></header><main class="dp-main">${(views[s.view]||work)()}${s.notice?`<div class="dp-banner" role="status">${escape(s.notice)}</div>`:''}</main>${s.view==='terminal'||s.view==='confirm'?'':`<nav class="dp-bottom" aria-label="Main views">${button('Work','work','',active==='work'?'aria-current="page"':'')}${machine().desktop?button('Desktop','desktop','',active==='desktop'?'aria-current="page"':''):''}${button('Settings','settings','',active==='settings'?'aria-current="page"':'')}</nav>`}<footer class="dp-preview-note">Example data · interactive prototype</footer>`;
+    }
+    phone.addEventListener('click',e=>{
+      const target=e.target.closest('button[data-action]');if(!target)return;
+      const action=target.dataset.action, split=action.indexOf(':'), kind=split<0?action:action.slice(0,split),value=split<0?'':action.slice(split+1);
+      s.notice='';
+      if(['work','desktop','settings'].includes(kind)){s.view=kind;s.preview=false;s.menu=false;}
+      else if(kind==='filter')s.filter=value;
+      else if(kind==='collapse')s.collapsed=s.collapsed.includes(value)?s.collapsed.filter(x=>x!==value):[...s.collapsed,value];
+      else if(kind==='space'){s.space=value;s.tab='';s.view='space';}
+      else if(kind==='tab')s.tab=value;
+      else if(kind==='open'){s.from=s.view;s.view='terminal';s.selected=value;s.menu=false;s.preview=false;}
+      else if(kind==='back'){s.view=s.from;s.menu=false;s.preview=false;}
+      else if(kind==='back-work')s.view='work';
+      else if(kind==='menu')s.menu=!s.menu;
+      else if(kind==='details')s.notice=`${selected().provider} · ${selected().path}${selected().screen?' · Desktop screen '+selected().screen:' · No desktop window'}`;
+      else if(kind==='disconnect'){s.view=s.from;s.menu=false;s.notice='Mobile view disconnected. The desktop program keeps running.';}
+      else if(kind==='end'){s.view='confirm';s.menu=false;}
+      else if(kind==='cancel-end')s.view='terminal';
+      else if(kind==='confirm-end'){s.ended.push(s.machine+':'+s.selected);s.view='work';s.notice='Example terminal ended.';}
+      else if(kind==='terminal-panel')s.preview=false;
+      else if(kind==='preview-panel')s.preview=true;
+      else if(kind==='prev'||kind==='next'){const list=siblings(),i=list.findIndex(t=>t.id===s.selected),item=list[i+(kind==='next'?1:-1)];if(item)s.selected=item.id;s.menu=false;s.preview=false;}
+      else if(kind==='screen-prev'||kind==='screen-next')s.screen=Math.min(10,Math.max(1,s.screen+(kind==='screen-next'?1:-1)));
+      else if(kind==='inspect')s.preview=!s.preview;
+      else if(kind==='move')s.notice='Move window to another screen: '+[1,2,3,4,5].filter(n=>n!==s.screen).join(', ')+'. Placement stays separate from work grouping.';
+      else if(kind==='notifications'){s.notifications=s.notifications===false;s.notice='Notification preference updated for this example.';}
+      else if(kind==='pair')s.notice='Pairing belongs here in Settings: machine address, then pairing code or QR scan.';
+      else if(kind==='recent-previews')s.view='recent';
+      else if(kind==='new'||kind==='new-tab'){s.from=s.view;s.createTab=kind==='new-tab';s.view='new';}
+      else if(kind==='cancel-new')s.view=s.from;
+      render();remember();
+    });
+    phone.addEventListener('change',e=>{
+      const target=e.target;
+      if(target.matches('[aria-label="Machine"]')){s.machine=target.value;s.view='work';s.filter='all';s.menu=false;s.preview=false;s.notice='';s.screen=s.machine==='laptop'?2:4;}
+      else if(target.matches('[aria-label="Terminal in current group"]')){s.selected=target.value;s.menu=false;s.preview=false;s.notice='';}
+      else if(target.matches('[aria-label="Desktop workspace"]')){s.screen=Number(target.value);s.preview=false;s.notice='';}
+      else return;
+      render();remember();
+    });
+    phone.addEventListener('submit',e=>{
+      e.preventDefault();const form=e.target, data=new FormData(form);
+      if(form.matches('.dp-compose')){const text=String(data.get('prompt')||'').trim();if(!text)return;const key=s.machine+':'+s.selected;s.logs[key]=(s.logs[key]||'')+'\n\nYou: '+text+'\n\n'+selected().agent+': Example reply received.';s.notice='Reply added to the example terminal.';}
+      else if(form.matches('.dp-form')){const id='example-'+s.added.length,herdr=data.get('runtime')==='herdr';s.added.push({id,machine:s.machine,title:String(data.get('name')),path:String(data.get('folder')),agent:String(data.get('agent')),state:'ready',provider:herdr?'Herdr':'Deskpilot',space:herdr?(s.space||'Deskpilot'):null,tab:herdr?String(data.get('name')):null,screen:machine().desktop?s.screen:undefined});s.selected=id;if(herdr)s.tab=String(data.get('name'));s.from=s.from==='space'?'space':'work';s.view='terminal';s.preview=false;s.notice='New example created.';}
+      render();remember();
+    });
+    render();
+    if(globalThis.Tweak){const tweak=new Tweak({container:phone,onChange:()=>{render();remember();}});tweak.addSelect(s,'density',{label:'Row spacing',options:['Compact','Comfortable']});tweak.addToggle(s,'sources',{label:'Show connection source'});}
+  });
+})();
+</script>
